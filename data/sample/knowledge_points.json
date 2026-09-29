@@ -1,0 +1,155 @@
+{
+  "subjects": {
+    "ds": "数据结构",
+    "co": "计算机组成原理",
+    "os": "操作系统",
+    "cn": "计算机网络"
+  },
+  "knowledge_points": [
+    {
+      "id": "ds_array",
+      "name": "数组",
+      "subject": "ds",
+      "chapter": "第一章 线性表",
+      "definition": "数组是按一定顺序排列的相同类型元素的集合，在内存中占据连续的存储空间。一维数组的查找和修改时间复杂度为O(1)，插入和删除为O(n)。",
+      "properties": "随机访问O(1)，插入删除O(n)，空间连续，存储密度高",
+      "aliases": ["Array", "数组结构"],
+      "relations": [
+        {"target": "ds_linkedlist", "type": "对比"},
+        {"target": "ds_stack", "type": "实现"},
+        {"target": "ds_queue", "type": "实现"}
+      ]
+    },
+    {
+      "id": "ds_linkedlist",
+      "name": "链表",
+      "subject": "ds",
+      "chapter": "第一章 线性表",
+      "definition": "链表是通过指针将一组零散的内存块串联起来使用的数据结构。每个节点包含数据域和指针域。插入删除操作时间复杂度为O(1)（已知位置），随机访问为O(n)。",
+      "properties": "插入删除O(1)，随机访问O(n)，空间不连续，存储密度低",
+      "aliases": ["Linked List", "单链表", "双链表"],
+      "relations": [
+        {"target": "ds_array", "type": "对比"},
+        {"target": "ds_stack", "type": "实现"},
+        {"target": "ds_queue", "type": "实现"}
+      ]
+    },
+    {
+      "id": "ds_stack",
+      "name": "栈",
+      "subject": "ds",
+      "chapter": "第二章 栈和队列",
+      "definition": "栈是只允许在一端（栈顶）进行插入或删除操作的线性表，遵循后进先出（LIFO）原则。入栈和出栈操作时间复杂度均为O(1)。",
+      "properties": "后进先出LIFO，栈顶操作O(1)，可顺序存储也可链式存储",
+      "aliases": ["Stack", "堆栈"],
+      "relations": [
+        {"target": "ds_queue", "type": "对比"},
+        {"target": "ds_array", "type": "对比"},
+        {"target": "ds_recursion", "type": "应用"}
+      ]
+    },
+    {
+      "id": "ds_queue",
+      "name": "队列",
+      "subject": "ds",
+      "chapter": "第二章 栈和队列",
+      "definition": "队列是只允许在队尾进行插入，在队头进行删除的线性表，遵循先进先出（FIFO）原则。循环队列是顺序存储的一种实现方式。",
+      "properties": "先进先出FIFO，队头队尾操作O(1)，循环队列解决假溢出",
+      "aliases": ["Queue", "循环队列", "队列结构"],
+      "relations": [
+        {"target": "ds_stack", "type": "对比"},
+        {"target": "os_schedule", "type": "应用"}
+      ]
+    },
+    {
+      "id": "ds_binary_tree",
+      "name": "二叉树",
+      "subject": "ds",
+      "chapter": "第五章 树与二叉树",
+      "definition": "二叉树是每个节点最多有两个子树的树结构，子树有左右之分，不能任意颠倒。满二叉树和完全二叉树是两种特殊形态。遍历方式包括前序、中序、后序和层序遍历。",
+      "properties": "每个节点度≤2，左右子树有序，n个节点的二叉树有n-1条边",
+      "aliases": ["Binary Tree", "二叉树结构"],
+      "relations": [
+        {"target": "ds_bst", "type": "特殊类型"},
+        {"target": "ds_heap", "type": "应用"},
+        {"target": "ds_graph", "type": "扩展"}
+      ]
+    },
+    {
+      "id": "ds_bst",
+      "name": "二叉排序树",
+      "subject": "ds",
+      "chapter": "第七章 查找",
+      "definition": "二叉排序树（BST）是一棵空树或具有以下性质的二叉树：左子树上所有节点的值均小于它的根节点的值，右子树上所有节点的值均大于它的根节点的值。平均查找长度为O(logn)。",
+      "properties": "左小右大，中序遍历得到有序序列，平均查找O(logn)",
+      "aliases": ["BST", "二叉搜索树", "二叉查找树"],
+      "relations": [
+        {"target": "ds_binary_tree", "type": "扩展"},
+        {"target": "ds_avl", "type": "平衡优化"}
+      ]
+    },
+    {
+      "id": "os_process",
+      "name": "进程",
+      "subject": "os",
+      "chapter": "第二章 进程管理",
+      "definition": "进程是程序的一次执行过程，是系统进行资源分配和调度的基本单位。进程具有动态性、并发性、独立性和异步性四个特征。进程有就绪、运行、阻塞三种基本状态。",
+      "properties": "资源分配单位，PCB控制块，三种基本状态，并发执行",
+      "aliases": ["Process", "进程管理"],
+      "relations": [
+        {"target": "os_thread", "type": "对比"},
+        {"target": "os_schedule", "type": "关联"},
+        {"target": "os_synchronization", "type": "应用"}
+      ]
+    },
+    {
+      "id": "os_thread",
+      "name": "线程",
+      "subject": "os",
+      "chapter": "第二章 进程管理",
+      "definition": "线程是进程内的一个执行单元，是CPU调度和分派的基本单位。线程自己不拥有系统资源，只拥有一点在运行中必不可少的资源，但它可与同属一个进程的其它线程共享进程所拥有的全部资源。",
+      "properties": "调度单位，轻量级进程，共享进程资源，切换开销小",
+      "aliases": ["Thread", "轻量级进程"],
+      "relations": [
+        {"target": "os_process", "type": "对比"}
+      ]
+    },
+    {
+      "id": "os_schedule",
+      "name": "进程调度",
+      "subject": "os",
+      "chapter": "第二章 进程管理",
+      "definition": "进程调度是指从就绪队列中按照一定的算法选择一个进程并将CPU分配给它运行。常见调度算法有先来先服务(FCFS)、短作业优先(SJF)、时间片轮转(RR)、优先级调度和多级反馈队列等。",
+      "properties": "选择进程分配CPU，衡量指标：周转时间、响应时间、CPU利用率",
+      "aliases": ["进程调度算法", "调度"],
+      "relations": [
+        {"target": "os_process", "type": "操作对象"}
+      ]
+    },
+    {
+      "id": "cn_tcp",
+      "name": "TCP协议",
+      "subject": "cn",
+      "chapter": "传输层",
+      "definition": "传输控制协议(TCP)是面向连接的、可靠的、基于字节流的传输层通信协议。TCP通过序列号、确认应答、重传控制、流量控制和拥塞控制等机制实现可靠传输。",
+      "properties": "面向连接，可靠传输，字节流，全双工，点对点",
+      "aliases": ["TCP", "Transmission Control Protocol"],
+      "relations": [
+        {"target": "cn_udp", "type": "对比"},
+        {"target": "cn_ip", "type": "下层依赖"}
+      ]
+    },
+    {
+      "id": "cn_udp",
+      "name": "UDP协议",
+      "subject": "cn",
+      "chapter": "传输层",
+      "definition": "用户数据报协议(UDP)是无连接的、不保证可靠交付的、面向报文的传输层协议。UDP首部开销小，只有8字节，适合实时应用如视频会议、语音通话等。",
+      "properties": "无连接，不可靠，面向报文，首部8字节，开销小",
+      "aliases": ["UDP", "User Datagram Protocol"],
+      "relations": [
+        {"target": "cn_tcp", "type": "对比"}
+      ]
+    }
+  ]
+}

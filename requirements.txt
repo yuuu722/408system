@@ -1,0 +1,24 @@
+# Web 框架
+fastapi>=0.104.0
+uvicorn>=0.24.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# LLM SDK
+openai>=1.0.0
+
+# 图数据库
+neo4j>=5.15.0
+
+# 向量检索 (可选)
+# faiss-cpu>=1.7.4
+# sentence-transformers>=2.2.0
+
+# 缓存 (可选)
+# redis>=5.0.0
+
+# 工具
+httpx>=0.25.0
+
+#库
+python-multipart>=0.0.9

@@ -1,0 +1,29 @@
+# 环境变量，绝对不能上传 API Key
+.env
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Vue / Node
+KG_Demo/frontend/node_modules/
+KG_Demo/frontend/dist/
+
+# IDE
+.idea/
+.vscode/
+
+# 用户上传的知识库资料
+data/documents/
+
+# 后续向量索引
+vector_indices/
+*.faiss
+*.index
+
+# 系统文件
+.DS_Store
+Thumbs.db
