@@ -122,7 +122,6 @@ class ResponseGenerator:
 
     async def _simple_generate(self, query: str, intent: IntentResult, search_result: SearchResult):
         """无 LLM 时的简单回答（降级模式，基于知识库直接回答）"""
-        import asyncio
 
         if intent.intent == "greeting":
             text = "你好！我是408考研智能辅导助手，可以帮你解答数据结构、计算机组成原理、操作系统、计算机网络的相关问题。请问有什么可以帮你的？"
@@ -146,7 +145,5 @@ class ResponseGenerator:
 
             text = "\n".join(lines)
 
-        # 模拟流式输出
-        for char in text:
-            yield char
-            await asyncio.sleep(0.01)
+        # 降级模式直接输出完整回答（配置 LLM 后由模型提供真实流式效果）
+        yield text

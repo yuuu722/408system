@@ -21,7 +21,7 @@ if sys.platform == 'win32':
     if hasattr(sys.stderr, 'reconfigure'):
         sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-from fastapi import FastAPI, Request, UploadFile, File, HTTPException
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -53,6 +53,12 @@ _searcher: Optional[KnowledgeSearcher] = None
 _generator: Optional[ResponseGenerator] = None
 _conversation: Optional[ConversationManager] = None
 _cache: Optional[ResponseCache] = None
+
+
+@app.on_event("startup")
+def on_startup():
+    """服务进程启动时完成组件初始化（含外部依赖探测），避免首个请求长时间等待"""
+    init_components()
 
 
 def init_components():
@@ -204,64 +210,6 @@ async def get_subjects():
         ]
     }
 
-
-# ---------- 知识库文件上传 ----------
-
-UPLOAD_DIR = PROJECT_ROOT / "data" / "documents"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-
-ALLOWED_EXTENSIONS = {".pdf", ".txt", ".md", ".docx"}
-
-
-@app.post("/api/knowledge/upload")
-async def upload_knowledge_file(file: UploadFile = File(...)):
-    """上传408知识库资料"""
-
-    if not file.filename:
-        raise HTTPException(status_code=400, detail="文件名不能为空")
-
-    suffix = Path(file.filename).suffix.lower()
-
-    if suffix not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail="暂只支持 PDF、TXT、Markdown、DOCX 文件"
-        )
-
-    save_path = UPLOAD_DIR / file.filename
-
-    content = await file.read()
-
-    with open(save_path, "wb") as f:
-        f.write(content)
-
-    return {
-        "success": True,
-        "filename": file.filename,
-        "size": len(content),
-        "path": str(save_path.relative_to(PROJECT_ROOT))
-    }
-
-
-@app.get("/api/knowledge/files")
-async def get_knowledge_files():
-    """获取已经上传的知识库文件"""
-
-    files = []
-
-    if UPLOAD_DIR.exists():
-        for file_path in UPLOAD_DIR.iterdir():
-            if file_path.is_file():
-                files.append({
-                    "filename": file_path.name,
-                    "size": file_path.stat().st_size,
-                    "suffix": file_path.suffix.lower()
-                })
-
-    return {
-        "success": True,
-        "files": files
-    }
 
 # ---------- 前端静态文件托管（生产模式，无需 Node.js） ----------
 FRONTEND_DIST = PROJECT_ROOT / "KG_Demo" / "frontend" / "dist"

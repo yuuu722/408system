@@ -4,11 +4,19 @@ uvicorn>=0.24.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0
 
-# LLM SDK
+# LLM SDK（盘古 MaaS / MindIE / DeepSeek 均为 OpenAI 兼容）
 openai>=1.0.0
 
-# 图数据库
+# 图数据库 Neo4j（本地图存储时使用）
 neo4j>=5.15.0
+
+# 华为云 SDK（盘古/GES/NLP 签名与调用）
+# 核心库：提供 AK/SK 签名，GES、NLP 业务面调用必需
+huaweicloudsdkcore>=3.1.0
+# 以下两个为官方管理面 SDK，可选；本系统业务面用 REST + 签名，无需强制安装
+# huaweicloudsdkges>=3.0.0
+# huaweicloudsdknlp>=3.0.0
+requests>=2.31.0
 
 # 向量检索 (可选)
 # faiss-cpu>=1.7.4
@@ -19,6 +27,3 @@ neo4j>=5.15.0
 
 # 工具
 httpx>=0.25.0
-
-#库
-python-multipart>=0.0.9

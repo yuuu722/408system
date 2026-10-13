@@ -27,3 +27,8 @@ vector_indices/
 # 系统文件
 .DS_Store
 Thumbs.db
+
+# 运行时产物（日志/进程号），含本机路径，不上传
+backend_log.txt
+backend_err.txt
+backend_pid.txt

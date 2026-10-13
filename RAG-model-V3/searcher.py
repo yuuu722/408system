@@ -1,14 +1,25 @@
 """
-知识检索模块
-Neo4j 图查询 + 向量语义检索
+知识检索模块（混合检索）
+1. 图存储 Provider（Neo4j / 华为云 GES / 本地扩充图谱）：子图检索，保证结构化知识点与关系
+2. 全文检索 Provider（BM25 / 向量预留）：从 87 万字语料中召回原文片段
+两路结果融合、去重、重排，统一为 SearchResult。
 """
-import json
 from dataclasses import dataclass, field
 from typing import Optional
-from pathlib import Path
 
 from config import Config
-from gateway import Entity, IntentResult
+from gateway import Entity
+
+# 延迟导入工厂（providers 与本模块同级）
+try:
+    from providers.graph.factory import create_graph_store
+    from providers.retrieval.factory import create_retriever
+except Exception:  # 兼容直接以脚本方式运行的场景
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from providers.graph.factory import create_graph_store
+    from providers.retrieval.factory import create_retriever
 
 
 @dataclass
@@ -50,250 +61,85 @@ class SearchResult:
 
 
 class KnowledgeSearcher:
-    """知识检索器：图谱查询 + 向量检索"""
+    """混合知识检索器：图谱检索 + 全文检索"""
 
     def __init__(self, config: Config):
         self.config = config
-        self.neo4j_driver = None
-        self.sample_data = self._load_sample_data()
-
-        # 尝试连接 Neo4j
-        self._init_neo4j()
-
-    def _init_neo4j(self):
-        """初始化 Neo4j 连接"""
-        try:
-            from neo4j import GraphDatabase
-            self.neo4j_driver = GraphDatabase.driver(
-                self.config.neo4j_uri,
-                auth=(self.config.neo4j_user, self.config.neo4j_password)
-            )
-            # 测试连接
-            self.neo4j_driver.verify_connectivity()
-            print("[Searcher] Neo4j 连接成功")
-        except Exception as e:
-            print(f"[Searcher] Neo4j 连接失败，使用示例数据: {e}")
-            self.neo4j_driver = None
-
-    def _load_sample_data(self) -> dict:
-        """加载示例知识点数据"""
-        sample_path = Path(self.config.sample_data_path) / "knowledge_points.json"
-        if sample_path.exists():
-            with open(sample_path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        return self._default_sample_data()
-
-    def _default_sample_data(self) -> dict:
-        """默认示例数据"""
-        return {
-            "subjects": {
-                "ds": "数据结构",
-                "co": "计算机组成原理",
-                "os": "操作系统",
-                "cn": "计算机网络"
-            },
-            "knowledge_points": [
-                {
-                    "id": "ds_array",
-                    "name": "数组",
-                    "subject": "ds",
-                    "chapter": "第一章 线性表",
-                    "definition": "数组是按一定顺序排列的相同类型元素的集合，在内存中占据连续的存储空间。",
-                    "properties": "随机访问O(1)，插入删除O(n)，空间连续",
-                    "relations": [
-                        {"target": "ds_linkedlist", "type": "对比"},
-                        {"target": "ds_stack", "type": "前驱"}
-                    ]
-                },
-                {
-                    "id": "ds_linkedlist",
-                    "name": "链表",
-                    "subject": "ds",
-                    "chapter": "第一章 线性表",
-                    "definition": "链表是通过指针将一组零散的内存块串联起来使用的数据结构。",
-                    "properties": "插入删除O(1)，随机访问O(n)，空间不连续",
-                    "relations": [
-                        {"target": "ds_array", "type": "对比"},
-                        {"target": "ds_stack", "type": "前驱"}
-                    ]
-                },
-                {
-                    "id": "ds_stack",
-                    "name": "栈",
-                    "subject": "ds",
-                    "chapter": "第二章 栈和队列",
-                    "definition": "栈是只允许在一端进行插入或删除操作的线性表，遵循后进先出（LIFO）原则。",
-                    "properties": "后进先出，栈顶操作O(1)",
-                    "relations": [
-                        {"target": "ds_queue", "type": "对比"},
-                        {"target": "ds_array", "type": "实现"}
-                    ]
-                },
-                {
-                    "id": "ds_queue",
-                    "name": "队列",
-                    "subject": "ds",
-                    "chapter": "第二章 栈和队列",
-                    "definition": "队列是只允许在一端进行插入，在另一端进行删除的线性表，遵循先进先出（FIFO）原则。",
-                    "properties": "先进先出，队头队尾操作O(1)",
-                    "relations": [
-                        {"target": "ds_stack", "type": "对比"}
-                    ]
-                },
-                {
-                    "id": "os_process",
-                    "name": "进程",
-                    "subject": "os",
-                    "chapter": "第二章 进程管理",
-                    "definition": "进程是程序的一次执行过程，是系统进行资源分配和调度的基本单位。",
-                    "properties": "动态性、并发性、独立性、异步性",
-                    "relations": [
-                        {"target": "os_thread", "type": "对比"},
-                        {"target": "os_schedule", "type": "关联"}
-                    ]
-                }
-            ]
-        }
+        self.graph_store = create_graph_store(config)
+        print(f"[Searcher] 使用图存储: {self.graph_store.name}")
+        self.retriever = create_retriever(config)
+        print(f"[Searcher] 使用全文检索: {self.retriever.name} "
+              f"(可用={self.retriever.available})")
 
     async def search(self, query: str, entities: list[Entity], intent: str) -> SearchResult:
-        """执行检索"""
+        """执行混合检索"""
         result = SearchResult()
+        entity_names = [e.name for e in entities]
 
-        # 如果有 Neo4j，从图谱查询
-        if self.neo4j_driver:
-            await self._search_from_neo4j(query, entities, result)
-        else:
-            # 否则从示例数据查询
-            self._search_from_sample(query, entities, result)
+        # ---- 1. 图谱子图检索（结构化知识点 + 关系） ----
+        data = await self.graph_store.search_subgraph(entity_names, intent)
+
+        for n in data.get("nodes", []):
+            result.graph_nodes.append(GraphNode(
+                id=n["id"], label=n["label"],
+                type=n.get("type", "concept"),
+                subject=n.get("subject", "")
+            ))
+
+        for e in data.get("edges", []):
+            result.graph_edges.append(GraphEdge(
+                source=e["source"], target=e["target"],
+                relation=e.get("relation", "")
+            ))
+
+        for ev in data.get("evidence", []):
+            result.evidence.append(EvidenceItem(
+                id=ev["id"], title=ev["title"],
+                content=ev["content"], source=ev.get("source", ""),
+                subject=ev.get("subject", ""),
+                relevance=ev.get("relevance", 0.85)
+            ))
+            matched = next(
+                (e for e in entities if e.name in ev["title"] or ev["title"] in e.name),
+                None
+            )
+            if matched:
+                result.matched_entities.append(matched)
+
+        # ---- 2. 全文检索（BM25 召回原文片段） ----
+        if self.retriever.available:
+            hits = self.retriever.search(
+                query, top_k=self.config.retrieval_top_k
+            )
+            self._merge_evidence(result, hits)
 
         result.has_result = len(result.evidence) > 0
         return result
 
-    async def _search_from_neo4j(self, query: str, entities: list[Entity], result: SearchResult):
-        """从 Neo4j 图谱检索"""
-        if not entities:
-            return
-
-        try:
-            with self.neo4j_driver.session(database=self.config.neo4j_database) as session:
-                for entity in entities:
-                    # 查询节点
-                    cypher = """
-                    MATCH (n:KnowledgePoint)
-                    WHERE n.name CONTAINS $name OR n.aliases CONTAINS $name
-                    OPTIONAL MATCH (n)-[r]-(m)
-                    RETURN n, type(r) as rel_type, m
-                    LIMIT 20
-                    """
-                    records = session.run(cypher, name=entity.name)
-
-                    for record in records:
-                        node = record["n"]
-                        result.graph_nodes.append(GraphNode(
-                            id=node.element_id,
-                            label=node.get("name", ""),
-                            type=node.get("type", "concept"),
-                            subject=node.get("subject", "")
-                        ))
-
-                        if record["m"]:
-                            result.graph_nodes.append(GraphNode(
-                                id=record["m"].element_id,
-                                label=record["m"].get("name", ""),
-                                type=record["m"].get("type", "concept"),
-                                subject=record["m"].get("subject", "")
-                            ))
-                            result.graph_edges.append(GraphEdge(
-                                source=node.element_id,
-                                target=record["m"].element_id,
-                                relation=record["rel_type"]
-                            ))
-
-                        # 添加证据
-                        result.evidence.append(EvidenceItem(
-                            id=node.element_id,
-                            title=node.get("name", ""),
-                            content=node.get("definition", ""),
-                            source=node.get("chapter", ""),
-                            subject=node.get("subject", ""),
-                            relevance=0.9
-                        ))
-
-        except Exception as e:
-            print(f"[Searcher] Neo4j 查询失败: {e}")
-
-    def _search_from_sample(self, query: str, entities: list[Entity], result: SearchResult):
-        """从示例数据检索（降级方案）"""
-        kps = self.sample_data.get("knowledge_points", [])
-
-        # 匹配实体
-        for entity in entities:
-            for kp in kps:
-                if self._match_entity(entity.name, kp):
-                    result.matched_entities.append(entity)
-                    result.evidence.append(EvidenceItem(
-                        id=kp["id"],
-                        title=kp["name"],
-                        content=f"{kp['definition']}\n\n特性：{kp.get('properties', '')}",
-                        source=kp.get("chapter", ""),
-                        subject=kp.get("subject", ""),
-                        relevance=0.85
-                    ))
-
-                    # 添加图谱节点和边
-                    result.graph_nodes.append(GraphNode(
-                        id=kp["id"],
-                        label=kp["name"],
-                        type="concept",
-                        subject=kp.get("subject", "")
-                    ))
-
-                    for rel in kp.get("relations", []):
-                        target_kp = next((k for k in kps if k["id"] == rel["target"]), None)
-                        if target_kp:
-                            result.graph_nodes.append(GraphNode(
-                                id=target_kp["id"],
-                                label=target_kp["name"],
-                                type="concept",
-                                subject=target_kp.get("subject", "")
-                            ))
-                            result.graph_edges.append(GraphEdge(
-                                source=kp["id"],
-                                target=target_kp["id"],
-                                relation=rel["type"]
-                            ))
-
-    def _match_entity(self, entity_name: str, kp: dict) -> bool:
-        """匹配实体和知识点"""
-        name = entity_name.lower()
-        if name in kp["name"].lower():
-            return True
-        if "alias" in kp:
-            for alias in kp["alias"]:
-                if name in alias.lower():
-                    return True
-        return False
+    def _merge_evidence(self, result: SearchResult, hits: list, max_add: int = 3):
+        """融合全文检索命中：去重 + 相关性映射（图谱证据优先）"""
+        existing = "\u0001".join(ev.content for ev in result.evidence)
+        added = 0
+        for h in hits:
+            if added >= max_add:
+                break
+            key = h["content"][:30]
+            if key in existing:
+                continue
+            # BM25 相关性映射到 0.5~0.8（图谱证据 0.85 在前）
+            relevance = round(0.5 + 0.3 * h.get("relevance", 0.5), 3)
+            result.evidence.append(EvidenceItem(
+                id=h["id"], title=h["title"], content=h["content"],
+                source=h.get("source", ""), subject=h.get("subject", ""),
+                relevance=relevance
+            ))
+            existing += "\u0001" + h["content"]
+            added += 1
 
     async def get_graph_data(self, subject: Optional[str] = None) -> dict:
-        """获取知识图谱完整数据"""
-        nodes = []
-        edges = []
+        """获取知识图谱完整数据（委托当前图存储）"""
+        return await self.graph_store.get_graph_data(subject=subject)
 
-        kps = self.sample_data.get("knowledge_points", [])
-        for kp in kps:
-            if subject and kp.get("subject") != subject:
-                continue
-            nodes.append({
-                "id": kp["id"],
-                "label": kp["name"],
-                "type": "concept",
-                "subject": kp.get("subject", "")
-            })
-            for rel in kp.get("relations", []):
-                edges.append({
-                    "source": kp["id"],
-                    "target": rel["target"],
-                    "relation": rel["type"]
-                })
-
-        return {"nodes": nodes, "edges": edges}
+    def close(self):
+        self.graph_store.close()
+        self.retriever.close()
