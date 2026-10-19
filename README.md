@@ -1,197 +1,40 @@
-# 408考研知识图谱智能问答系统
+# 408 考研智能学习助手
 
-面向计算机考研408学生的智能问答系统，基于知识图谱 + RAG（检索增强生成）技术。
+408 考研智能学习助手：支持公共/个人知识库、资料解析与向量检索、带引用 AI 答疑、测评判分、薄弱点分析、每日规则计划和知识图谱查看。内置四科 12 个目录、38 个主题的讲解、例题及原创基础练习，新用户无需上传即可学习和测评。图谱支持共享目录、资料匹配以及可选模型候选的证据校验；内容不是完整官方考纲或完整教材。规则学习策略不是训练模型，RAG 不是自主 Agent。
 
-## 项目简介
+## 交接阅读入口
 
-本系统仿照中草药知识图谱问答系统架构，针对408考研四门课程（数据结构、计算机组成原理、操作系统、计算机网络）构建智能问答平台。
+- [当前实现功能与限制](docs/CURRENT_FEATURES.md)：以当前代码为准的产品能力、模型费用及验收边界。
+- [使用与代码交接指南](docs/USER_AND_CODE_GUIDE.md)：交付清单、新电脑安装、三个终端启动、数据备份恢复、操作流程、排错与逐文件函数索引。
+- [中文配置模板](.env.example)：哪些必填、哪些是宿主机配置、哪些被 Compose 覆盖。
+- [工作进度](docs/WORK_PROGRESS.md)：当前快照与单独保留的历史证据。
+- [公共知识库与图谱改造说明](docs/PUBLIC_KB_ADMIN_ROADMAP.md)：首个管理员初始化、公共资料上传、检索和图谱验收步骤。
 
-### 核心功能
-- **智能问答**：基于 RAG 技术，准确解答考研知识点问题
-- **知识图谱**：展示知识点之间的关联关系，可视化学习路径
-- **流式输出**：回答逐字输出，提升用户体验
-- **依据展示**：每条回答标注知识点来源，可展开查看
-- **连续对话**：支持上下文追问，保留多轮对话历史
+## 公共知识库与管理员
 
-### 技术栈
-| 层级 | 技术 |
-|------|------|
-| 前端 | Vue 3 + Vite + ECharts |
-| 后端 | FastAPI + Python |
-| 知识图谱 | Neo4j |
-| 向量检索 | FAISS / 语义检索 |
-| LLM | OpenAI 兼容接口（DeepSeek等） |
+管理员使用独立工作台维护公共知识库、上传/替换/删除资料、查看连线图谱并管理多用户；普通用户默认只读公共学习资源。上传默认200 MiB，Docker内置PDF文字提取和中文/英文OCR；本地词法向量无需模型Key。升级现有 `.env` 的具体步骤见 [知识库与管理员指南](docs/KNOWLEDGE_ADMIN_GUIDE.md)。
 
-## 项目结构
+## 启动
 
-```
-cs408-qa-system/
-├── KG_Demo/                 # 演示应用
-│   ├── backend/            # FastAPI 后端
-│   │   └── main.py        # API 入口
-│   └── frontend/           # Vue 前端
-│       ├── src/
-│       │   ├── App.vue     # 主界面
-│       │   ├── main.js     # 入口
-│       │   └── style.css   # 样式
-│       ├── index.html
-│       └── package.json
-├── RAG-model-V3/           # RAG 问答流水线
-│   ├── config.py          # 配置管理
-│   ├── gateway.py         # 语义网关（意图识别）
-│   ├── searcher.py        # 知识检索
-│   ├── generator.py       # 回答生成
-│   ├── conversation.py    # 对话管理
-│   └── cache.py           # 缓存
-├── knowledge_graph/        # 知识图谱
-│   └── init_graph.py      # 图谱初始化脚本
-├── data/
-│   └── sample/            # 示例数据
-│       └── knowledge_points.json
-├── docs/                   # 文档
-├── .env.example           # 环境变量模板
-├── requirements.txt       # Python 依赖
-└── README.md              # 项目说明
-```
+1. 安装 Docker Desktop（Linux 容器），新环境复制 .env.example 为 .env，替换至少 32 字符 JWT_SECRET 并配置模型；不要覆盖已有 .env。
+2. 使用本地嵌入时，按 [嵌入服务说明](services/local_embedding/README.md) 启动宿主机 8090；完整 PDF/DOCX 结构解析还需按 [解析说明](services/document_parser/README.md) 启动 8091。Compose 不启动这两个 Python 服务。
+3. 在项目根目录运行 docker compose up -d --build。后端及 worker 自动顺序执行未应用迁移；当前迁移为 1–15。已有数据升级先备份数据库与上传卷。
+4. 打开 http://localhost:5173，后端健康检查 http://localhost:8080/healthz。
 
-## 快速开始
+详细可复制 PowerShell 命令见使用指南。直接运行 Go/Python 不会自动读取根目录 .env；不要照抄只运行 go run 而未导入配置的旧步骤。
 
-### 环境要求
-- Python 3.10+
-- Node.js 16+
-- Neo4j 5.x（可选，不连接时使用示例数据）
+## 使用流程
 
-### 1. 后端启动
+系统自动建立公共课程与基础图谱，worker 索引内置讲义。部署者初始化首个管理员后可维护目录、课程和公共资料；普通用户注册后即可学习、测评并检索公共资料，也可选择加入个人知识库。图谱模型抽取需显式设置 GRAPH_EXTRACTION_ENABLED=true 并配置正常模型。之后查看解析和警告 → 带引用答疑 → 检查抽取题目/做测评 → 确认 AI 辅助判分 → 查看薄弱点与生成每日任务。资料不完整时不会自动变为可用题目；没有可用资源时计划可以为空。
 
-```bash
-# 进入项目目录
-cd cs408-qa-system
+默认正常模型模式要求答疑所需 LLM/Embedding 配置齐全。AI_DEMO_MODE=true 只提供演示向量和检索片段预览，不是 AI 回答。当前本地 OCR/text2vec 不消耗云端模型额度；文本答疑、参考解析和生成练习可能收费。
 
-# 创建虚拟环境（推荐）
-python -m venv .venv
+## 开发与验证
 
-# 激活虚拟环境
-# Windows:
-.venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
+前端 Vue 3/TypeScript/Vite，后端 Go/PostgreSQL/pgvector；独立 worker 使用 PostgreSQL 持久化任务。Redis 在 Compose 中保留，但不是文档任务权威队列。代码目录与函数详见使用指南第 8 节。
 
-# 安装依赖
-pip install -r requirements.txt
+基础命令：node scripts/check-independence.mjs；backend 下 go test -count=1 ./...、go vet ./...；frontend 下 npm ci、npm test、npm run build。数据库集成测试需显式设置 TEST_DATABASE_URL，否则可能跳过。Python 离线回归和真实链路测试的区别见使用指南。
 
-# 配置环境变量
-copy .env.example .env
-# 编辑 .env 填入 LLM API Key 和 Neo4j 配置
+## 独立实现与来源
 
-# 启动后端
-python KG_Demo/backend/main.py
-```
-
-后端运行在 http://localhost:8000
-
-### 2. 前端启动
-
-```bash
-# 新开终端，进入前端目录
-cd KG_Demo/frontend
-
-# 安装依赖
-npm install
-
-# 启动开发服务器
-npm run dev
-```
-
-前端运行在 http://localhost:3000
-
-### 3. 知识图谱初始化（可选）
-
-如果需要使用 Neo4j 知识图谱：
-
-```bash
-# 确保 Neo4j 已启动
-# 配置好 .env 中的 NEO4J_* 参数
-
-# 初始化图谱并导入示例数据
-python knowledge_graph/init_graph.py
-```
-
-## 配置说明
-
-编辑 `.env` 文件：
-
-```ini
-# LLM 配置（必须）
-LLM_API_KEY=sk-xxx
-LLM_BASE_URL=https://api.deepseek.com/v1
-LLM_MODEL=deepseek-chat
-
-# Neo4j 配置（可选）
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=your_password
-```
-
-支持任何 OpenAI 兼容接口：
-- DeepSeek
-- 通义千问
-- 智谱AI
-- OpenAI
-- 本地 Ollama 等
-
-## 知识库扩展
-
-### 添加新知识点
-
-编辑 `data/sample/knowledge_points.json`，按格式添加：
-
-```json
-{
-  "id": "ds_bubble_sort",
-  "name": "冒泡排序",
-  "subject": "ds",
-  "chapter": "第八章 排序",
-  "definition": "冒泡排序是一种简单的排序算法，重复地走访过要排序的数列，一次比较两个元素...",
-  "properties": "时间复杂度O(n²)，稳定排序，原地排序",
-  "relations": [
-    {"target": "ds_quick_sort", "type": "对比"}
-  ]
-}
-```
-
-### 批量导入教材内容
-
-后续可扩展：
-1. 从 PDF 教材提取知识点
-2. 自动构建实体关系
-3. 批量导入 Neo4j
-
-## 大创项目扩展方向
-
-### 可扩展功能
-1. **智能刷题**：根据知识点自动生成练习题
-2. **学习路径推荐**：基于知识图谱推荐学习顺序
-3. **错题本**：记录易错知识点，针对性练习
-4. **学习进度可视化**：展示知识点掌握程度
-5. **多人协作**：支持学生和老师多角色
-
-### 创新点
-- 知识图谱 + RAG 结合，回答有据可依
-- 考研考点导向，针对性强
-- 可视化知识关联，辅助理解
-- 流式输出 + 证据展示，提升学习效果
-
-## 开发计划
-
-- [x] 项目框架搭建
-- [x] RAG 问答流水线
-- [x] 前端聊天界面
-- [x] 知识图谱可视化
-- [ ] 向量检索模块
-- [ ] 批量知识库导入
-- [ ] 智能刷题功能
-- [ ] 学习进度跟踪
-
-## 许可证
-
-MIT License
+WeKnora 仅作开发设计参考，不是构建、测试、运行或部署依赖。项目不要求交付其源码。开发前读 [AGENTS.md](AGENTS.md)，能力归属见 [independence.md](docs/independence.md)，参考记录见 [weknora-reference.md](docs/weknora-reference.md)。通用开源依赖和模型保留各自许可证；独立性脚本仅检查显式耦合，不证明原创性。

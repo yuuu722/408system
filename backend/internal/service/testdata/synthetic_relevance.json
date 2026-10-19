@@ -1,0 +1,8 @@
+[
+  {"name":"virtual-memory", "question":"为什么需要虚拟内存？", "evidence":"虚拟内存通过地址映射隔离进程的地址空间。", "related":true},
+  {"name":"stack", "question":"栈是什么？", "evidence":"栈使用后进先出规则。", "related":false},
+  {"name":"tcp", "question":"TCP 如何连接？", "evidence":"TCP 连接建立使用三次握手。", "related":true},
+  {"name":"unrelated", "question":"为什么需要虚拟内存？", "evidence":"网络连接建立以后进行报文传输。", "related":false},
+  {"name":"empty", "question":"虚拟内存是什么？", "evidence":"", "related":false},
+  {"name":"synonym-boundary", "question":"地址隔离是什么？", "evidence":"每个进程拥有独立空间，彼此不可直接访问。", "related":false}
+]

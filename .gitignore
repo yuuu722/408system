@@ -1,34 +1,15 @@
-# 环境变量，绝对不能上传 API Key
 .env
+backend/storage/uploads/*
+!backend/storage/uploads/.gitkeep
+frontend/node_modules/
+frontend/dist/
+frontend/.npm-cache/
+coverage.out
+.cache/
+backend/api.exe
+*.log
+.playwright-cli/
+output/playwright/
 
-# Python
-.venv/
-venv/
 __pycache__/
 *.pyc
-*.pyo
-
-# Vue / Node
-KG_Demo/frontend/node_modules/
-KG_Demo/frontend/dist/
-
-# IDE
-.idea/
-.vscode/
-
-# 用户上传的知识库资料
-data/documents/
-
-# 后续向量索引
-vector_indices/
-*.faiss
-*.index
-
-# 系统文件
-.DS_Store
-Thumbs.db
-
-# 运行时产物（日志/进程号），含本机路径，不上传
-backend_log.txt
-backend_err.txt
-backend_pid.txt

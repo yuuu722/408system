@@ -1,0 +1,5 @@
+.cache
+api.exe
+storage/uploads/*
+*.log
+
