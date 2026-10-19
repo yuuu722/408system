@@ -1,0 +1,8 @@
+paddleocr[doc-parser]==3.3.2
+paddlepaddle==3.2.2
+pdfplumber==0.11.10
+pypdfium2==5.14.0
+Pillow==12.3.0
+fastapi==0.143.0
+uvicorn==0.54.0
+python-multipart==0.0.32

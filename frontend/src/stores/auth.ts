@@ -1,0 +1,4 @@
+import {defineStore} from 'pinia'
+import {api} from '@/api/client'
+export const useAuthStore=defineStore('auth',{state:()=>({token:localStorage.getItem('exam408_token')||'',user:null as null|{id:string;username:string;email:string;role?:string}}),actions:{async login(login:string,password:string){const {data}=await api.post('/auth/login',{login,password});this.token=data.token;this.user=data.user;localStorage.setItem('exam408_token',data.token)},async register(username:string,email:string,password:string){const {data}=await api.post('/auth/register',{username,email,password});this.token=data.token;this.user=data.user;localStorage.setItem('exam408_token',data.token)},async load(){if(!this.token)return;const {data}=await api.get('/auth/me');this.user=data},logout(){this.token='';this.user=null;localStorage.removeItem('exam408_token')}}})
+
