@@ -73,3 +73,10 @@ docker compose logs --tail 80 backend worker
 ## 验收
 
 设置可创建隔离数据库的 `TEST_DATABASE_URL`，运行 `backend` 下 `go test -count=1 ./...` 和 `go vet ./...`；前端运行 `npm test` 与 `npm run build`。`TestPublicCurriculumEndToEnd` 覆盖公共只读权限、用户管理、超过旧 20 MiB 限制的上传、超限拒绝、失败任务批量恢复、无需模型的真实词法向量与规则图谱、重复证据、文件替换和删除后的图谱清理及原文版本切换。`TestIntegratedTextAndScannedPDF` 使用合成文字 PDF 和扫描 PDF 实际执行 Poppler/Tesseract；未安装这些工具的宿主机测试会明确跳过，Docker 镜像包含工具。测试不调用收费模型。
+
+
+## 2026-10-20 公共资料与答疑
+
+公共库默认不再提供内置示例讲义/练习，由管理员上传正式资料。升级迁移只清理未编辑的旧示例，保留四科目录及自行上传的资料；旧示例物理文件暂不回收，引用旧示例的历史对话可能无法再打开来源。
+
+智能答疑严格检索下拉框所选知识库，不自动混入其他公共库；旧 IncludePersonal 参数不再扩展检索范围。上传必须处理完成，并使用与当前检索相同的向量空间。正常 AI 组织回答需要配置 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL，并设置 AI_DEMO_MODE=false；lexical 索引无需嵌入模型密钥。模型未配置时不能生成 AI 回答。无依据不调用回答模型。引用显示文件、来源位置、原文摘要，点击编号查看原文。模型输出通过引用编号校验后才展示，校验失败展示原文摘录。该校验不保证语义完全忠实，请核对原文。

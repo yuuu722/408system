@@ -80,3 +80,33 @@ func TestRAGRejectsUnrelatedAndLowScoreEvidenceWithoutCallingLLM(t *testing.T) {
 		require.Empty(t, result.Sources)
 	}
 }
+
+type editorialLLM struct{ answer string }
+
+func (p editorialLLM) Answer(context.Context, string, string) (string, error) { return p.answer, nil }
+
+func TestRAGWithholdsInvalidCitationsAndReturnsOriginalEvidence(t *testing.T) {
+	for _, answer := range []string{"模型编造的内容", "模型编造的内容[99]"} {
+		ctx := context.Background()
+		st := testutil.NewStore()
+		kb, err := st.CreateKnowledgeBase(ctx, "u1", "操作系统", "")
+		require.NoError(t, err)
+		st.Docs["d1"] = domain.Document{ID: "d1", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
+		st.Chunks = []domain.Chunk{{ID: "c1", DocumentID: "d1", UserID: "u1", KnowledgeBaseID: kb.ID, DocumentTitle: "操作系统教材.txt", Content: "虚拟内存用于地址隔离", SourceLocation: "第1页", Embedding: []float32{1, 0}}}
+		rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: editorialLLM{answer}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 5, MinScore: .35}
+		var visible strings.Builder
+		result, err := rag.ChatStream(ctx, "u1", kb.ID, "", "为什么需要虚拟内存？", func(event string, data any) error {
+			if event == "delta" {
+				visible.WriteString(data.(map[string]string)["text"])
+			}
+			return nil
+		})
+		require.NoError(t, err)
+		require.NotContains(t, result.Answer, "模型编造的内容")
+		require.Contains(t, result.Answer, "虚拟内存用于地址隔离 [1]")
+		require.Equal(t, result.Answer, visible.String(), "unchecked model tokens must not reach the browser")
+		require.Len(t, result.Sources, 1)
+		require.Equal(t, "c1", result.Sources[0].ChunkID)
+		require.Equal(t, "第1页", result.Sources[0].Location)
+	}
+}

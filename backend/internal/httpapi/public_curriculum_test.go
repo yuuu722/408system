@@ -64,8 +64,32 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	}()
 	require.NoError(t, migrations.Up(ctx, store.DB))
 	require.NoError(t, migrations.Up(ctx, store.DB))
+	var seeded int
+	require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE seed_key IS NOT NULL`).Scan(&seeded))
+	require.Zero(t, seeded, "fresh installations must contain no sample lessons or exercises")
+	// Historical sample content is an explicit test fixture, never startup data.
+	fixture, e := os.ReadFile("../../migrations/000014_public_curriculum.up.sql")
+	require.NoError(t, e)
+	for _, line := range strings.Split(string(fixture), "\n") {
+		if strings.HasPrefix(line, "INSERT INTO learning_assets") {
+			_, e = store.DB.Exec(ctx, line)
+			require.NoError(t, e)
+		}
+	}
 	store.EmbeddingSpace = "synthetic"
 	root := t.TempDir()
+	rows, e := store.DB.Query(ctx, `SELECT id::text FROM learning_assets WHERE kind='material' AND seed_key IS NOT NULL`)
+	require.NoError(t, e)
+	var fixtures []string
+	for rows.Next() {
+		var id string
+		require.NoError(t, rows.Scan(&id))
+		fixtures = append(fixtures, id)
+	}
+	rows.Close()
+	for _, id := range fixtures {
+		require.NoError(t, store.SyncPublicMaterial(ctx, root, id))
+	}
 	require.NoError(t, store.EnsurePublicDocuments(ctx, root))
 	require.NoError(t, store.EnsurePublicDocuments(ctx, root))
 	auth := service.AuthService{Store: store, Secret: []byte(strings.Repeat("k", 40)), TTL: time.Hour}
@@ -279,12 +303,11 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	for _, include := range []bool{false, true} {
 		var reply domain.ChatResult
 		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assistant/chat", token, map[string]any{"KnowledgeBaseID": private.ID, "Question": "私有蓝鲸缓存策略", "IncludePersonal": include}, 200), &reply))
-		if include {
-			require.NotEmpty(t, reply.Sources)
-			require.Equal(t, own.ID, reply.Sources[0].DocumentID)
-		} else {
-			require.Empty(t, reply.Sources)
+		require.NotEmpty(t, reply.Sources)
+		for _, source := range reply.Sources {
+			require.Equal(t, own.ID, source.DocumentID)
 		}
+
 	}
 	after, e := store.KnowledgeGraph(ctx, student.ID, public.ID)
 	require.NoError(t, e)
@@ -315,6 +338,15 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	call("PATCH", "/api/v1/admin/knowledge-bases/"+managedKB.ID, token, map[string]string{"Name": "Tamper"}, 403)
 	call("PATCH", "/api/v1/admin/knowledge-bases/"+managedKB.ID, editorToken, map[string]string{"Name": "408 公共专题更新", "Description": "管理员维护"}, 200)
 	call("POST", "/api/v1/admin/knowledge-points", editorToken, domain.KnowledgePoint{SubjectID: point.SubjectID, Code: "OS.ADMIN_TEST", Name: "页框测试目录", Description: "管理员新增的规范目录"}, 200)
+	scopedDoc := upload(managedKB.ID, editorToken, graphEvidence, 202)
+	drain()
+	var scopedReply domain.ChatResult
+	require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assistant/chat", token, map[string]string{"KnowledgeBaseID": managedKB.ID, "Question": "虚拟内存与页面置换"}, 200), &scopedReply))
+	require.NotEmpty(t, scopedReply.Sources)
+	for _, source := range scopedReply.Sources {
+		require.Equal(t, scopedDoc.ID, source.DocumentID, "other public libraries must not leak into the selected corpus")
+	}
+	call("DELETE", "/api/v1/documents/"+scopedDoc.ID, editorToken, nil, 204)
 	// More than the old 20MB boundary is accepted; don't waste time indexing a
 	// synthetic repeated blob. Oversize bodies fail before any task is enqueued.
 	docs.MaxBytes = 32 << 20

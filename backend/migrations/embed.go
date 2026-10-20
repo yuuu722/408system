@@ -53,6 +53,9 @@ var publicCurriculum string
 //go:embed 000015_management_lifecycle.up.sql
 var managementLifecycle string
 
+//go:embed 000016_uploaded_public_resources.up.sql
+var uploadedPublicResources string
+
 type migration struct {
 	version int
 	name    string
@@ -75,6 +78,7 @@ var all = []migration{
 	{version: 13, name: "graph_entity_evidence", sql: graphEntityEvidence},
 	{version: 14, name: "public_curriculum", sql: publicCurriculum},
 	{version: 15, name: "management_lifecycle", sql: managementLifecycle},
+	{version: 16, name: "uploaded_public_resources", sql: uploadedPublicResources},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

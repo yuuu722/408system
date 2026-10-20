@@ -205,18 +205,18 @@ func (p *Postgres) SearchChunks(ctx context.Context, uid, kid string, v []float3
 	return p.SearchChunksScoped(ctx, uid, kid, v, limit, true)
 }
 
-func (p *Postgres) SearchChunksScoped(ctx context.Context, uid, kid string, v []float32, limit int, includePersonal bool) (out []domain.Chunk, err error) {
+func (p *Postgres) SearchChunksScoped(ctx context.Context, uid, kid string, v []float32, limit int, _ bool) (out []domain.Chunk, err error) {
 	// Materialize before distance calculation: legacy dimensions must never reach <=>.
 	rows, err := p.DB.Query(ctx, `WITH compatible AS MATERIALIZED (
  SELECT c.*,d.original_filename,kb.is_public FROM document_chunks c
  JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id
  WHERE EXISTS(SELECT 1 FROM knowledge_bases chosen WHERE chosen.id=$2 AND (chosen.user_id=$1 OR chosen.is_public))
- AND (kb.is_public OR ($7 AND c.knowledge_base_id=$2 AND c.user_id=$1))
+ AND c.knowledge_base_id=$2 AND (kb.is_public OR c.user_id=$1)
  AND (d.status='ready' OR d.active_revision_id IS NOT NULL)
  AND vector_dims(c.embedding)=$5 AND c.metadata->>'embedding_space'=$6
  ), ranked AS (SELECT *,row_number() OVER(PARTITION BY is_public ORDER BY embedding <=> $3::vector) rank FROM compatible)
  SELECT c.id,c.document_id,c.knowledge_base_id,c.user_id,c.content,c.chunk_index,c.source_location,c.metadata,c.original_filename,
- 1-(c.embedding <=> $3::vector) score,c.created_at FROM ranked c WHERE rank<=$4 ORDER BY is_public DESC,score DESC`, uid, kid, vectorLiteral(v), limit, len(v), p.EmbeddingSpace, includePersonal)
+ 1-(c.embedding <=> $3::vector) score,c.created_at FROM ranked c WHERE rank<=$4 ORDER BY is_public DESC,score DESC`, uid, kid, vectorLiteral(v), limit, len(v), p.EmbeddingSpace)
 	if err != nil {
 		return nil, err
 	}

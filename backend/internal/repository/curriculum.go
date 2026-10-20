@@ -10,11 +10,10 @@ import (
 	"github.com/local/exam408-assistant/backend/internal/domain"
 )
 
-// EnsurePublicDocuments connects the shipped lessons to the same revision,
-// embedding, citation and job pipeline as administrator uploads. It is safe for
-// API and worker to call concurrently and never overwrites administrator edits.
+// EnsurePublicDocuments is retained for compatibility. Public libraries start
+// empty; only explicit administrator publication may materialize a resource.
 func (p *Postgres) EnsurePublicDocuments(ctx context.Context, storageRoot string) error {
-	return p.ensurePublicDocuments(ctx, storageRoot, "")
+	return nil // Public resources are uploaded or explicitly published by administrators.
 }
 
 func (p *Postgres) SyncPublicMaterial(ctx context.Context, storageRoot, assetID string) error {
@@ -30,7 +29,7 @@ func (p *Postgres) ensurePublicDocuments(ctx context.Context, storageRoot, asset
 	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(4082100)`); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT a.id,a.user_id,kb.id,a.point_id,a.title,a.payload,COALESCE(a.document_id::text,''),a.revision FROM learning_assets a CROSS JOIN knowledge_bases kb WHERE kb.is_system AND a.is_public AND a.kind='material' AND COALESCE(a.payload->>'Stem','')<>'' AND ((a.seed_key IS NOT NULL AND a.document_id IS NULL) OR a.id::text=$1)`, assetID)
+	rows, err := tx.Query(ctx, `SELECT a.id,a.user_id,kb.id,a.point_id,a.title,a.payload,COALESCE(a.document_id::text,''),a.revision FROM learning_assets a CROSS JOIN knowledge_bases kb WHERE kb.is_system AND a.is_public AND a.kind='material' AND COALESCE(a.payload->>'Stem','')<>'' AND a.id::text=$1`, assetID)
 	if err != nil {
 		return err
 	}

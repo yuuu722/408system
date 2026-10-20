@@ -7,6 +7,8 @@ import (
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"log/slog"
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -99,6 +101,13 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if len(citations) >= s.TopK {
 			break
 		}
+		if strings.TrimSpace(c.SourceLocation) == "" {
+			if page := citationPage(c.Metadata); page > 0 {
+				c.SourceLocation = fmt.Sprintf("第%d页", page)
+			} else {
+				c.SourceLocation = fmt.Sprintf("文本片段%d", c.ChunkIndex+1)
+			}
+		}
 		citationNumber := len(citations) + 1
 		fmt.Fprintf(&evidence, "[%d] %s（%s）\n%s\n\n", citationNumber, c.DocumentTitle, c.SourceLocation, c.Content)
 		excerpt := []rune(c.Content)
@@ -106,6 +115,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			excerpt = excerpt[:180]
 		}
 		citation := domain.Citation{DocumentID: c.DocumentID, DocumentTitle: c.DocumentTitle, ChunkID: c.ID, Location: c.SourceLocation, Excerpt: string(excerpt), Score: c.Score, Page: citationPage(c.Metadata), LocationQuality: "page"}
+		if citation.Page == 0 {
+			citation.LocationQuality = "chunk"
+		}
 		citation.RevisionID, _ = c.Metadata["revision_id"].(string)
 		if raw, e := json.Marshal(c.Metadata["regions"]); e == nil {
 			_ = json.Unmarshal(raw, &citation.Regions)
@@ -122,35 +134,26 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 				return domain.ChatResult{}, e
 			}
 		}
-		images, imageEvidence, imageErr := s.figureEvidence(ctx, uid, question, citations)
-		if imageErr != nil {
-			return domain.ChatResult{}, imageErr
-		}
-		if len(images) > 0 {
-			if s.Vision == nil || s.Vision.APIKey == "" {
-				return domain.ChatResult{}, &PublicError{Status: 503, Message: "本次问题需要理解原图，视觉模型尚未配置。可先查看引用原文（Vision model required）"}
-			}
-			answer, err = s.Vision.answerWithImages(ctx, question, evidence.String()+imageEvidence, history, images, func(delta string) error {
-				if emit != nil {
-					return emit("delta", map[string]string{"text": delta})
-				}
-				return nil
-			})
-		} else if llm, ok := s.LLM.(domain.StreamingLLM); ok {
-			answer, err = llm.AnswerStream(ctx, question, evidence.String(), history, func(delta string) error {
-				if emit != nil {
-					return emit("delta", map[string]string{"text": delta})
-				}
-				return nil
-			})
+		// Buffer model output until citation numbers have been checked. The model
+		// only edits text evidence; visual inference is not an answer source.
+		if llm, ok := s.LLM.(domain.StreamingLLM); ok {
+			answer, err = llm.AnswerStream(ctx, question, evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
 			answer, err = s.LLM.Answer(ctx, question, evidence.String())
-			if err == nil && emit != nil {
-				err = emit("delta", map[string]string{"text": answer})
-			}
 		}
 		if err != nil {
 			return domain.ChatResult{}, err
+		}
+		if !validAnswerCitations(answer, len(citations)) {
+			answer = "回答的引用标注未通过校验，以下仅展示检索原文，不作为完整结论：\n\n"
+			for i, c := range citations {
+				answer += fmt.Sprintf("%s [%d]\n\n", c.Excerpt, i+1)
+			}
+		}
+		if emit != nil {
+			if e := emit("delta", map[string]string{"text": answer}); e != nil {
+				return domain.ChatResult{}, e
+			}
 		}
 	}
 	if len(citations) == 0 && emit != nil {
@@ -239,4 +242,22 @@ func citationPage(meta map[string]any) int {
 		return int(v)
 	}
 	return 0
+}
+
+var answerCitationPattern = regexp.MustCompile(`\[([0-9]+)\]`)
+
+// This checks citation integrity, not semantic entailment. Source excerpts remain
+// available for independent verification of every model-organized answer.
+func validAnswerCitations(answer string, count int) bool {
+	refs := answerCitationPattern.FindAllStringSubmatch(answer, -1)
+	if len(refs) == 0 {
+		return false
+	}
+	for _, ref := range refs {
+		n, err := strconv.Atoi(ref[1])
+		if err != nil || n < 1 || n > count {
+			return false
+		}
+	}
+	return true
 }
