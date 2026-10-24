@@ -574,3 +574,6 @@ docker compose logs --tail=200 postgres
 
 
 2026-10-24：单文件 MAX_UPLOAD_MB 可配置范围提高至 1–2048 MiB，默认仍为 200 MiB。同步 Nginx multipart 传输上限 2049m、上传超时 30 分钟及升级脚本；远程解析请求改为文件流发送，Python 解析入口按块写临时文件，避免完整大文件额外驻留内存。上传上限不等于可解析页数和 OCR 质量承诺；内置 PDF 仍受现有页数和任务时限约束。
+
+
+2026-10-24：补齐 Docker Word DOC/DOCX 内置转换与逐页 OCR。LibreOffice Writer 和中文字体作为通用依赖；原始文件保留，转换 PDF 按源文件版本缓存，避免批处理反复整本文档转换。引用页码明确为 Word 转换排版页码，不宣称与原 Word/WPS 页码完全一致。新增真实 DOC、文字 DOCX、图文 DOCX 合成回归，扫描页通过 Tesseract OCR。仍须人工核对公式、表格及字体替换；缓存文件暂随资料存储保留，不做历史缓存自动回收。

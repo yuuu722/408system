@@ -108,6 +108,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 				c.SourceLocation = fmt.Sprintf("文本片段%d", c.ChunkIndex+1)
 			}
 		}
+		if page := citationPage(c.Metadata); page > 0 && (strings.HasSuffix(strings.ToLower(c.DocumentTitle), ".doc") || strings.HasSuffix(strings.ToLower(c.DocumentTitle), ".docx")) {
+			c.SourceLocation = fmt.Sprintf("Word转换第%d页 · %s", page, c.SourceLocation)
+		}
 		citationNumber := len(citations) + 1
 		fmt.Fprintf(&evidence, "[%d] %s（%s）\n%s\n\n", citationNumber, c.DocumentTitle, c.SourceLocation, c.Content)
 		excerpt := []rune(c.Content)

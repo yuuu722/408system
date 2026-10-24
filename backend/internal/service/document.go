@@ -111,12 +111,15 @@ func (s *DocumentService) Upload(ctx context.Context, uid, kid, resourceType str
 			return domain.Document{}, domain.ErrForbidden
 		}
 	}
-	allowed := map[string]bool{"text/plain": true, "text/markdown": true, "application/pdf": true, "application/vnd.openxmlformats-officedocument.wordprocessingml.document": true}
+	allowed := map[string]bool{"text/plain": true, "text/markdown": true, "application/pdf": true, "application/msword": true, "application/vnd.openxmlformats-officedocument.wordprocessingml.document": true}
 	mime := strings.TrimSpace(strings.Split(h.Header.Get("Content-Type"), ";")[0])
 	ext := strings.ToLower(filepath.Ext(h.Filename))
 	if mime == "application/octet-stream" || mime == "" {
 		if ext == ".pdf" {
 			mime = "application/pdf"
+		}
+		if ext == ".doc" {
+			mime = "application/msword"
 		}
 		if ext == ".docx" {
 			mime = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -126,8 +129,8 @@ func (s *DocumentService) Upload(ctx context.Context, uid, kid, resourceType str
 			mime = "text/plain"
 		}
 	}
-	if !allowed[mime] || !(ext == ".txt" || ext == ".md" || ext == ".markdown" || ext == ".pdf" || ext == ".docx") {
-		return domain.Document{}, fmt.Errorf("仅支持 TXT、Markdown、PDF 和 DOCX（Unsupported file type）")
+	if !allowed[mime] || !(ext == ".txt" || ext == ".md" || ext == ".markdown" || ext == ".pdf" || ext == ".doc" || ext == ".docx") {
+		return domain.Document{}, fmt.Errorf("仅支持 TXT、Markdown、PDF、DOC 和 DOCX（Unsupported file type）")
 	}
 	if h.Size <= 0 || h.Size > s.MaxBytes {
 		return domain.Document{}, &domain.RequestError{Status: 413, Message: fmt.Sprintf("文件须为1字节至%d MB", s.MaxBytes>>20)}

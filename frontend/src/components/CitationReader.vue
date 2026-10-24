@@ -41,7 +41,7 @@ watch(()=>props.source,async source=>{
    const task=pdfjs.getDocument({data:bytes,enableXfa:false});loadingTask=task;const loaded=await task.promise
    if(id!==epoch){void task.destroy();return};pdf=loaded;pdfMode.value=true;index.value=Math.max(0,Math.min((source.Page??1)-1,pdf.numPages-1))
    await nextTick();await paint()
-  }else{index.value=Math.max(0,structure.Pages.findIndex(p=>(p.Segment??0)===(source.Regions?.[0]?.Segment??0)))}
+  }else{index.value=Math.max(0,structure.Pages.findIndex(p=>source.Page&&source.Page>0?p.Number===source.Page:(p.Segment??0)===(source.Regions?.[0]?.Segment??0)))}
   if(!source.Regions?.length)notice.value='该引用尚无精确位置映射，显示页码与历史引用片段。'
   else if(pdfMode.value&&!mapped.value.length)notice.value='当前页面暂无可靠坐标，显示页码与引用片段。'
  }catch(e){if(id===epoch)error.value=messageOf(e)}finally{if(id===epoch)busy.value=false}

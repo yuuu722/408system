@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 
 TYPES = {"textbook", "past_exam", "solution", "courseware", "notes", "other"}
-SUPPORTED = {".pdf", ".docx", ".txt", ".md", ".markdown"}
+SUPPORTED = {".pdf", ".doc", ".docx", ".txt", ".md", ".markdown"}
 RULES = [
     ("solution", r"解析|详解|答案|解答|solution|answer"),
     ("past_exam", r"真题|历年|统考|past.?exam"),

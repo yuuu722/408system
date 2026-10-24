@@ -96,6 +96,11 @@ class ImportTests(unittest.TestCase):
         (self.root/'资料.zip').write_bytes(b'zip')
         with self.assertRaisesRegex(ValueError,'不支持'): self.run_import()
         self.assertEqual(FakeAPI.calls,[])
+    def test_legacy_doc_is_an_uploadable_input(self):
+        (self.root/'旧版教材.doc').write_bytes(b'synthetic')
+        files=m.inventory(self.root)
+        self.assertTrue(all(f['Supported'] for f in files))
+
     def test_plan_only_has_no_network_or_changes(self):
         self.args.apply=False
         self.run_import()

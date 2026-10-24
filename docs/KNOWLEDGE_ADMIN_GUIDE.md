@@ -80,3 +80,10 @@ docker compose logs --tail 80 backend worker
 公共库默认不再提供内置示例讲义/练习，由管理员上传正式资料。升级迁移只清理未编辑的旧示例，保留四科目录及自行上传的资料；旧示例物理文件暂不回收，引用旧示例的历史对话可能无法再打开来源。
 
 智能答疑严格检索下拉框所选知识库，不自动混入其他公共库；旧 IncludePersonal 参数不再扩展检索范围。上传必须处理完成，并使用与当前检索相同的向量空间。正常 AI 组织回答需要配置 LLM_BASE_URL、LLM_API_KEY、LLM_MODEL，并设置 AI_DEMO_MODE=false；lexical 索引无需嵌入模型密钥。模型未配置时不能生成 AI 回答。无依据不调用回答模型。引用显示文件、来源位置、原文摘要，点击编号查看原文。模型输出通过引用编号校验后才展示，校验失败展示原文摘录。该校验不保证语义完全忠实，请核对原文。
+
+
+## Word 文档和失败任务恢复
+
+更新 Docker 后支持 Word 97–2003 二进制 `.doc` 及 `.docx`。内置流程使用 LibreOffice Writer 排版转换，再按页提取文本，对文字不足的页调用中文/英文 OCR。保留原始 Word，转换缓存与资料一起存储。图片中的公式和复杂表格可能识别不准确；转换页码可能与 Word/WPS 排版不同，引用会标明“Word转换第 N 页”，阅读器展示对应页的解析文本、警告并可下载原文件。独立 Python 解析服务仍只接受 PDF/DOCX；DOC 由 Go 先转换后发送 PDF。
+
+运行 `git pull --ff-only origin main` 和 `docker compose up -d --build --force-recreate backend worker frontend`。等待镜像构建完成后，对已有图片 DOCX 在管理员页面点击“重新处理”，无需重新上传。任务解析指纹已更新，旧失败的解析检查点不会被误当作新结果。运行原目录导入命令续接批次。该批次源目录及 classification.csv 不要改动；新加 DOC 文件应另建批次或重新规划导入。

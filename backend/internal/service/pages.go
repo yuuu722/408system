@@ -33,6 +33,9 @@ func ValidBody(text string) bool {
 
 func (p Parser) ParsePages(ctx context.Context, path, mime string) (pages []TextPage, err error) {
 	ext := strings.ToLower(filepath.Ext(path))
+	if result, _, handled, e := p.wordBatch(ctx, path, 1, 0); handled {
+		return result, e
+	}
 	if p.useRemote() && (ext == ".pdf" || ext == ".docx") {
 		return p.remotePages(ctx, path)
 	}

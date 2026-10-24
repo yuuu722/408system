@@ -23,7 +23,7 @@ func (p Parser) Fingerprint() string {
 	if version == "" {
 		version = "408-parser-v2"
 	}
-	return version + "/native-v3/" + p.Mode + "/" + p.Endpoint
+	return version + "/native-v4-word/" + p.Mode + "/" + p.Endpoint
 }
 func (p Parser) remotePages(ctx context.Context, path string) ([]TextPage, error) {
 	pages, _, e := p.remoteBatch(ctx, path, 1, 0)
@@ -31,6 +31,9 @@ func (p Parser) remotePages(ctx context.Context, path string) ([]TextPage, error
 }
 func (p Parser) ParsePageBatch(ctx context.Context, path, mime string, start, limit int) ([]TextPage, int, error) {
 	ext := strings.ToLower(filepath.Ext(path))
+	if pages, total, handled, err := p.wordBatch(ctx, path, start, limit); handled {
+		return pages, total, err
+	}
 	if p.useRemote() && (ext == ".pdf" || ext == ".docx") {
 		return p.remoteBatch(ctx, path, start, limit)
 	}
