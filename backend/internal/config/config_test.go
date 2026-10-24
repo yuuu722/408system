@@ -77,7 +77,17 @@ func TestStandaloneKnowledgeProcessingDefaults(t *testing.T) {
 	if c.UsesLocalIndex() || c.EmbeddingSpace() == localSpace {
 		t.Fatal("remote space must be isolated")
 	}
-	t.Setenv("MAX_UPLOAD_MB", "513")
+	for _, size := range []string{"513", "1024", "2048"} {
+		t.Setenv("MAX_UPLOAD_MB", size)
+		c, err := Load()
+		if err != nil {
+			t.Fatalf("large file limit %s rejected: %v", size, err)
+		}
+		if size == "2048" && c.MaxUploadBytes != int64(2)<<30 {
+			t.Fatal("2 GiB limit overflow")
+		}
+	}
+	t.Setenv("MAX_UPLOAD_MB", "2049")
 	if _, e := Load(); e == nil {
 		t.Fatal("oversized transport setting accepted")
 	}

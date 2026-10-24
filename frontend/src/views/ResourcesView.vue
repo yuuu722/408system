@@ -68,7 +68,7 @@ async function upload() {
   try {
     const body=new FormData();body.append('file',file.value);body.append('resource_type',resourceType.value)
     uploadProgress.value=0
-    await api.request({method:replaceTarget.value?'PUT':'POST',url:replaceTarget.value?`/documents/${replaceTarget.value.ID}/file`:`/knowledge-bases/${target}/documents`,data:body,timeout:600000,onUploadProgress:e=>{if(e.total)uploadProgress.value=Math.round(e.loaded/e.total*100)}})
+    await api.request({method:replaceTarget.value?'PUT':'POST',url:replaceTarget.value?`/documents/${replaceTarget.value.ID}/file`:`/knowledge-bases/${target}/documents`,data:body,timeout:1800000,onUploadProgress:e=>{if(e.total)uploadProgress.value=Math.round(e.loaded/e.total*100)}})
     replaceTarget.value=null
     showUpload.value = false; file.value = null; MessagePlugin.success('已上传，正在处理')
     if (target === active.value) await loadDocs()

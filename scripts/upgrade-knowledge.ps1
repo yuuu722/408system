@@ -1,4 +1,4 @@
-param([ValidateRange(1,512)][int]$MaxUploadMB = 200)
+param([ValidateRange(1,2048)][int]$MaxUploadMB = 200)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $root

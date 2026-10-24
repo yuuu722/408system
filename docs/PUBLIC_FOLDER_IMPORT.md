@@ -27,3 +27,6 @@ py -3 scripts/import-public-folder.py --source "D:\Edge Download\qq\组会考研
 `.cache/public-import/import-state.json` 保存批次状态，`processing-results.json` 保存就绪/失败信息。处理失败时旧资料保留，先在网页修复并重试失败任务，再运行相同命令继续，已记录的文件不会重复上传。网络在服务接收成功但客户端未记账时中断，重试可能产生单个重复文件，应检查记录与网页。处理就绪不保证 OCR 或图谱语义质量，请抽查解析结果和引用原文。默认最多等待 24 小时，可通过 --wait-hours 修改。
 
 完成后同一批次重复运行不会重复导入。导入不同文件集时使用不同 --report-dir。若提示找不到 py，需要先安装 Python 3 并启用启动器，或使用已安装的 python 替换 py -3。
+
+
+大于 200 MiB 的教材：可将本机 `.env` 的 `MAX_UPLOAD_MB` 改为 `2048`（最大 2 GiB），执行 `docker compose up -d --build --force-recreate backend worker frontend`。API 能力接口会公布生效限制，无需修改分类清单；保持原批次命令即可继续。默认值仍为 200 MiB，独立 Python 解析服务若启用也须同步其环境变量并重启。当前内置 PDF 页数上限仍为 2000 页，大文件仍应抽查解析结果。

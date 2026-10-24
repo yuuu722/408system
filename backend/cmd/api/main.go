@@ -74,7 +74,7 @@ func main() {
 		}
 		return
 	}
-	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 10 * time.Minute, WriteTimeout: 120 * time.Second, IdleTimeout: 60 * time.Second}
+	httpServer := &http.Server{Addr: cfg.HTTPAddr, Handler: srv.Handler(), ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second}
 	go func() {
 		log.Info("server listening", "address", cfg.HTTPAddr)
 		if e := httpServer.ListenAndServe(); e != nil && e != http.ErrServerClosed {

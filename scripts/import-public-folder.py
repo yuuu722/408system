@@ -94,7 +94,7 @@ class API:
         tail = f"\r\n--{boundary}--\r\n".encode()
         target = urllib.parse.urlsplit(self.base + f"/knowledge-bases/{kb}/documents")
         connection = (http.client.HTTPSConnection if target.scheme == "https" else http.client.HTTPConnection)(
-            target.hostname, target.port, timeout=600)
+            target.hostname, target.port, timeout=1800)
         try:
             connection.putrequest("POST", target.path)
             connection.putheader("Authorization", "Bearer " + self.token)

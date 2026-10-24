@@ -60,19 +60,31 @@ func (p Parser) remoteBatch(ctx context.Context, path string, start, limit int) 
 	if e != nil {
 		return nil, 0, e
 	}
-	if _, e = io.Copy(part, f); e != nil {
+	_ = part // Only multipart headers are buffered; file data is streamed from disk.
+	header := append([]byte(nil), body.Bytes()...)
+	body.Reset()
+	if e = mw.WriteField("start_page", fmt.Sprint(start)); e != nil {
 		return nil, 0, e
 	}
-	_ = mw.WriteField("start_page", fmt.Sprint(start))
-	_ = mw.WriteField("page_limit", fmt.Sprint(limit))
-	_ = mw.Close()
-	req, e := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(p.Endpoint, "/")+"/parse", &body)
+	if e = mw.WriteField("page_limit", fmt.Sprint(limit)); e != nil {
+		return nil, 0, e
+	}
+	if e = mw.Close(); e != nil {
+		return nil, 0, e
+	}
+	info, e := f.Stat()
 	if e != nil {
 		return nil, 0, e
 	}
+	content := io.MultiReader(bytes.NewReader(header), f, bytes.NewReader(body.Bytes()))
+	req, e := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(p.Endpoint, "/")+"/parse", content)
+	if e != nil {
+		return nil, 0, e
+	}
+	req.ContentLength = int64(len(header)) + info.Size() + int64(body.Len())
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+p.Token)
-	resp, e := (&http.Client{Timeout: 9 * time.Minute}).Do(req)
+	resp, e := (&http.Client{Timeout: 30 * time.Minute}).Do(req)
 	if e != nil {
 		return nil, 0, &PublicError{Status: 503, Retryable: true, Message: "结构化解析服务不可用或超时（Parser unavailable）"}
 	}

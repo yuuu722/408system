@@ -39,7 +39,7 @@ docker compose logs --tail 80 backend worker
 
 ## 上传与解析
 
-- 默认单文件 200 MiB，可通过 `MAX_UPLOAD_MB` 设置为 1–512；前端从后端读取实际限制，Nginx 允许文件和 multipart 开销。后端对请求与实际复制字节同时限制，临时上传文件会清理。
+- 默认单文件 200 MiB，可通过 `MAX_UPLOAD_MB` 设置为 1–2048；前端从后端读取实际限制，Nginx 允许文件和 multipart 开销。后端对请求与实际复制字节同时限制，临时上传文件会清理。
 - TXT/Markdown：支持 UTF-8、UTF-16 BOM 及可解码的 GB18030；编码转换保留提示。
 - PDF：Docker 内置 Poppler 按页提取文字；正文不足时调用本地 Tesseract OCR。扫描页保留识别提示，空白/图片页不会伪造正文；整份资料无有效正文时给出明确失败。支持至多 2000 页。
 - DOCX：内置提取正文和表格内文字；仅包含图片、复杂公式/版面需要另配结构化解析服务。内置处理不等于完整 Word/OCR/公式恢复。

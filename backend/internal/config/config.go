@@ -49,8 +49,8 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, fmt.Errorf("MAX_UPLOAD_MB: %w", err)
 	}
-	if maxMB < 1 || maxMB > 512 {
-		return Config{}, fmt.Errorf("MAX_UPLOAD_MB must be between 1 and 512")
+	if maxMB < 1 || maxMB > 2048 {
+		return Config{}, fmt.Errorf("MAX_UPLOAD_MB must be between 1 and 2048")
 	}
 	mode := env("EMBEDDING_MODE", "auto")
 	if mode != "auto" && mode != "lexical" && mode != "remote" {

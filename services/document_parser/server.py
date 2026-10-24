@@ -234,15 +234,22 @@ def parse(file: UploadFile = File(...), authorization: str = Header(default=""),
         raise HTTPException(400, "Unsupported document")
     if start_page < 1 or page_limit < 0 or page_limit > 16:
         raise HTTPException(400, "Invalid page range")
-    data = file.file.read(MAX_BYTES + 1)
-    if len(data) > MAX_BYTES:
-        raise HTTPException(413, "Document too large")
     if not lock.acquire(blocking=False):
         raise HTTPException(503, "Parser busy; retry later")
     try:
         with tempfile.TemporaryDirectory(prefix="408-parser-") as directory:
             path = Path(directory) / ("input" + extension)
-            path.write_bytes(data)
+            # Do not allocate a complete multi-GiB input in RAM.
+            size = 0
+            with path.open("wb") as output:
+                while True:
+                    block = file.file.read(min(1024 * 1024, MAX_BYTES - size + 1))
+                    if not block:
+                        break
+                    size += len(block)
+                    if size > MAX_BYTES:
+                        raise HTTPException(413, "Document too large")
+                    output.write(block)
             if extension == ".pdf":
                 with pdfium.PdfDocument(str(path)) as document:
                     total = len(document)
@@ -263,6 +270,8 @@ def parse(file: UploadFile = File(...), authorization: str = Header(default=""),
                 raise ValueError("page range exceeds document")
             return {"Engine": "408-structure-v2/paddleocr-3.3.2", "Pages": pages,
                     "TotalPages": total if page_limit else len(pages)}
+    except HTTPException:
+        raise
     except Exception:
         logging.exception("document parse failed")
         raise HTTPException(422, "Cannot parse document")
