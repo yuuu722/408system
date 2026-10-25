@@ -36,6 +36,13 @@ services:
       REDIS_ADDR: redis:6379
       STORAGE_ROOT: /data/uploads
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
+    healthcheck:
+      test: ["CMD", "/exam408", "healthcheck"]
+      interval: 5s
+      timeout: 3s
+      start_period: 20s
+      retries: 12
+    restart: unless-stopped
     ports: ["8080:8080"]
     volumes: ["uploads:/data/uploads"]
     depends_on:
@@ -60,7 +67,8 @@ services:
       context: .
       dockerfile: frontend/Dockerfile
     ports: ["5173:80"]
-    depends_on: [backend]
+    depends_on:
+      backend: { condition: service_healthy }
 volumes:
   postgres-data:
   redis-data:

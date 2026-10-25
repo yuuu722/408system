@@ -111,3 +111,20 @@ docker compose logs --tail 80 backend worker
 
 
 本地 lexical 索引先取较大的向量候选集，再按问题有效关键词覆盖率排序和筛选，不把长片段稀释后的余弦分数直接当成语义置信度；该分数是词面匹配分数而非语义证明。同义改写但没有词面重合时仍可能拒答。远程嵌入保留向量门槛，检索范围仍受所选知识库权限约束。
+
+
+## 答疑不可用的分层检查
+
+发送按钮灰色表示后端配置检查未通过，尚未开始检索。页面现在分别指出缺少 `LLM_API_KEY`（回答模型）还是 remote 模式缺少 `EMBEDDING_API_KEY`。lexical 不要求嵌入密钥，但 AI 措辞仍需要服务商有效回答密钥及匹配的 LLM_BASE_URL、LLM_MODEL；不能使用示例文字当作密钥。修改本机 .env 后须重新创建容器读取配置。不要向他人公开密钥。
+
+管理员可在智能答疑页点击“检测问答连接”，最多等待约 45 秒，分别显示检索服务和回答模型错误。它调用实际接口，可能产生模型调用费用；仅发送合成检测文本，不读取或发送知识库资料，也不回显模型原始回答和密钥。学生账号不能触发该检测。检测成功只表示接口响应有效，不保证索引空间一致、问题可在库中找到或模型答案正确。
+
+502 是代理/后端连通问题，与回答模型的缺配置不同。新版 Nginx 每 5 秒刷新 Docker DNS，在后端 IP 更换后可恢复；启动期间仍可能短暂失败。Compose 后端 `/exam408 healthcheck` 检查通过后才启动前端，不再依靠手动重启前端解决旧地址缓存。
+
+更新：`git pull --ff-only origin main`；`docker compose up -d --build backend worker frontend`。现有数据库、资料、索引、图谱保留。如需确认密钥是否进入容器，只打印配置是否存在，不打印密钥本身：
+
+```powershell
+docker compose exec -T backend sh -c 'echo LLM_API_KEY_CONFIGURED=${LLM_API_KEY:+yes}; echo EMBEDDING_MODE=$EMBEDDING_MODE'
+```
+
+`LLM_API_KEY_CONFIGURED=` 为空代表当前容器没有有效的非空环境值；`yes` 仅表示非空，仍需通过连接检测确认服务商是否接受。

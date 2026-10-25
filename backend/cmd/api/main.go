@@ -18,6 +18,12 @@ import (
 )
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
+		if err := checkHealth("http://127.0.0.1:8080/healthz"); err != nil {
+			os.Exit(1)
+		}
+		return
+	}
 	ctx := context.Background()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg, err := config.Load()

@@ -9,6 +9,7 @@ import (
 )
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
+	mux.Handle("POST /api/v1/admin/assistant/check", s.requireAdmin(http.HandlerFunc(s.checkAssistant)))
 	mux.Handle("POST /api/v1/admin/documents/retry-failed", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ KnowledgeBaseID string }
 		if !s.input(w, r, &in) {

@@ -4,6 +4,7 @@ import { learningApi } from '@/api/learning'
 import { foundation, streamChat, openDocument, type Conversation } from '@/api/foundation'
 import { api, messageOf } from '@/api/client'
 import type { Citation, KnowledgeBase, ChatResult } from '@/api/types'
+import {useAuthStore} from '@/stores/auth'
 import SafeAnswer from '@/components/SafeAnswer.vue'
 import CitationReader from '@/components/CitationReader.vue'
 interface Understanding {question:string;intent:string;knowledge_points:string[]}
@@ -12,6 +13,9 @@ const bases = ref<KnowledgeBase[]>([]), active = ref(''), question = ref(''), co
 const busy = ref(false), loading = ref(true), error = ref(''), messages = ref<Message[]>([]), box = ref<HTMLElement>()
 const history=ref<Conversation[]>([]),stage=ref(''),controller=ref<AbortController>()
 const activeSource=ref<Citation|null>(null)
+const auth=useAuthStore(),checking=ref(false),checkReport=ref<{passed:boolean;checks:{name:string;passed:boolean;message:string}[]}|null>(null)
+async function checkConnection(){if(checking.value||busy.value)return;checking.value=true;error.value='';checkReport.value=null;try{checkReport.value=(await api.post('/admin/assistant/check',{}, {timeout:55000})).data}catch(e){error.value=messageOf(e)}finally{checking.value=false}}
+
 const imageFile=ref<File|null>(null),imageURL=ref(''),recognizing=ref(false),recognized=ref(false),imageWarnings=ref<string[]>([]),imageMethod=ref('')
 const imageController=ref<AbortController>()
 function clearImage(){imageController.value?.abort();imageController.value=undefined;if(imageURL.value)URL.revokeObjectURL(imageURL.value);imageURL.value='';imageFile.value=null;recognized.value=false;imageWarnings.value=[];imageMethod.value=''}
@@ -61,6 +65,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
   <div class="assistant-page">
     <header class="page-head"><div><p class="eyebrow">GROUNDED LEARNING</p><h1>智能答疑</h1><p>选择知识库后提问，AI 仅整理检索资料，并提供原文出处。</p></div></header>
     <div v-if="!loading && !error && (status.mode === 'demo' || !status.enabled)" class="notice" :class="{ error: !status.enabled }" role="status"><strong>{{ status.mode === 'demo' ? '当前为资料片段预览，内容并非 AI 生成的回答。' : status.message || '智能答疑暂不可用，请稍后重试。' }}</strong><button v-if="!status.enabled" class="secondary" @click="load">重试</button></div>
+    <section v-if="auth.user?.role==='admin'" class="notice"><button class="secondary" :disabled="checking||busy" @click="checkConnection">{{checking?'正在检测检索与回答模型…':'检测问答连接'}}</button><small>会向已配置的模型发送一次简短连接测试，可能产生模型调用费用；不发送知识库资料。</small><ul v-if="checkReport"><li v-for="c in checkReport.checks" :key="c.name"><b>{{c.passed?'✓':'×'}} {{c.name}}</b>：{{c.message}}</li></ul></section>
     <div v-if="error" class="notice error" role="alert">{{ error }}<button v-if="!bases.length" class="secondary" @click="load">重新加载</button></div>
     <section class="card" style="max-width:1024px;margin:0 auto 16px"><label>历史会话（最近100个） <select :value="conversation" :disabled="busy||recognizing||loading" @change="selectConversation(($event.target as HTMLSelectElement).value)"><option value="">选择历史会话</option><option v-for="c in history" :key="c.ID" :value="c.ID">{{c.Title}}</option></select></label><div v-if="conversation" class="toolbar-actions" style="margin-top:10px"><button class="secondary" :disabled="busy||recognizing||loading" @click="rename">重命名</button><button class="secondary" :disabled="busy||recognizing||loading" @click="remove">删除会话</button><small>展示最近200条消息</small></div></section><section class="chat">
       <header class="chat-toolbar"><h2>408 智能助教</h2><div class="toolbar-actions"><select v-model="active" aria-label="选择问答知识库" :disabled="busy || recognizing || loading || !bases.length" @change="reset"><option value="" disabled>{{ loading ? '加载中…' : '选择知识库' }}</option><option v-for="kb in bases" :key="kb.ID" :value="kb.ID">{{ kb.Name }}{{kb.IsPublic?'（公共）':'（个人）'}}</option></select><button class="secondary" :disabled="busy || recognizing || !messages.length" @click="reset">新对话</button></div></header>
