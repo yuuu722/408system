@@ -28,6 +28,18 @@ func TestAssistantStatusModes(t *testing.T) {
 	}
 }
 
+func TestLocalIndexOnlyRequiresAnswerModel(t *testing.T) {
+	if !(Config{EmbeddingMode: "lexical", LLMAPIKey: "configured"}).AssistantStatus().Enabled {
+		t.Fatal("local index incorrectly requires embedding key")
+	}
+	if (Config{EmbeddingMode: "remote", LLMAPIKey: "configured"}).AssistantStatus().Enabled {
+		t.Fatal("remote embeddings still require a key")
+	}
+	if (Config{EmbeddingMode: "lexical"}).AssistantStatus().Enabled {
+		t.Fatal("answer model is still required")
+	}
+}
+
 func TestLoadRequiresJWTSecret(t *testing.T) {
 	setRequiredEnvironment(t)
 	t.Setenv("JWT_SECRET", "")

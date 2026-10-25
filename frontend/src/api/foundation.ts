@@ -34,9 +34,9 @@ export const foundation = {
  rename:(id:string,title:string)=>api.patch(`/conversations/${id}`,{Title:title}),
  removeConversation:(id:string)=>api.delete(`/conversations/${id}`),
 }
-export async function openDocument(id:string,page=0){
+export async function openDocument(id:string,page=0,revision=''){
  const target=window.open('about:blank','_blank');if(target)target.opener=null
- try{const r=await api.get(`/documents/${encodeURIComponent(id)}/file`,{responseType:'blob'});const url=URL.createObjectURL(r.data);if(target)target.location.href=url+(page>0?`#page=${page}`:'');else{URL.revokeObjectURL(url);throw new Error('请允许弹出窗口后重试（Popup blocked）')};setTimeout(()=>URL.revokeObjectURL(url),300000)}catch(e){target?.close();throw e}
+ try{const r=await api.get(`/documents/${encodeURIComponent(id)}/file`,{responseType:'blob',params:{revision}});const url=URL.createObjectURL(r.data);if(target)target.location.href=url+(page>0?`#page=${page}`:'');else{URL.revokeObjectURL(url);throw new Error('请允许弹出窗口后重试（Popup blocked）')};setTimeout(()=>URL.revokeObjectURL(url),300000)}catch(e){target?.close();throw e}
 }
 export async function streamChat(body:{KnowledgeBaseID:string;ConversationID:string;Question:string;IncludePersonal?:boolean},signal:AbortSignal,onEvent:(event:string,data:unknown)=>void){
  const response=await fetch(`${api.defaults.baseURL}/exam408/assistant/stream`,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${localStorage.getItem('exam408_token')??''}`},body:JSON.stringify(body),signal})

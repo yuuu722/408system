@@ -22,6 +22,8 @@ type OpenAIEmbedding struct {
 	LocalLexical           bool
 }
 
+func (p OpenAIEmbedding) IsLocalIndex() bool { return p.LocalLexical }
+
 func (p OpenAIEmbedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	if p.LocalLexical {
 		return (LexicalEmbedding{Dimension: p.Dimension}).Embed(ctx, texts)

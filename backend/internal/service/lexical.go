@@ -14,6 +14,8 @@ import (
 // model. Chinese bigrams and word features need neither a network nor API keys.
 type LexicalEmbedding struct{ Dimension int }
 
+func (LexicalEmbedding) IsLocalIndex() bool { return true }
+
 func (p LexicalEmbedding) Embed(ctx context.Context, texts []string) ([][]float32, error) {
 	if p.Dimension < 1 {
 		return nil, fmt.Errorf("invalid lexical dimension")

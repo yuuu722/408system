@@ -2,6 +2,7 @@ package service_test
 
 import (
 	"context"
+	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"github.com/local/exam408-assistant/backend/internal/service"
 	"github.com/local/exam408-assistant/backend/internal/testutil"
@@ -109,4 +110,31 @@ func TestRAGWithholdsInvalidCitationsAndReturnsOriginalEvidence(t *testing.T) {
 		require.Equal(t, "c1", result.Sources[0].ChunkID)
 		require.Equal(t, "第1页", result.Sources[0].Location)
 	}
+}
+
+func TestLocalRetrievalDoesNotRejectRelevantLongTextBySemanticCosineThreshold(t *testing.T) {
+	ctx := context.Background()
+	store := testutil.NewStore()
+	kb, err := store.CreateKnowledgeBase(ctx, "u1", "教材", "")
+	require.NoError(t, err)
+	var body strings.Builder
+	body.WriteString("虚拟内存为进程提供独立地址空间，并使用页表转换虚拟地址。\n")
+	for i := 0; i < 800; i++ {
+		fmt.Fprintf(&body, "syntheticfiller%d ", i)
+	}
+	embed := service.LexicalEmbedding{Dimension: 1024}
+	vectors, err := embed.Embed(ctx, []string{body.String(), "请根据教材说明为什么需要虚拟内存？"})
+	require.NoError(t, err)
+	var cosine float64
+	for i, v := range vectors[0] {
+		cosine += float64(v * vectors[1][i])
+	}
+	require.Less(t, cosine, .35, "fixture must expose the long-text cosine dilution problem")
+	store.Docs["book"] = domain.Document{ID: "book", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
+	store.Chunks = []domain.Chunk{{ID: "part", DocumentID: "book", KnowledgeBaseID: kb.ID, UserID: "u1", Content: body.String(), Embedding: vectors[0]}}
+	rag := service.RAGService{Store: store, Embedder: embed, LLM: editorialLLM{"虚拟内存为进程提供独立地址空间。[1]"}, Knowledge: service.KnowledgeService{Store: store}, Learning: service.LearningService{Store: store}, TopK: 5, MinScore: .35}
+	answer, err := rag.Chat(ctx, "u1", kb.ID, "", "请根据教材说明为什么需要虚拟内存？")
+	require.NoError(t, err)
+	require.Len(t, answer.Sources, 1)
+	require.Contains(t, answer.Answer, "[1]")
 }

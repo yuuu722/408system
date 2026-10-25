@@ -8,8 +8,12 @@ import (
 // A conservative lexical guard in addition to vector similarity. It deliberately
 // prefers abstention for synonyms with no textual overlap; this is not a semantic reranker.
 func evidenceRelated(question, evidence string) bool {
+	return lexicalEvidenceScore(question, evidence) >= .5
+}
+
+func lexicalEvidenceScore(question, evidence string) float64 {
 	q := strings.ToLower(question)
-	for _, stop := range []string{"为什么", "是什么", "如何", "怎么", "什么", "请问", "请解释", "解释一下", "需要", "介绍一下", "的", "吗", "呢"} {
+	for _, stop := range []string{"请根据知识库", "根据知识库", "请根据教材", "根据教材", "请根据资料", "根据资料", "说明一下", "请说明", "说明", "检索概念", "为什么", "是什么", "如何", "怎么", "什么", "请问", "请解释", "解释一下", "需要", "介绍一下", "请", "的", "吗", "呢"} {
 		q = strings.ReplaceAll(q, stop, " ")
 	}
 	parts := strings.FieldsFunc(q, func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
@@ -34,5 +38,8 @@ func evidenceRelated(question, evidence string) bool {
 			matched++
 		}
 	}
-	return len(tokens) > 0 && float64(matched)/float64(len(tokens)) >= 0.5
+	if len(tokens) == 0 {
+		return 0
+	}
+	return float64(matched) / float64(len(tokens))
 }

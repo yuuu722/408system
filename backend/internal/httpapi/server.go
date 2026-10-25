@@ -46,6 +46,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/admin/bootstrap", s.bootstrapAdmin)
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)
 	mux.HandleFunc("POST /api/v1/auth/login", s.login)
+	mux.Handle("POST /api/v1/exam408/assistant/recognize", s.auth(http.HandlerFunc(s.recognizeQuestion)))
 	mux.Handle("GET /api/v1/auth/me", s.auth(http.HandlerFunc(s.me)))
 	mux.Handle("GET /api/v1/knowledge-bases", s.auth(http.HandlerFunc(s.listKB)))
 	mux.Handle("POST /api/v1/knowledge-bases", s.auth(http.HandlerFunc(s.createKB)))

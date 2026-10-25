@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -50,6 +51,31 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		history = boundedHistory(history)
 	}
 	retrievalQuestion := contextualQuestion(question, history)
+	evidenceQuestion := retrievalQuestion
+	if emit != nil {
+		if e := emit("status", map[string]string{"stage": "understanding"}); e != nil {
+			return domain.ChatResult{}, e
+		}
+	}
+	detected, detectErr := s.Knowledge.Detect(ctx, question)
+	if detectErr != nil {
+		s.warn("question understanding failed", "error", detectErr)
+	}
+	names := []string{}
+	for _, point := range detected {
+		if len(names) >= 6 {
+			break
+		}
+		names = append(names, point.Name)
+	}
+	if len(names) > 0 {
+		retrievalQuestion += "\n检索概念：" + strings.Join(names, "、")
+	}
+	if emit != nil {
+		if e := emit("understanding", map[string]any{"question": question, "intent": questionIntent(question), "knowledge_points": names}); e != nil {
+			return domain.ChatResult{}, e
+		}
+	}
 	if emit != nil {
 		if e := emit("status", map[string]string{"stage": "retrieving"}); e != nil {
 			return domain.ChatResult{}, e
@@ -62,6 +88,14 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if len(vecs) != 1 || len(vecs[0]) == 0 {
 		return domain.ChatResult{}, fmt.Errorf("embedding provider returned an invalid vector response")
 	}
+	localIndex := false
+	if marker, ok := s.Embedder.(interface{ IsLocalIndex() bool }); ok {
+		localIndex = marker.IsLocalIndex()
+	}
+	candidateLimit := s.TopK
+	if localIndex {
+		candidateLimit = min(100, max(s.TopK, s.TopK*8))
+	}
 	var chunks []domain.Chunk
 	if scoped, ok := s.Store.(interface {
 		SearchChunksScoped(context.Context, string, string, []float32, int, bool) ([]domain.Chunk, error)
@@ -70,12 +104,22 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if len(includePersonal) > 0 {
 			include = includePersonal[0]
 		}
-		chunks, err = scoped.SearchChunksScoped(ctx, uid, kid, vecs[0], s.TopK, include)
+		chunks, err = scoped.SearchChunksScoped(ctx, uid, kid, vecs[0], candidateLimit, include)
 	} else {
-		chunks, err = s.Store.SearchChunks(ctx, uid, kid, vecs[0], s.TopK)
+		chunks, err = s.Store.SearchChunks(ctx, uid, kid, vecs[0], candidateLimit)
 	}
 	if err != nil {
 		return domain.ChatResult{}, err
+	}
+	if localIndex {
+		for i := range chunks {
+			if math.IsNaN(chunks[i].Score) || math.IsInf(chunks[i].Score, 0) {
+				chunks[i].Score = -1
+				continue
+			}
+			chunks[i].Score = lexicalEvidenceScore(evidenceQuestion, chunks[i].Content)
+		}
+		sort.SliceStable(chunks, func(i, j int) bool { return chunks[i].Score > chunks[j].Score })
 	}
 	if cid == "" {
 		title := []rune(question)
@@ -95,7 +139,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	var evidence strings.Builder
 	var citations []domain.Citation
 	for _, c := range chunks {
-		if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < s.MinScore || !evidenceRelated(retrievalQuestion, c.Content) {
+		if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < s.MinScore || !evidenceRelated(evidenceQuestion, c.Content) {
 			continue
 		}
 		if len(citations) >= s.TopK {
@@ -263,4 +307,25 @@ func validAnswerCitations(answer string, count int) bool {
 		}
 	}
 	return true
+}
+
+// Intent is a transparent rule label, never a generated answer or corpus fact.
+func questionIntent(question string) string {
+	for _, word := range []string{"区别", "比较", "对比", "异同"} {
+		if strings.Contains(question, word) {
+			return "比较分析"
+		}
+	}
+	q := strings.ReplaceAll(question, "计算机", "")
+	for _, word := range []string{"计算", "求解", "多少", "求出"} {
+		if strings.Contains(q, word) {
+			return "计算求解"
+		}
+	}
+	for _, word := range []string{"为什么", "原理", "如何", "解释", "是什么"} {
+		if strings.Contains(question, word) {
+			return "概念与原理"
+		}
+	}
+	return "资料问答"
 }
