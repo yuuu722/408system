@@ -22,6 +22,7 @@ const items=computed(()=>auth.user?.role==='admin'?[
  {path:'/exam408/admin/assets',label:'公共课程与题库',icon:FolderOpenIcon},
  {path:'/exam408/admin/graph',label:'知识图谱',icon:TreeListIcon},
  {path:'/exam408/admin/users',label:'用户管理',icon:ChartBubbleIcon},
+ {path:'/exam408/assistant',label:'智能答疑与连接检测',icon:ChatIcon},
 ]:studentItems)
 function logout() { auth.logout(); router.push('/login') }
 </script>
