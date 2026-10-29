@@ -92,10 +92,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if marker, ok := s.Embedder.(interface{ IsLocalIndex() bool }); ok {
 		localIndex = marker.IsLocalIndex()
 	}
-	candidateLimit := s.TopK
-	if localIndex {
-		candidateLimit = min(100, max(s.TopK, s.TopK*8))
-	}
+	candidateLimit := min(100, max(s.TopK, s.TopK*8))
 	var chunks []domain.Chunk
 	if scoped, ok := s.Store.(interface {
 		SearchChunksScoped(context.Context, string, string, []float32, int, bool) ([]domain.Chunk, error)
@@ -111,6 +108,16 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if err != nil {
 		return domain.ChatResult{}, err
 	}
+	// Remove non-evidence before ranking/truncation so high-scoring exercise
+	// sheets cannot crowd out textbook explanations from the candidate pool.
+	usable := chunks[:0]
+	for _, c := range chunks {
+		c.Content = answerEvidence(question, c.Content)
+		if c.Content != "" {
+			usable = append(usable, c)
+		}
+	}
+	chunks = usable
 	if localIndex {
 		for i := range chunks {
 			if math.IsNaN(chunks[i].Score) || math.IsInf(chunks[i].Score, 0) {
@@ -174,7 +181,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		citations = append(citations, citation)
 	}
-	answer := "当前知识库中没有找到与问题足够相关的资料，依据不足，暂时无法回答。请确认所选知识库，或上传相关资料后重试。"
+	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
 	if len(citations) > 0 {
 		if emit != nil {
 			if e := emit("status", map[string]string{"stage": "generating"}); e != nil {

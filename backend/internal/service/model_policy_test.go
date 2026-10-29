@@ -138,3 +138,22 @@ func TestLocalRetrievalDoesNotRejectRelevantLongTextBySemanticCosineThreshold(t 
 	require.Len(t, answer.Sources, 1)
 	require.Contains(t, answer.Answer, "[1]")
 }
+
+func TestConceptQuestionRejectsOutlineAndUnresolvedOptions(t *testing.T) {
+	ctx := context.Background()
+	for _, text := range []string{
+		"三、内存管理\n1.虚拟内存的基本概念\n2.请求分页管理方式\n3.页面置换算法",
+		"在内存为M、有N个用户的分时系统中，哪个说法正确？\nA. 虚拟内存使每个用户占用M/N内存\nB. 虚拟内存不需要物理内存",
+		"虚拟内存特征不包括哪个？\nA. 一次性 B. 多次性 C. 对换性 D. 离散性",
+	} {
+		st := testutil.NewStore()
+		kb, _ := st.CreateKnowledgeBase(ctx, "u1", "OS", "")
+		st.Docs["d"] = domain.Document{ID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
+		st.Chunks = []domain.Chunk{{ID: "c", DocumentID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Content: text, Embedding: []float32{1, 0}}}
+		rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: forbiddenLLM{t}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 5, MinScore: .35}
+		result, err := rag.Chat(ctx, "u1", kb.ID, "", "为什么需要虚拟内存？")
+		require.NoError(t, err)
+		require.Empty(t, result.Sources)
+		require.Contains(t, result.Answer, "依据不足")
+	}
+}
