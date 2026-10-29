@@ -9,6 +9,7 @@ import (
 )
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
+	s.catalogRoutes(mux)
 	mux.Handle("POST /api/v1/admin/assistant/check", s.requireAdmin(http.HandlerFunc(s.checkAssistant)))
 	mux.Handle("POST /api/v1/admin/documents/retry-failed", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ KnowledgeBaseID string }
@@ -59,7 +60,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 			s.fail(w, e)
 			return
 		}
-		d, e = s.Documents.Upload(r.Context(), uid(r), d.KnowledgeBaseID, r.FormValue("resource_type"), h, d.ID)
+		d, e = s.Documents.Upload(r.Context(), uid(r), d.KnowledgeBaseID, r.FormValue("resource_type"), h, d.ID, r.FormValue("purpose"))
 		if e != nil {
 			s.fail(w, e)
 			return

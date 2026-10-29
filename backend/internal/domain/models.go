@@ -14,6 +14,7 @@ type KnowledgeBase struct {
 	CreatedAt, UpdatedAt          time.Time
 }
 type Document struct {
+	Purpose                                                                                                            string `json:"-"`
 	ActiveRevisionID                                                                                                   string
 	Execution                                                                                                          int64 `json:"-"`
 	Progress, ProcessedChunks, TotalChunks                                                                             int

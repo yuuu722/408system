@@ -10,6 +10,10 @@ import (
 )
 
 func ValidateAsset(a domain.Asset) error {
+	if a.Payload.ReviewStatus != "" && a.Payload.ReviewStatus != "pending" && a.Payload.ReviewStatus != "published" {
+		return fmt.Errorf("审核状态不正确")
+	}
+
 	if a.Payload.EstimatedMinutes < 0 || a.Payload.EstimatedMinutes > 600 {
 		return fmt.Errorf("预计学习时长须在0至600分钟（Invalid duration）")
 	}

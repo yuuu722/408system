@@ -378,7 +378,7 @@ func (s *Server) uploadDocument(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, err)
 		return
 	}
-	d, err := s.Documents.Upload(r.Context(), uid(r), r.PathValue("id"), r.FormValue("resource_type"), h)
+	d, err := s.Documents.Upload(r.Context(), uid(r), r.PathValue("id"), r.FormValue("resource_type"), h, "", r.FormValue("purpose"))
 	if err != nil {
 		s.fail(w, err)
 		return

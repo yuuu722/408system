@@ -104,7 +104,7 @@ func TestRevisionRecoveryAndFencing(t *testing.T) {
 	makeDoc := func() domain.Document {
 		path := filepath.Join(t.TempDir(), "synthetic.txt")
 		require.NoError(t, os.WriteFile(path, []byte("immutable synthetic source"), 0600))
-		d, e := p.CreateDocument(ctx, domain.Document{UserID: user.ID, KnowledgeBaseID: kb.ID, Filename: "synthetic.txt", OriginalFilename: "synthetic.txt", StoragePath: path, MimeType: "text/plain", Status: "uploaded", ResourceType: "notes"})
+		d, e := p.CreateDocument(ctx, domain.Document{UserID: user.ID, KnowledgeBaseID: kb.ID, Filename: "synthetic.txt", OriginalFilename: "synthetic.txt", Purpose: "both", StoragePath: path, MimeType: "text/plain", Status: "uploaded", ResourceType: "notes"})
 		require.NoError(t, e)
 		return d
 	}
@@ -149,7 +149,7 @@ func TestRevisionRecoveryAndFencing(t *testing.T) {
 	parsed, e := p.DocumentStructure(ctx, user.ID, d.ID)
 	require.NoError(t, e)
 	require.Equal(t, active.ActiveRevisionID, parsed.RevisionID)
-	require.NoError(t, p.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE document_id=$1 AND status='ready'`, d.ID).Scan(&visible))
+	require.NoError(t, p.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE document_id=$1 AND status='unavailable' AND payload->>'ReviewStatus'='pending'`, d.ID).Scan(&visible))
 	require.Equal(t, 1, visible)
 
 	t.Run("old active remains readable during failed reprocessing", func(t *testing.T) {

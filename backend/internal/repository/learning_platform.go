@@ -41,7 +41,7 @@ func scanAsset(row pgx.Row) (a domain.Asset, err error) {
 const assetCols = `id,kind,COALESCE(point_id::text,''),title,status,revision,payload,is_public`
 
 func (p *Postgres) Assets(ctx context.Context, uid string) ([]domain.Asset, error) {
-	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE user_id=$1 OR is_public=true ORDER BY is_public DESC,updated_at DESC`, uid)
+	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE (user_id=$1 OR is_public=true) AND (COALESCE(payload->>'ExtractionKey','')='' OR NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=learning_assets.document_id AND dc.purpose='knowledge')) ORDER BY is_public DESC,updated_at DESC`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +79,15 @@ func (p *Postgres) SaveAsset(ctx context.Context, uid string, a domain.Asset) (d
 		d, e := p.Document(ctx, uid, a.Payload.DocumentID)
 		if e != nil {
 			return a, e
+		}
+		if a.Payload.ReviewStatus == "published" && a.Kind == "question" {
+			var purpose string
+			if e = p.DB.QueryRow(ctx, `SELECT COALESCE((SELECT purpose FROM document_catalog WHERE document_id=$1),'knowledge')`, d.ID).Scan(&purpose); e != nil {
+				return a, e
+			}
+			if purpose == "knowledge" {
+				return a, &domain.RequestError{Status: 409, Message: "请先将原文件用途设置为题库或知识库与题库"}
+			}
 		}
 		if a.IsPublic && a.Kind == "material" && a.Payload.Stem != "" && d.Status == "processing" {
 			return a, &domain.RequestError{Status: 409, Message: "资料正在处理，请完成后再编辑"}

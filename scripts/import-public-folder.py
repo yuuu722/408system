@@ -16,12 +16,13 @@ import urllib.request
 import uuid
 from pathlib import Path
 
-TYPES = {"textbook", "past_exam", "solution", "courseware", "notes", "other"}
+TYPES = {"textbook", "past_exam", "solution", "courseware", "notes", "outline", "other"}
 SUPPORTED = {".pdf", ".doc", ".docx", ".txt", ".md", ".markdown"}
 RULES = [
+    ("outline", r"考纲|大纲|syllabus"),
     ("solution", r"解析|详解|答案|解答|solution|answer"),
-    ("past_exam", r"真题|历年|统考|past.?exam"),
-    ("textbook", r"教材|教科书|课本|textbook|computer textbook"),
+    ("past_exam", r"真题|历年|统考|模拟|试卷|习题|题集|做题本|选择题|综合题|能力评估|past.?exam"),
+    ("textbook", r"教材|教科书|课本|复习全书|高清带书签|图书电子版|textbook|computer textbook"),
     ("courseware", r"课件|讲义|幻灯|courseware|slides"),
     ("notes", r"笔记|总结|复习|提纲|notes"),
 ]

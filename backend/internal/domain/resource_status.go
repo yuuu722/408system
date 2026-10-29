@@ -41,5 +41,16 @@ func PrepareAsset(a *Asset) {
 		a.Payload.Issue = "缺少资源地址（Missing resource）"
 		return
 	}
+	if a.Kind == "question" && a.Payload.ReviewStatus == "pending" {
+		return
+	}
+	if a.Payload.ReviewStatus == "published" && a.Kind == "question" && a.Payload.AnswerOrigin != "source" {
+		a.Payload.Issue = "缺少可靠答案，请补充来源后发布"
+		return
+	}
+	if a.Payload.ReviewStatus == "published" && a.Kind == "question" && strings.TrimSpace(a.Payload.Source) == "" && len(a.Payload.Evidence) == 0 {
+		a.Payload.Issue = "请填写可靠答案的来源说明"
+		return
+	}
 	a.Status = "ready"
 }

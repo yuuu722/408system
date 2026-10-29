@@ -19,7 +19,7 @@ const items=computed(()=>auth.user?.role==='admin'?[
  {path:'/exam408/admin',label:'管理概览',icon:DashboardIcon},
  {path:'/exam408/admin/resources',label:'公共资料管理',icon:FolderOpenIcon},
  {path:'/exam408/admin/knowledge',label:'考纲目录管理',icon:TreeListIcon},
- {path:'/exam408/admin/assets',label:'公共课程与题库',icon:FolderOpenIcon},
+ {path:'/exam408/admin/assets',label:'题库与课程审核',icon:FolderOpenIcon},
  {path:'/exam408/admin/graph',label:'知识图谱',icon:TreeListIcon},
  {path:'/exam408/admin/users',label:'用户管理',icon:ChartBubbleIcon},
  {path:'/exam408/assistant',label:'智能答疑与连接检测',icon:ChatIcon},

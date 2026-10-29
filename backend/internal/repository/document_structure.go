@@ -27,13 +27,21 @@ func saveDocumentStructureTx(ctx context.Context, tx pgx.Tx, uid, did string, pa
 	if _, e := tx.Exec(ctx, `INSERT INTO document_parses(document_id,payload) VALUES($1,$2) ON CONFLICT(document_id) DO UPDATE SET payload=$2,updated_at=now()`, did, raw); e != nil {
 		return e
 	}
+	var purpose string
+	if e := tx.QueryRow(ctx, `SELECT COALESCE((SELECT purpose FROM document_catalog WHERE document_id=$1),'knowledge')`, did).Scan(&purpose); e != nil {
+		return e
+	}
+	if purpose == "knowledge" {
+		return nil
+	}
 	ids := []string{}
 	for _, a := range assets {
 		a.ID = uuid.NewSHA1(uuid.NameSpaceOID, []byte(did+":"+a.Payload.ExtractionKey)).String()
 		ids = append(ids, a.ID)
+		a.Payload.ReviewStatus = "pending"
 		domain.PrepareAsset(&a)
 		payload, _ := json.Marshal(a.Payload)
-		if _, e := tx.Exec(ctx, `INSERT INTO learning_assets(id,user_id,kind,point_id,title,status,payload,document_id,is_public) VALUES($1,$2,'question',NULLIF($3,'')::uuid,$4,$5,$6,$7,(SELECT kb.is_public FROM documents d JOIN knowledge_bases kb ON kb.id=d.knowledge_base_id WHERE d.id=$7)) ON CONFLICT(id) DO UPDATE SET point_id=EXCLUDED.point_id,title=EXCLUDED.title,status=EXCLUDED.status,payload=EXCLUDED.payload,revision=learning_assets.revision+1,updated_at=now()`, a.ID, uid, a.PointID, a.Title, a.Status, payload, did); e != nil {
+		if _, e := tx.Exec(ctx, `INSERT INTO learning_assets(id,user_id,kind,point_id,title,status,payload,document_id,is_public) VALUES($1,$2,'question',NULLIF($3,'')::uuid,$4,$5,$6,$7,(SELECT kb.is_public FROM documents d JOIN knowledge_bases kb ON kb.id=d.knowledge_base_id WHERE d.id=$7)) ON CONFLICT(id) DO UPDATE SET point_id=EXCLUDED.point_id,title=EXCLUDED.title,status=EXCLUDED.status,payload=EXCLUDED.payload,revision=learning_assets.revision+1,updated_at=now() WHERE COALESCE(learning_assets.payload->>'ReviewStatus','')<>'published'`, a.ID, uid, a.PointID, a.Title, a.Status, payload, did); e != nil {
 			return e
 		}
 	}

@@ -2,7 +2,7 @@ import { api } from './client'
 import { errorMessage } from './errors'
 import type { ChatResult,Citation } from './types'
 
-export interface Asset { IsPublic?:boolean; ID:string;Kind:'question'|'video'|'material';PointID:string;Title:string;Status:string;Revision:number;Payload:{EstimatedMinutes?:number;DifficultyOrigin?:string;QuestionOrigin?:string;FamilyID?:string;ParentAssetID?:string;Evidence?:Citation[];AnswerOrigin?:string;Issue?:string;ExtractionKey?:string;Images?:string[];Stem:string;Options:string[];Answer:number;Explanation:string;Source:string;URL:string;DocumentID:string;Page:number;StartSeconds:number;EndSeconds:number;Difficulty:number} }
+export interface Asset { IsPublic?:boolean; ID:string;Kind:'question'|'video'|'material';PointID:string;Title:string;Status:string;Revision:number;Payload:{ReviewStatus?:string;EstimatedMinutes?:number;DifficultyOrigin?:string;QuestionOrigin?:string;FamilyID?:string;ParentAssetID?:string;Evidence?:Citation[];AnswerOrigin?:string;Issue?:string;ExtractionKey?:string;Images?:string[];Stem:string;Options:string[];Answer:number;Explanation:string;Source:string;URL:string;DocumentID:string;Page:number;StartSeconds:number;EndSeconds:number;Difficulty:number} }
 export interface Profile { GoalScore:number;DailyMinutes:number;ExamDate:string;Stage:string;Preference:string }
 export interface Result { Total:number;Correct:number;Counted?:number;Items:{AnswerOrigin?:string;Confirmation?:string;Counted?:boolean;ID:string;PointID:string;Selected:number;Answer:number;Correct:boolean;Explanation:string}[] }
 export interface Assessment { ID:string;Kind:string;Questions:Asset[];Result:Result|null;CreatedAt:string }

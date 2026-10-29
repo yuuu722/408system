@@ -245,7 +245,7 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 	t.Run("automatic extraction ownership replay and deletion", func(t *testing.T) {
 		source := filepath.Join(docs.StorageRoot, "questions.txt")
 		require.NoError(t, os.WriteFile(source, []byte("1. 下列关于"+points[0].Name+"的说法哪一个正确？\nA. 第一项描述 B. 第二项描述\n答案：A\n解析：这是工程合成样本。"), 0600))
-		d, e := store.CreateDocument(ctx, domain.Document{UserID: user.ID, KnowledgeBaseID: kb.ID, Filename: "questions.txt", OriginalFilename: "questions.txt", StoragePath: source, MimeType: "text/plain", Status: "uploaded", ResourceType: "notes"})
+		d, e := store.CreateDocument(ctx, domain.Document{UserID: user.ID, KnowledgeBaseID: kb.ID, Filename: "questions.txt", OriginalFilename: "questions.txt", Purpose: "both", StoragePath: source, MimeType: "text/plain", Status: "uploaded", ResourceType: "notes"})
 		require.NoError(t, e)
 		for i := 0; i < 2; i++ {
 			require.NoError(t, store.EnqueueDocument(ctx, user.ID, d.ID))
@@ -258,7 +258,7 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 		require.Len(t, parsed.Pages, 1)
 		call("GET", "/api/v1/documents/"+d.ID+"/structure", otherToken, nil, 404)
 		var n int
-		require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE document_id=$1 AND status='ready'`, d.ID).Scan(&n))
+		require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE document_id=$1 AND status='unavailable' AND payload->>'ReviewStatus'='pending'`, d.ID).Scan(&n))
 		require.Equal(t, 1, n)
 		require.NoError(t, store.DeleteDocument(ctx, user.ID, d.ID))
 		require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE document_id=$1`, d.ID).Scan(&n))

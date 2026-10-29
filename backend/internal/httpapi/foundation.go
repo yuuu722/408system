@@ -66,6 +66,20 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 			}
 			v = filtered
 		}
+		user, ue := s.Store.UserByID(r.Context(), uid(r))
+		if ue != nil {
+			s.fail(w, ue)
+			return
+		}
+		if user.Role != "admin" {
+			visible := []domain.Asset{}
+			for _, a := range v {
+				if a.Status == "ready" {
+					visible = append(visible, a)
+				}
+			}
+			v = visible
+		}
 		s.reply(w, v, e)
 	})
 	register("POST /api/v1/exam408/assets", s.saveAsset)
@@ -155,6 +169,10 @@ func (s *Server) saveAsset(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, e)
 			return
 		}
+		if old.Payload.ExtractionKey != "" && a.Payload.ReviewStatus != "published" {
+			a.Payload.ReviewStatus = "pending"
+		}
+		a.Payload.ExtractionKey = old.Payload.ExtractionKey
 		a.Payload.QuestionOrigin = old.Payload.QuestionOrigin
 		a.Payload.FamilyID = old.Payload.FamilyID
 		a.Payload.Evidence = old.Payload.Evidence

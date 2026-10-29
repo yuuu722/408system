@@ -135,6 +135,13 @@ func (s *DocumentService) Upload(ctx context.Context, uid, kid, resourceType str
 	if h.Size <= 0 || h.Size > s.MaxBytes {
 		return domain.Document{}, &domain.RequestError{Status: 413, Message: fmt.Sprintf("文件须为1字节至%d MB", s.MaxBytes>>20)}
 	}
+	purpose := "knowledge"
+	if len(replaceID) > 1 && replaceID[1] != "" {
+		purpose = replaceID[1]
+	}
+	if purpose != "knowledge" && purpose != "questions" && purpose != "both" {
+		return domain.Document{}, fmt.Errorf("不支持的资料用途")
+	}
 	if resourceType == "" {
 		resourceType = "other"
 	}
@@ -166,7 +173,7 @@ func (s *DocumentService) Upload(ctx context.Context, uid, kid, resourceType str
 		}
 		return domain.Document{}, closeErr
 	}
-	d := domain.Document{KnowledgeBaseID: kid, UserID: uid, Filename: name, OriginalFilename: filepath.Base(h.Filename), MimeType: mime, Size: h.Size, StoragePath: path, ResourceType: resourceType, Status: "uploaded"}
+	d := domain.Document{Purpose: purpose, KnowledgeBaseID: kid, UserID: uid, Filename: name, OriginalFilename: filepath.Base(h.Filename), MimeType: mime, Size: h.Size, StoragePath: path, ResourceType: resourceType, Status: "uploaded"}
 	if len(replaceID) > 0 && replaceID[0] != "" {
 		old, e := s.Store.Document(ctx, uid, replaceID[0])
 		if e != nil {

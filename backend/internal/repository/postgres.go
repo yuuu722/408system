@@ -97,8 +97,23 @@ func (p *Postgres) DeleteKnowledgeBase(ctx context.Context, uid, kid string) err
 
 func (p *Postgres) CreateDocument(ctx context.Context, d domain.Document) (domain.Document, error) {
 	d.ID = id()
-	err := p.DB.QueryRow(ctx, `INSERT INTO documents(id,knowledge_base_id,user_id,filename,original_filename,mime_type,size,storage_path,resource_type,status) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$2 AND ((kb.user_id=$3 AND kb.is_public=false) OR (kb.is_public=true AND EXISTS(SELECT 1 FROM users u WHERE u.id=$3 AND u.role='admin')))) RETURNING created_at,updated_at`, d.ID, d.KnowledgeBaseID, d.UserID, d.Filename, d.OriginalFilename, d.MimeType, d.Size, d.StoragePath, d.ResourceType, d.Status).Scan(&d.CreatedAt, &d.UpdatedAt)
-	return d, nf(err)
+	tx, err := p.DB.Begin(ctx)
+	if err != nil {
+		return d, err
+	}
+	defer tx.Rollback(ctx)
+	err = tx.QueryRow(ctx, `INSERT INTO documents(id,knowledge_base_id,user_id,filename,original_filename,mime_type,size,storage_path,resource_type,status) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$2 AND ((kb.user_id=$3 AND kb.is_public=false) OR (kb.is_public=true AND EXISTS(SELECT 1 FROM users u WHERE u.id=$3 AND u.role='admin')))) RETURNING created_at,updated_at`, d.ID, d.KnowledgeBaseID, d.UserID, d.Filename, d.OriginalFilename, d.MimeType, d.Size, d.StoragePath, d.ResourceType, d.Status).Scan(&d.CreatedAt, &d.UpdatedAt)
+	if err != nil {
+		return d, nf(err)
+	}
+	purpose := d.Purpose
+	if purpose == "" {
+		purpose = "knowledge"
+	}
+	if _, err = tx.Exec(ctx, `INSERT INTO document_catalog(document_id,resource_type,purpose) VALUES($1,$2,$3)`, d.ID, d.ResourceType, purpose); err != nil {
+		return d, err
+	}
+	return d, tx.Commit(ctx)
 }
 func scanDoc(row pgx.Row) (d domain.Document, err error) {
 	err = row.Scan(&d.ID, &d.KnowledgeBaseID, &d.UserID, &d.Filename, &d.OriginalFilename, &d.MimeType, &d.Size, &d.StoragePath, &d.ResourceType, &d.Status, &d.ErrorMessage, &d.CreatedAt, &d.UpdatedAt, &d.Progress, &d.ProcessingStage, &d.ProcessedChunks, &d.TotalChunks, &d.ActiveRevisionID)
@@ -213,6 +228,7 @@ func (p *Postgres) SearchChunksScoped(ctx context.Context, uid, kid string, v []
  WHERE EXISTS(SELECT 1 FROM knowledge_bases chosen WHERE chosen.id=$2 AND (chosen.user_id=$1 OR chosen.is_public))
  AND c.knowledge_base_id=$2 AND (kb.is_public OR c.user_id=$1)
  AND (d.status='ready' OR d.active_revision_id IS NOT NULL)
+ AND NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=d.id AND dc.purpose='questions')
  AND vector_dims(c.embedding)=$5 AND c.metadata->>'embedding_space'=$6
  ), ranked AS (SELECT *,row_number() OVER(PARTITION BY is_public ORDER BY embedding <=> $3::vector) rank FROM compatible)
  SELECT c.id,c.document_id,c.knowledge_base_id,c.user_id,c.content,c.chunk_index,c.source_location,c.metadata,c.original_filename,

@@ -26,6 +26,11 @@ func (p *Postgres) ReplaceDocument(ctx context.Context, actor string, d domain.D
 	if tag.RowsAffected() != 1 {
 		return d, ErrNotFound
 	}
+	if d.Purpose != "" {
+		if _, e = tx.Exec(ctx, `INSERT INTO document_catalog(document_id,resource_type,purpose) VALUES($1,$2,$3) ON CONFLICT(document_id) DO UPDATE SET resource_type=EXCLUDED.resource_type,purpose=EXCLUDED.purpose,review_state='pending',updated_at=now()`, d.ID, d.ResourceType, d.Purpose); e != nil {
+			return d, e
+		}
+	}
 	if _, e = tx.Exec(ctx, `INSERT INTO document_jobs(document_id) VALUES($1) ON CONFLICT(document_id) DO UPDATE SET state='queued',execution=document_jobs.execution+1,attempts=0,lease_until=NULL,last_error='',available_at=now(),updated_at=now()`, d.ID); e != nil {
 		return d, e
 	}
