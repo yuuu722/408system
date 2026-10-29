@@ -145,6 +145,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	}
 	var evidence strings.Builder
 	var citations []domain.Citation
+	var sourceContents []string
 	for _, c := range chunks {
 		if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < s.MinScore || !evidenceRelated(evidenceQuestion, c.Content) {
 			continue
@@ -180,6 +181,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			citation.LocationQuality = "blocks"
 		}
 		citations = append(citations, citation)
+		sourceContents = append(sourceContents, c.Content)
 	}
 	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
 	if len(citations) > 0 {
@@ -188,22 +190,22 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 				return domain.ChatResult{}, e
 			}
 		}
-		// Buffer model output until citation numbers have been checked. The model
-		// only edits text evidence; visual inference is not an answer source.
+		// Buffer model selections until each complete passage is matched to source text.
+		// Provider output is never shown as an unchecked factual paraphrase.
 		if llm, ok := s.LLM.(domain.StreamingLLM); ok {
-			answer, err = llm.AnswerStream(ctx, question, evidence.String(), history, func(string) error { return ctx.Err() })
+			answer, err = llm.AnswerStream(ctx, question+extractiveAnswerInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
-			answer, err = s.LLM.Answer(ctx, question, evidence.String())
+			answer, err = s.LLM.Answer(ctx, question+extractiveAnswerInstruction, evidence.String())
 		}
 		if err != nil {
 			return domain.ChatResult{}, err
 		}
-		if !validAnswerCitations(answer, len(citations)) {
-			answer = "回答的引用标注未通过校验，以下仅展示检索原文，不作为完整结论：\n\n"
-			for i, c := range citations {
-				answer += fmt.Sprintf("%s [%d]\n\n", c.Excerpt, i+1)
-			}
+		if text, sources, verified := selectedSourceAnswer(answer, sourceContents, citations); verified {
+			answer, citations = text, sources
+		} else {
+			answer, citations = sourceExcerptAnswer(sourceContents, citations)
 		}
+
 		if emit != nil {
 			if e := emit("delta", map[string]string{"text": answer}); e != nil {
 				return domain.ChatResult{}, e

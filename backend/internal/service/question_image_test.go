@@ -51,10 +51,11 @@ func TestImageQuestionTranscriptionThenGroundedAnswer(t *testing.T) {
 	require.NoError(t, err)
 	st.Docs["d1"] = domain.Document{ID: "d1", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
 	st.Chunks = []domain.Chunk{{ID: "c1", DocumentID: "d1", KnowledgeBaseID: kb.ID, UserID: "u1", DocumentTitle: "操作系统.pdf", Content: "虚拟内存为进程提供独立地址空间，页表用于地址转换。", SourceLocation: "第12页", Metadata: map[string]any{"page": 12, "revision_id": "r1"}, Embedding: []float32{1, 0}}}
-	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: editorialLLM{"虚拟内存为进程提供独立的地址空间。[1]"}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 5, MinScore: .35}
+	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: editorialLLM{`{"passages":[{"source":1,"quote":"虚拟内存为进程提供独立地址空间，页表用于地址转换。"}]}`}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 5, MinScore: .35}
 	answer, err := rag.Chat(context.Background(), "u1", kb.ID, "", recognized.Text)
 	require.NoError(t, err)
-	require.Contains(t, answer.Answer, "[1]")
+	require.Equal(t, "虚拟内存为进程提供独立地址空间，页表用于地址转换。", answer.Answer)
+	require.NotContains(t, answer.Answer, "根据资料")
 	require.Len(t, answer.Sources, 1)
 	require.Equal(t, "操作系统.pdf", answer.Sources[0].DocumentTitle)
 	require.Equal(t, 12, answer.Sources[0].Page)

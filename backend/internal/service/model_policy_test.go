@@ -104,7 +104,7 @@ func TestRAGWithholdsInvalidCitationsAndReturnsOriginalEvidence(t *testing.T) {
 		})
 		require.NoError(t, err)
 		require.NotContains(t, result.Answer, "模型编造的内容")
-		require.Contains(t, result.Answer, "虚拟内存用于地址隔离 [1]")
+		require.Contains(t, result.Answer, "虚拟内存用于地址隔离")
 		require.Equal(t, result.Answer, visible.String(), "unchecked model tokens must not reach the browser")
 		require.Len(t, result.Sources, 1)
 		require.Equal(t, "c1", result.Sources[0].ChunkID)
@@ -136,7 +136,7 @@ func TestLocalRetrievalDoesNotRejectRelevantLongTextBySemanticCosineThreshold(t 
 	answer, err := rag.Chat(ctx, "u1", kb.ID, "", "请根据教材说明为什么需要虚拟内存？")
 	require.NoError(t, err)
 	require.Len(t, answer.Sources, 1)
-	require.Contains(t, answer.Answer, "[1]")
+	require.Contains(t, answer.Answer, "虚拟内存为进程提供独立地址空间")
 }
 
 func TestConceptQuestionRejectsOutlineAndUnresolvedOptions(t *testing.T) {
