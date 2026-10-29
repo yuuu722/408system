@@ -35,7 +35,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		if current == nil {
 			return
 		}
-		if len(page.Warnings) > 0 {
+		if hasQuestionExtractionWarning(page.Warnings) {
 			current.issue = "页面存在解析异常，请查看原文（Incomplete extraction）"
 		}
 		for _, b := range page.Blocks {
@@ -71,7 +71,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			}
 			if answerMode {
 				// A partial/failed answer page must not become a source of automatic grades.
-				if len(page.Warnings) > 0 {
+				if hasQuestionExtractionWarning(page.Warnings) {
 					continue
 				}
 				for _, m := range answerEntry.FindAllStringSubmatch(line, -1) {
@@ -158,4 +158,18 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		out = append(out, a)
 	}
 	return out
+}
+
+// Pagination notices describe Word rendering, not lost question content.
+// Unknown warnings remain blocking; do not silently waive OCR/parser failures.
+func hasQuestionExtractionWarning(warnings []string) bool {
+	for _, warning := range warnings {
+		if strings.HasPrefix(warning, "Word转换页码：来自服务端排版，不保证与Word/WPS原始页码一致；请下载原文件核对。") {
+			continue
+		}
+		if strings.TrimSpace(warning) != "" {
+			return true
+		}
+	}
+	return false
 }
