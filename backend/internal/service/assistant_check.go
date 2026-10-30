@@ -32,6 +32,18 @@ func (s RAGService) CheckProviders(ctx context.Context) AssistantCheckReport {
 		}
 		return "连接检测失败，请管理员查看后端日志"
 	}
+	if s.KAGEnabled {
+		graph, ok := s.Store.(interface{ CheckGraph(context.Context) error })
+		if !ok {
+			report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", false, "图谱服务未接入"})
+			return report
+		}
+		if e := graph.CheckGraph(ctx); e != nil {
+			report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", false, "图谱连接失败，请检查Neo4j容器和凭据"})
+			return report
+		}
+		report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", true, "图谱服务可连接；文档与图谱同步情况以实际知识库为准"})
+	}
 	vectors, err := s.Embedder.Embed(ctx, []string{"408问答连接检测"})
 	if err != nil {
 		report.Checks = append(report.Checks, AssistantCheck{"检索服务", false, safe(err)})

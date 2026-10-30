@@ -300,7 +300,10 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, publicUser(u))
 }
 func (s *Server) createKB(w http.ResponseWriter, r *http.Request) {
-	var in struct{ Name, Description string }
+	var in struct {
+		Name, Description string
+		IsPublic          *bool
+	}
 	if err := decode(r, &in); err != nil {
 		s.fail(w, err)
 		return
@@ -315,7 +318,24 @@ func (s *Server) createKB(w http.ResponseWriter, r *http.Request) {
 	if !s.Config.PersonalKBEnabled {
 		k, err = s.Platform.CreatePublicKnowledgeBase(r.Context(), uid(r), in.Name, in.Description)
 	} else {
-		k, err = s.Store.CreateKnowledgeBase(r.Context(), uid(r), in.Name, in.Description)
+		actor, e := s.Store.UserByID(r.Context(), uid(r))
+		if e != nil {
+			s.fail(w, e)
+			return
+		}
+		public := actor.Role == "admin"
+		if in.IsPublic != nil {
+			public = *in.IsPublic
+		}
+		if public {
+			if actor.Role != "admin" {
+				s.fail(w, domain.ErrForbidden)
+				return
+			}
+			k, err = s.Platform.CreatePublicKnowledgeBase(r.Context(), uid(r), in.Name, in.Description)
+		} else {
+			k, err = s.Store.CreateKnowledgeBase(r.Context(), uid(r), in.Name, in.Description)
+		}
 	}
 	if err != nil {
 		s.fail(w, err)

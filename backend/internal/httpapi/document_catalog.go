@@ -7,6 +7,41 @@ import (
 )
 
 func (s *Server) catalogRoutes(mux *http.ServeMux) {
+	mux.Handle("POST /api/v1/knowledge-bases/{id}/rebuild-index", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		kid := r.PathValue("id")
+		kb, e := s.Store.KnowledgeBase(r.Context(), uid(r), kid)
+		if e != nil {
+			s.fail(w, e)
+			return
+		}
+		actor, e := s.Store.UserByID(r.Context(), uid(r))
+		if e != nil {
+			s.fail(w, e)
+			return
+		}
+		if kb.IsPublic && actor.Role != "admin" {
+			s.fail(w, domain.ErrForbidden)
+			return
+		}
+		docs, e := s.Store.ListDocuments(r.Context(), uid(r), kid)
+		if e != nil {
+			s.fail(w, e)
+			return
+		}
+		queued := 0
+		failures := []string{}
+		for _, d := range docs {
+			if d.Status != "ready" && d.Status != "failed" {
+				continue
+			}
+			if e = s.Documents.Reprocess(r.Context(), uid(r), d.ID); e != nil {
+				failures = append(failures, d.OriginalFilename)
+			} else {
+				queued++
+			}
+		}
+		s.reply(w, map[string]any{"queued": queued, "failed": failures}, nil)
+	})))
 	mux.Handle("GET /api/v1/knowledge-bases/{id}/catalog", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		docs, e := s.Store.ListDocuments(r.Context(), uid(r), r.PathValue("id"))
 		if e != nil {
@@ -36,7 +71,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 		}
 		s.reply(w, out, nil)
 	})))
-	mux.Handle("PATCH /api/v1/admin/documents/{id}/catalog", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	patch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var c domain.DocumentCatalog
 		if !s.input(w, r, &c) {
 			return
@@ -44,8 +79,10 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 		c.DocumentID = r.PathValue("id")
 		e := s.Platform.SaveCatalog(r.Context(), uid(r), c)
 		s.reply(w, c, e)
-	})))
-	mux.Handle("POST /api/v1/admin/documents/{id}/organize", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	})
+	mux.Handle("PATCH /api/v1/admin/documents/{id}/catalog", s.requireAdmin(patch))
+	mux.Handle("PATCH /api/v1/documents/{id}/catalog", s.auth(patch))
+	organize := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		d, e := s.Store.Document(r.Context(), uid(r), id)
 		if e != nil {
@@ -89,5 +126,8 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 		assets := service.ExtractQuestions(d, parsed.Pages, points)
 		e = s.Platform.RefreshQuestionCandidates(r.Context(), uid(r), d, parsed, assets)
 		s.reply(w, map[string]any{"catalog": c, "candidates": len(assets)}, e)
-	})))
+	})
+	mux.Handle("POST /api/v1/admin/documents/{id}/organize", s.requireAdmin(organize))
+	mux.Handle("POST /api/v1/documents/{id}/organize", s.auth(organize))
+
 }

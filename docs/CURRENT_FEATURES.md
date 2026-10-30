@@ -1,12 +1,12 @@
-> 2026-10-19 知识库管理更新：默认普通用户只读公共知识库，管理员进入独立工作台并可管理用户角色/停用状态；上传默认200 MiB，内置PDF/OCR、本地词法向量、规则定义候选图谱与文件生命周期同步。历史个人知识库功能默认关闭、数据保留。详见 [当前知识库与管理员指南](KNOWLEDGE_ADMIN_GUIDE.md)。以下旧功能条目中的个人资料操作仅在显式启用兼容模式时适用。
+> 2026-10-30：当前 Compose 使用 Neo4j 图谱查询和有界 KAG 链路，开放个人知识库，采用带章节/前提的分块及题库审核。启动与验收边界优先见 [最新升级说明](NEO4J_KAG_AND_CONTEXT.md)。
 
 # 当前功能与实现边界
 
-校准日期：2026-10-19。本文描述当前代码具备的能力；安装、操作和逐文件函数索引见 [使用与代码指南](USER_AND_CODE_GUIDE.md)。历史测试结果不等于真实教材或教学效果验收。
+校准日期：2026-10-30。本文描述当前代码具备的能力；安装、操作和逐文件函数索引见 [使用与代码指南](USER_AND_CODE_GUIDE.md)。历史测试结果不等于真实教材或教学效果验收。
 
 ## 1. 系统定位
 
-面向学生个人的 408 学习助手，主要流程为：直接浏览公共课程 → 公共资料答疑与测评 → 查看薄弱点和每日计划；可选择上传个人资料补充检索。四科内置 12 个目录、38 个基础主题和配套讲解、例题、原创练习，尚不是完整官方考纲或完整教材。详见 [公共课程与图谱](PUBLIC_KB_ADMIN_ROADMAP.md)。
+面向学生个人的 408 学习助手，主要流程为：直接浏览公共课程 → 公共资料答疑与测评 → 查看薄弱点和每日计划；可选择上传个人资料补充检索。提供四科知识点目录；公共教材、讲解和题目由管理员上传维护，不附带完整官方教材或题库。详见 [公共课程与图谱](PUBLIC_KB_ADMIN_ROADMAP.md)。
 
 ## 2. 已实现功能
 
@@ -16,13 +16,13 @@
 | 学习概览 | 展示四科知识点统计、掌握度、薄弱点及建议 | `/exam408`；`DashboardView.vue` |
 | 知识体系 | 四科知识点浏览、详情、关联资料、最近事件 | `/exam408/knowledge`；`service/learning.go` |
 | 个人知识库 | 创建/查看知识库，文档上传、删除、关联知识点、重新/继续处理；后端提供知识库删除 API | `/exam408/resources`；`service/document.go` |
-| 文档格式 | TXT、Markdown、PDF、DOCX；默认单文件 20 MiB；TXT/Markdown 走本地文本路径 | `service/pages.go`、`parser_transport.go` |
+| 文档格式 | TXT、Markdown、PDF、DOC/DOCX；默认单文件 200 MiB，可配置最高2GiB；TXT/Markdown 走本地文本路径 | `service/pages.go`、`parser_transport.go` |
 | 结构化解析 | 配置独立解析服务后，提取文字、图片、表格、公式和位置；提供原文、解析结果和警告查看 | `services/document_parser/server.py` |
 | 任务与恢复 | 独立 worker、持久化队列、租约、执行代号、页/逻辑段及向量批次检查点；完成版本原子启用 | `repository/document_jobs.go`、`document_revisions.go` |
 | 文档向量检索 | OpenAI 兼容嵌入接口或本地 text2vec；模型空间/维度过滤后进行余弦距离精确检索 | `config/embedding.go`、`repository/postgres.go` |
-| AI 答疑 | 默认公共检索、可选所选个人库、多轮上下文、流式输出、取消、历史恢复/改名/删除；低相关证据拒答 | `/exam408/assistant`；`service/rag.go`、`stream.go` |
+| AI 答疑 | 严格检索所选知识库，KAG 结合 Neo4j 两跳路径和文档检索；教材原句组织、前提与来源校验，正文后统一列来源；多轮、取消与历史记录 | `/exam408/assistant`；`service/rag.go`、`stream.go` |
 | 引用阅读 | Markdown、表格、数学公式安全排版；点击来源，在 PDF 原页显示证据区域，支持缩放和旋转 | `SafeAnswer.vue`、`CitationReader.vue` |
-| 题目与资源 | 手工录入/编辑/删除题目、教材/资料和视频链接；JSON 模板及导入；完整性检查后自动可用，无审核发布环节 | `/exam408/assets`；`AssetsView.vue` |
+| 题目与资源 | 手工录入/编辑/删除题目、教材/资料和视频链接；JSON 模板及导入；自动题目先待审核；发布需要知识点、完整题目、可靠答案和来源 | `/exam408/assets`；`AssetsView.vue` |
 | 自动抽题 | 从完整解析结果提取常见数字编号、A–F 选项单选题，匹配已有知识点及明确的资料答案 | `service/question_extract.go` |
 | 测评 | 学习目标问卷、初始诊断、练习、新题复测、历史报告和错题查看；后端判分、题目快照、幂等交卷 | `/exam408/assessment`；`repository/learning_platform.go` |
 | 辅助判分 | 无资料答案时，交卷后可请求 AI 参考答案与解析；用户确认正确/错误计入学情，不确定可撤回 | `question_ai.go`、`repository/personal.go` |

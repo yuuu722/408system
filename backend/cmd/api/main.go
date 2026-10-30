@@ -24,7 +24,8 @@ func main() {
 		}
 		return
 	}
-	ctx := context.Background()
+	ctx, stopBackground := context.WithCancel(context.Background())
+	defer stopBackground()
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	cfg, err := config.Load()
 	if err != nil {
@@ -52,6 +53,17 @@ func main() {
 		log.Error("resource availability", "error", err)
 		os.Exit(1)
 	}
+	if cfg.GraphBackend == "neo4j" {
+		store.Neo4j = &repository.Neo4jGraph{URL: cfg.Neo4jURL, Username: cfg.Neo4jUsername, Password: cfg.Neo4jPassword}
+		setup, cancel := context.WithTimeout(ctx, 30*time.Second)
+		err = store.Neo4j.Initialize(setup)
+		cancel()
+		if err != nil {
+			log.Error("Neo4j initialization failed", "error", err)
+			os.Exit(1)
+		}
+		go store.RunGraphSync(ctx, func(e error) { log.Error("graph synchronization pending retry", "error", e) })
+	}
 	embed := &service.OpenAIEmbedding{BaseURL: cfg.EmbeddingBaseURL, APIKey: cfg.EmbeddingAPIKey, Model: cfg.EmbeddingModel, Dimension: cfg.EmbeddingDimension, DemoMode: cfg.DemoMode, LocalLexical: cfg.UsesLocalIndex()}
 	llm := &service.OpenAILLM{BaseURL: cfg.LLMBaseURL, APIKey: cfg.LLMAPIKey, Model: cfg.LLMModel, DemoMode: cfg.DemoMode}
 	var graphLLM domain.LLMProvider
@@ -60,7 +72,7 @@ func main() {
 	}
 	learning := service.LearningService{Store: store}
 	knowledge := service.KnowledgeService{Store: store}
-	srv := &httpapi.Server{QuestionAI: service.QuestionAI{Text: *llm, Vision: service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}}, Platform: store, Store: store, Auth: service.AuthService{Store: store, Secret: []byte(cfg.JWTSecret), TTL: cfg.JWTTTL}, Documents: &service.DocumentService{EmbeddingSpace: cfg.EmbeddingSpace(), Store: store, Parser: service.Parser{Endpoint: os.Getenv("DOCUMENT_PARSER_URL"), Token: os.Getenv("DOCUMENT_PARSER_TOKEN"), Mode: os.Getenv("DOCUMENT_PARSER_MODE")}, Embedder: embed, GraphLLM: graphLLM, StorageRoot: cfg.StorageRoot, MaxBytes: cfg.MaxUploadBytes, Log: log}, Knowledge: knowledge, Learning: learning, Recommendations: service.RecommendationService{Store: store}, RAG: service.RAGService{Vision: &service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}, Store: store, Embedder: embed, LLM: llm, Knowledge: knowledge, Learning: learning, TopK: cfg.RAGTopK, MinScore: cfg.RAGMinScore, Log: log}, Config: cfg, Log: log}
+	srv := &httpapi.Server{QuestionAI: service.QuestionAI{Text: *llm, Vision: service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}}, Platform: store, Store: store, Auth: service.AuthService{Store: store, Secret: []byte(cfg.JWTSecret), TTL: cfg.JWTTTL}, Documents: &service.DocumentService{EmbeddingSpace: cfg.EmbeddingSpace(), Store: store, Parser: service.Parser{Endpoint: os.Getenv("DOCUMENT_PARSER_URL"), Token: os.Getenv("DOCUMENT_PARSER_TOKEN"), Mode: os.Getenv("DOCUMENT_PARSER_MODE")}, Embedder: embed, GraphLLM: graphLLM, StorageRoot: cfg.StorageRoot, MaxBytes: cfg.MaxUploadBytes, Log: log}, Knowledge: knowledge, Learning: learning, Recommendations: service.RecommendationService{Store: store}, RAG: service.RAGService{KAGEnabled: cfg.AssistantMode == "kag", Vision: &service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}, Store: store, Embedder: embed, LLM: llm, Knowledge: knowledge, Learning: learning, TopK: cfg.RAGTopK, MinScore: cfg.RAGMinScore, Log: log}, Config: cfg, Log: log}
 	srv.Generator = service.QuestionGenerator{Store: store, Embedder: embed, Model: *llm, MinScore: cfg.RAGMinScore}
 	if os.Getenv("APP_ROLE") == "worker" {
 		workerCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

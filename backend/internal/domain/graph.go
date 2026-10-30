@@ -25,6 +25,7 @@ type GraphEdge struct {
 }
 
 type KnowledgeGraph struct {
+	Storage         string
 	KnowledgeBaseID string
 	IsPublic        bool
 	Nodes           []GraphNode

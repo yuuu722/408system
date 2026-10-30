@@ -33,7 +33,7 @@ onMounted(async () => {
 </script>
 <template>
   <div class="graph-page">
-    <header class="page-head"><div><p class="eyebrow">KNOWLEDGE CONNECTIONS</p><h1>知识图谱</h1><p>从知识点出发，看见四科之间的联系，沿着关系回到资料原文。</p></div><div class="graph-actions"><select v-model="active" :disabled="loading" aria-label="选择知识库" @change="loadGraph"><option v-for="b in bases" :key="b.ID" :value="b.ID">{{ b.Name }}{{ b.IsPublic ? '（公共）' : '（个人）' }}</option></select><button class="secondary" :disabled="loading || !active" @click="loadGraph">{{ loading ? '加载中…' : '刷新图谱' }}</button></div></header>
+    <header class="page-head"><div><p class="eyebrow">KNOWLEDGE CONNECTIONS</p><h1>知识图谱</h1><p v-if="graph?.Storage" class="muted">图谱存储：{{graph.Storage==='neo4j'?'Neo4j':'PostgreSQL（兼容模式）'}}</p><p>从知识点出发，看见四科之间的联系，沿着关系回到资料原文。</p></div><div class="graph-actions"><select v-model="active" :disabled="loading" aria-label="选择知识库" @change="loadGraph"><option v-for="b in bases" :key="b.ID" :value="b.ID">{{ b.Name }}{{ b.IsPublic ? '（公共）' : '（个人）' }}</option></select><button class="secondary" :disabled="loading || !active" @click="loadGraph">{{ loading ? '加载中…' : '刷新图谱' }}</button></div></header>
     <section v-if="loading" class="card" role="status">正在加载知识点和关系……</section>
     <template v-else-if="graph">
       <KnowledgeGraphCanvas :nodes="graph.Nodes ?? []" :edges="graph.Edges ?? []" :points="points" @select="id => focused = id">

@@ -14,6 +14,14 @@ import (
 
 func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	s.personalRoutes(mux)
+	mux.Handle("PATCH /api/v1/knowledge-bases/{id}", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Name, Description string }
+		if !s.input(w, r, &in) {
+			return
+		}
+		k, e := s.Platform.UpdatePersonalKnowledgeBase(r.Context(), uid(r), r.PathValue("id"), in.Name, in.Description)
+		s.reply(w, k, e)
+	})))
 	s.adminRoutes(mux)
 	register := func(pattern string, handler http.HandlerFunc) { mux.Handle(pattern, s.auth(handler)) }
 	register("GET /api/v1/conversations", func(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +82,7 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 		if user.Role != "admin" {
 			visible := []domain.Asset{}
 			for _, a := range v {
-				if a.Status == "ready" {
+				if a.Status == "ready" || !a.IsPublic {
 					visible = append(visible, a)
 				}
 			}

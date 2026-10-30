@@ -10,7 +10,7 @@ const studentItems = [
   { path: '/exam408/assets', label: '题目与资源', icon: FolderOpenIcon },
   { path: '/exam408', label: '学情分析', icon: DashboardIcon },
   { path: '/exam408/assistant', label: '智能答疑', icon: ChatIcon },
-  { path: '/exam408/resources', label: '学习资料', icon: FolderOpenIcon },
+  { path: '/exam408/resources', label: '我的知识库与公共资料', icon: FolderOpenIcon },
   { path: '/exam408/knowledge', label: '知识体系', icon: TreeListIcon },
   { path: '/exam408/graph', label: '知识图谱', icon: TreeListIcon },
   { path: '/exam408/weakness', label: '薄弱点复习', icon: ChartBubbleIcon },

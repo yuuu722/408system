@@ -43,7 +43,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		e := s.Platform.UpdateManagedUser(r.Context(), uid(r), r.PathValue("id"), in.Role, in.Disabled)
 		s.reply(w, map[string]bool{"ok": e == nil}, e)
 	})))
-	mux.Handle("PUT /api/v1/documents/{id}/file", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("PUT /api/v1/documents/{id}/file", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		d, e := s.Store.Document(r.Context(), uid(r), r.PathValue("id"))
 		if e != nil {
 			s.fail(w, e)
@@ -79,7 +79,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		if s.Config.DemoMode {
 			mode = "demo"
 		}
-		write(w, 200, map[string]any{"max_upload_bytes": max, "index_mode": mode, "personal_kb_enabled": s.Config.PersonalKBEnabled, "native_ocr": service.NativeOCRAvailable()})
+		write(w, 200, map[string]any{"graph_backend": s.Config.GraphBackend, "assistant_mode": s.Config.AssistantMode, "max_upload_bytes": max, "index_mode": mode, "personal_kb_enabled": s.Config.PersonalKBEnabled, "native_ocr": service.NativeOCRAvailable()})
 	})))
 
 	save := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

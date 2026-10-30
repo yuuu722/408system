@@ -49,7 +49,7 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		parserKey = p.Fingerprint()
 	}
 	parseKey := digest(hash + "/" + parserKey)
-	chunkKey := digest(parseKey + "/canonical-v1/900/120")
+	chunkKey := digest(parseKey + "/context-v2/900/120")
 	points, e := s.Store.ListKnowledgePoints(ctx)
 	if e != nil {
 		return e
@@ -127,10 +127,7 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		}
 	}
 	if !rev.Chunked {
-		chunks := []domain.Chunk{}
-		for _, page := range pages {
-			chunks = append(chunks, MappedChunks(page, rev.ID, s.EmbeddingSpace)...)
-		}
+		chunks := ContextualChunks(pages, rev.ID, s.EmbeddingSpace, d.OriginalFilename)
 		if len(chunks) == 0 {
 			return fmt.Errorf("未提取到有效正文，可查看原文（No extractable text）")
 		}
@@ -155,7 +152,7 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		}
 		texts := make([]string, len(chunks))
 		for i, c := range chunks {
-			texts[i] = c.Content
+			texts[i] = chunkIndexText(c)
 		}
 		vectors, err := s.Embedder.Embed(ctx, texts)
 		if err != nil {
@@ -172,7 +169,9 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		return fmt.Errorf("源文件已改变，请重新处理（Source changed）")
 	}
 	parsed := domain.ParsedDocument{RevisionID: rev.ID, Pages: pages, Engine: parserKey}
-	if e = store.ActivateRevision(ctx, d, rev.ID, parsed, ExtractQuestions(d, pages, points)); e != nil { return e }
+	if e = store.ActivateRevision(ctx, d, rev.ID, parsed, ExtractQuestions(d, pages, points)); e != nil {
+		return e
+	}
 	s.extractGraphRelations(ctx, d, pages, points)
 	return nil
 }
@@ -229,12 +228,42 @@ func CanonicalPage(p *TextPage) {
 func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 	runes := []rune(page.Text)
 	out := []domain.Chunk{}
-	for start := 0; start < len(runes); start += 780 {
+	for start := 0; start < len(runes); {
 		end := min(start+900, len(runes))
+		hardBoundary := false
+		cursor := start
+		for _, line := range strings.Split(string(runes[start:end]), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if cursor > start && len([]rune(trimmed)) <= 80 && chapterHeading.MatchString(trimmed) && !strings.ContainsAny(trimmed, "。！？；") {
+				prose := false
+				for _, prefixLine := range strings.Split(string(runes[start:cursor]), "\n") {
+					prefixLine = strings.TrimSpace(prefixLine)
+					if prefixLine != "" && !chapterHeading.MatchString(prefixLine) {
+						prose = true
+						break
+					}
+				}
+				if prose {
+					end = cursor
+					hardBoundary = true
+					break
+				}
+			}
+			cursor += len([]rune(line)) + 1
+		}
+		if end < len(runes) && !hardBoundary {
+			for boundary := end - 1; boundary > start+450; boundary-- {
+				if strings.ContainsRune("。！？；\n", runes[boundary]) {
+					end = boundary + 1
+					break
+				}
+			}
+		}
 		if strings.TrimSpace(string(runes[start:end])) == "" {
 			if end == len(runes) {
 				break
 			}
+			start = end
 			continue
 		}
 		regions := []domain.SourceRegion{}
@@ -247,23 +276,39 @@ func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 				regions = append(regions, domain.SourceRegion{Page: page.Number, Segment: page.Segment, BlockID: b.ID, Start: max(start, b.Start), End: min(end, b.End), Box: bounds})
 			}
 		}
-		out = append(out, domain.Chunk{Content: string(runes[start:end]), Metadata: map[string]any{"page": page.Number, "revision_id": rid, "embedding_space": space, "regions": regions, "offset_unit": "unicode_codepoint"}})
+		out = append(out, domain.Chunk{Content: string(runes[start:end]), Metadata: map[string]any{"page": page.Number, "revision_id": rid, "embedding_space": space, "regions": regions, "offset_unit": "unicode_codepoint", "start": start, "end": end}})
 		if end == len(runes) {
 			break
 		}
+		if hardBoundary {
+			start = end
+			continue
+		}
+		next := max(start+1, end-120)
+		originalNext := next
+		for next < end && !strings.ContainsRune("。！？；\n", runes[next-1]) {
+			next++
+		}
+		if next == end {
+			next = originalNext
+		}
+		start = next
 	}
 	return out
 }
-
 
 // extractGraphRelations asks the configured model for candidate relationships,
 // then delegates all persistence to a validator that requires canonical point
 // codes, an allowed relation type, high confidence, and exact source evidence.
 // Extraction is best-effort: a model outage must not invalidate indexed text.
 func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Document, pages []TextPage, points []domain.KnowledgePoint) {
-	if s.GraphLLM == nil || len(points) < 2 { return }
+	if s.GraphLLM == nil || len(points) < 2 {
+		return
+	}
 	store, ok := s.Store.(domain.GraphCandidateStore)
-	if !ok { return }
+	if !ok {
+		return
+	}
 
 	var pointList strings.Builder
 	for _, p := range points {
@@ -271,13 +316,20 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 	}
 	var source strings.Builder
 	for _, page := range pages {
-		if source.Len() >= 12000 { break }
+		if source.Len() >= 12000 {
+			break
+		}
 		source.WriteString(page.Text)
 		source.WriteString("\n\n")
 	}
 	text := []rune(source.String())
-	if len(text) > 12000 { source.Reset(); source.WriteString(string(text[:12000])) }
-	if strings.TrimSpace(source.String()) == "" { return }
+	if len(text) > 12000 {
+		source.Reset()
+		source.WriteString(string(text[:12000]))
+	}
+	if strings.TrimSpace(source.String()) == "" {
+		return
+	}
 
 	prompt := "你是计算机考研教材知识图谱候选抽取器。只能把明确有原文证据的内容作为候选，不得臆造。\n" +
 		"entities 用于提取资料中的概念、算法、数据结构、协议、公式、机制或组件。entity_type 只能是 concept、algorithm、data_structure、protocol、formula、mechanism、component。实体名称要简洁且具体；evidence 必须是原文中连续、逐字一致的 12 至 300 个字符，并且包含该实体名称。\n" +
@@ -285,26 +337,29 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 		"只输出合法 JSON，不要 Markdown 或额外解释。格式：{\"entities\":[{\"name\":\"...\",\"entity_type\":\"concept\",\"description\":\"...\",\"evidence\":\"原文连续摘录且包含实体名称\",\"confidence\":0.85}],\"relations\":[{\"from_point_code\":\"...\",\"to_point_code\":\"...\",\"from_entity_name\":\"...\",\"to_entity_name\":\"...\",\"relation_type\":\"related\",\"evidence\":\"原文连续摘录\",\"confidence\":0.85}]}。无可靠候选时返回空数组。\n" +
 		"规范知识点代码与名称：\n" + pointList.String() + "\n资料原文：\n" + source.String()
 	raw, err := s.GraphLLM.Answer(ctx, prompt, "")
-	if err != nil { s.logError("graph candidate extraction failed", d.ID, err); return }
+	if err != nil {
+		s.logError("graph candidate extraction failed", d.ID, err)
+		return
+	}
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(raw, "```json")
 	raw = strings.TrimPrefix(raw, "```")
 	raw = strings.TrimSuffix(strings.TrimSpace(raw), "```")
 	var response struct {
 		Entities []struct {
-			Name string `json:"name"`
-			Type string `json:"entity_type"`
-			Description string `json:"description"`
-			Evidence string `json:"evidence"`
-			Confidence float64 `json:"confidence"`
+			Name        string  `json:"name"`
+			Type        string  `json:"entity_type"`
+			Description string  `json:"description"`
+			Evidence    string  `json:"evidence"`
+			Confidence  float64 `json:"confidence"`
 		} `json:"entities"`
 		Relations []struct {
-			FromCode string `json:"from_point_code"`
-			ToCode string `json:"to_point_code"`
-			FromName string `json:"from_entity_name"`
-			ToName string `json:"to_entity_name"`
-			Type string `json:"relation_type"`
-			Evidence string `json:"evidence"`
+			FromCode   string  `json:"from_point_code"`
+			ToCode     string  `json:"to_point_code"`
+			FromName   string  `json:"from_entity_name"`
+			ToName     string  `json:"to_entity_name"`
+			Type       string  `json:"relation_type"`
+			Evidence   string  `json:"evidence"`
 			Confidence float64 `json:"confidence"`
 		} `json:"relations"`
 	}
@@ -312,15 +367,19 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 		s.logError("graph candidate JSON invalid", d.ID, err)
 		return
 	}
-	if len(response.Entities) > 200 { response.Entities = response.Entities[:200] }
-	if len(response.Relations) > 200 { response.Relations = response.Relations[:200] }
+	if len(response.Entities) > 200 {
+		response.Entities = response.Entities[:200]
+	}
+	if len(response.Relations) > 200 {
+		response.Relations = response.Relations[:200]
+	}
 	entityCandidates := make([]domain.GraphEntityCandidate, 0, len(response.Entities))
 	for _, e := range response.Entities {
-		entityCandidates = append(entityCandidates, domain.GraphEntityCandidate{Name:e.Name, EntityType:e.Type, Description:e.Description, Evidence:e.Evidence, Confidence:e.Confidence})
+		entityCandidates = append(entityCandidates, domain.GraphEntityCandidate{Name: e.Name, EntityType: e.Type, Description: e.Description, Evidence: e.Evidence, Confidence: e.Confidence})
 	}
 	relationCandidates := make([]domain.GraphRelationCandidate, 0, len(response.Relations))
 	for _, r := range response.Relations {
-		relationCandidates = append(relationCandidates, domain.GraphRelationCandidate{FromPointCode:r.FromCode, ToPointCode:r.ToCode, FromName:r.FromName, ToName:r.ToName, RelationType:r.Type, Evidence:r.Evidence, Confidence:r.Confidence})
+		relationCandidates = append(relationCandidates, domain.GraphRelationCandidate{FromPointCode: r.FromCode, ToPointCode: r.ToCode, FromName: r.FromName, ToName: r.ToName, RelationType: r.Type, Evidence: r.Evidence, Confidence: r.Confidence})
 	}
 	if err = store.AddValidatedGraphCandidates(ctx, d.UserID, d.KnowledgeBaseID, d.ID, entityCandidates, relationCandidates); err != nil {
 		s.logError("graph candidate validation failed", d.ID, err)

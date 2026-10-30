@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -9,6 +10,7 @@ import (
 )
 
 type Config struct {
+	GraphBackend, Neo4jURL, Neo4jUsername, Neo4jPassword, AssistantMode     string
 	DocumentJobTimeout                                                      time.Duration
 	HTTPAddr, DatabaseURL, RedisAddr, RedisPassword, JWTSecret, StorageRoot string
 	AdminBootstrapToken                                                     string
@@ -56,7 +58,7 @@ func Load() (Config, error) {
 	if mode != "auto" && mode != "lexical" && mode != "remote" {
 		return Config{}, fmt.Errorf("invalid EMBEDDING_MODE")
 	}
-	personal, err := strconv.ParseBool(env("PERSONAL_KB_ENABLED", "false"))
+	personal, err := strconv.ParseBool(env("PERSONAL_KB_ENABLED", "true"))
 	if err != nil {
 		return Config{}, err
 	}
@@ -64,7 +66,27 @@ func Load() (Config, error) {
 	if err != nil || jobTimeout < time.Minute || jobTimeout > 4*time.Hour {
 		return Config{}, fmt.Errorf("invalid DOCUMENT_JOB_TIMEOUT (1m to 4h)")
 	}
-	c := Config{DocumentJobTimeout: jobTimeout, EmbeddingMode: mode, PersonalKBEnabled: personal,
+	backend := env("GRAPH_BACKEND", "postgres")
+	if backend != "postgres" && backend != "neo4j" {
+		return Config{}, fmt.Errorf("invalid GRAPH_BACKEND")
+	}
+	modeQA := env("ASSISTANT_MODE", "rag")
+	if modeQA != "rag" && modeQA != "kag" {
+		return Config{}, fmt.Errorf("invalid ASSISTANT_MODE")
+	}
+	if modeQA == "kag" && backend != "neo4j" {
+		return Config{}, fmt.Errorf("KAG requires GRAPH_BACKEND=neo4j")
+	}
+	if backend == "neo4j" && (os.Getenv("NEO4J_URL") == "" || os.Getenv("NEO4J_PASSWORD") == "") {
+		return Config{}, fmt.Errorf("Neo4j URL/password are required")
+	}
+	if backend == "neo4j" {
+		endpoint, e := url.Parse(os.Getenv("NEO4J_URL"))
+		if e != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") || endpoint.User != nil {
+			return Config{}, fmt.Errorf("NEO4J_URL must be an HTTP(S) endpoint without credentials")
+		}
+	}
+	c := Config{GraphBackend: backend, AssistantMode: modeQA, Neo4jURL: os.Getenv("NEO4J_URL"), Neo4jUsername: env("NEO4J_USERNAME", "neo4j"), Neo4jPassword: os.Getenv("NEO4J_PASSWORD"), DocumentJobTimeout: jobTimeout, EmbeddingMode: mode, PersonalKBEnabled: personal,
 		DemoMode: demo, RAGMinScore: minScore,
 		HTTPAddr: env("HTTP_ADDR", ":8080"), DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisAddr: env("REDIS_ADDR", "localhost:6379"), RedisPassword: os.Getenv("REDIS_PASSWORD"),

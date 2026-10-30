@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"strings"
 
 	"github.com/local/exam408-assistant/backend/internal/domain"
 )
@@ -99,4 +100,12 @@ func (p *Postgres) RefreshQuestionCandidates(ctx context.Context, actor string, 
 
 func catalogInputError(message string) error {
 	return &domain.RequestError{Status: 400, Message: message}
+}
+
+func (p *Postgres) UpdatePersonalKnowledgeBase(ctx context.Context, uid, kid, name, description string) (domain.KnowledgeBase, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len([]rune(name)) > 100 {
+		return domain.KnowledgeBase{}, catalogInputError("知识库名称须为1至100字")
+	}
+	return scanKB(p.DB.QueryRow(ctx, `UPDATE knowledge_bases SET name=$3,description=$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND is_public=false RETURNING id,user_id,name,description,created_at,updated_at,is_public`, kid, uid, name, description))
 }

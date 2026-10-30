@@ -145,7 +145,7 @@ func (p *Postgres) buildKnowledgeGraphFromChunks(ctx context.Context, tx pgx.Tx,
 	return p.rememberGraphEvidence(ctx, tx, kid)
 }
 
-func (p *Postgres) KnowledgeGraph(ctx context.Context, uid, kid string) (domain.KnowledgeGraph, error) {
+func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain.KnowledgeGraph, error) {
 	var graph domain.KnowledgeGraph
 	graph.KnowledgeBaseID = kid
 	err := p.DB.QueryRow(ctx, `SELECT is_public FROM knowledge_bases WHERE id=$1 AND (user_id=$2 OR is_public=true)`, kid, uid).Scan(&graph.IsPublic)

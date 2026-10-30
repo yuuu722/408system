@@ -15,6 +15,22 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      NEO4J_AUTH: neo4j/${NEO4J_PASSWORD:?Run scripts/start-kag.ps1 to generate NEO4J_PASSWORD}
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    ports: ["127.0.0.1:7474:7474", "127.0.0.1:7687:7687"]
+    volumes: ["neo4j-data:/data"]
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", 'cypher-shell -u neo4j -p "$${NEO4J_AUTH#neo4j/}" "RETURN 1" >/dev/null 2>&1']
+      interval: 10s
+      timeout: 10s
+      start_period: 40s
+      retries: 20
   redis:
     image: redis:7-alpine
     command: redis-server --appendonly yes
@@ -35,6 +51,12 @@ services:
       DATABASE_URL: postgres://exam408:exam408@postgres:5432/exam408?sslmode=disable
       REDIS_ADDR: redis:6379
       STORAGE_ROOT: /data/uploads
+      PERSONAL_KB_ENABLED: "true"
+      GRAPH_BACKEND: neo4j
+      ASSISTANT_MODE: kag
+      NEO4J_URL: http://neo4j:7474
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
     healthcheck:
       test: ["CMD", "/exam408", "healthcheck"]
@@ -47,6 +69,7 @@ services:
     volumes: ["uploads:/data/uploads"]
     depends_on:
       postgres: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
       redis: { condition: service_healthy }
   worker:
     build: ./backend
@@ -57,11 +80,18 @@ services:
       APP_ROLE: worker
       DATABASE_URL: postgres://exam408:exam408@postgres:5432/exam408?sslmode=disable
       STORAGE_ROOT: /data/uploads
+      PERSONAL_KB_ENABLED: "true"
+      GRAPH_BACKEND: neo4j
+      ASSISTANT_MODE: kag
+      NEO4J_URL: http://neo4j:7474
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD:?NEO4J_PASSWORD is required}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in .env}
     volumes: ["uploads:/data/uploads"]
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
+      neo4j: { condition: service_healthy }
   frontend:
     build:
       context: .
@@ -73,3 +103,4 @@ volumes:
   postgres-data:
   redis-data:
   uploads:
+  neo4j-data:

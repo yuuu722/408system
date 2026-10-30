@@ -83,6 +83,26 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 		require.Equal(t, status, w.Code, w.Body.String())
 		return w.Body.Bytes()
 	}
+
+	t.Run("personal knowledge base ownership and public read-only", func(t *testing.T) {
+		var personal domain.KnowledgeBase
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/knowledge-bases", token, map[string]any{"Name": "个人知识库", "IsPublic": false}, 201), &personal))
+		require.False(t, personal.IsPublic)
+		require.Equal(t, user.ID, personal.UserID)
+		call("POST", "/api/v1/knowledge-bases", token, map[string]any{"Name": "禁止公共库", "IsPublic": true}, 403)
+		call("PATCH", "/api/v1/knowledge-bases/"+personal.ID, otherToken, map[string]string{"Name": "越权"}, 404)
+		call("PATCH", "/api/v1/knowledge-bases/"+personal.ID, token, map[string]string{"Name": "我的教材"}, 200)
+		call("GET", "/api/v1/knowledge-bases/"+personal.ID+"/graph", otherToken, nil, 404)
+		privateDoc, e := store.CreateDocument(ctx, domain.Document{UserID: user.ID, KnowledgeBaseID: personal.ID, Filename: "private.txt", OriginalFilename: "私人教材.txt", StoragePath: "fixture", MimeType: "text/plain", ResourceType: "notes", Status: "ready"})
+		require.NoError(t, e)
+		metadata := domain.DocumentCatalog{ResourceType: "notes", SubjectCode: "os", Purpose: "knowledge", ReviewState: "confirmed"}
+		call("PATCH", "/api/v1/documents/"+privateDoc.ID+"/catalog", token, metadata, 200)
+		call("PATCH", "/api/v1/documents/"+privateDoc.ID+"/catalog", otherToken, metadata, 403)
+		call("POST", "/api/v1/documents/"+privateDoc.ID+"/organize", token, nil, 200)
+		call("POST", "/api/v1/documents/"+privateDoc.ID+"/organize", otherToken, nil, 404)
+		call("DELETE", "/api/v1/knowledge-bases/"+personal.ID, otherToken, nil, 404)
+		call("DELETE", "/api/v1/knowledge-bases/"+personal.ID, token, nil, 204)
+	})
 	points, e := store.ListKnowledgePoints(ctx)
 	require.NoError(t, e)
 	t.Run("empty and validation", func(t *testing.T) {

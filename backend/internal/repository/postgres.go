@@ -17,6 +17,7 @@ import (
 var ErrNotFound = errors.New("not found")
 
 type Postgres struct {
+	Neo4j              *Neo4jGraph
 	DocumentJobTimeout time.Duration
 	DB                 *pgxpool.Pool
 	EmbeddingSpace     string

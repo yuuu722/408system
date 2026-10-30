@@ -14,15 +14,16 @@ import (
 )
 
 type RAGService struct {
-	Vision    *OpenAILLM
-	Store     domain.Store
-	Embedder  domain.EmbeddingProvider
-	LLM       domain.LLMProvider
-	Knowledge KnowledgeService
-	Learning  LearningService
-	TopK      int
-	MinScore  float64
-	Log       *slog.Logger
+	KAGEnabled bool
+	Vision     *OpenAILLM
+	Store      domain.Store
+	Embedder   domain.EmbeddingProvider
+	LLM        domain.LLMProvider
+	Knowledge  KnowledgeService
+	Learning   LearningService
+	TopK       int
+	MinScore   float64
+	Log        *slog.Logger
 }
 
 func (s RAGService) Chat(ctx context.Context, uid, kid, cid, question string) (domain.ChatResult, error) {
@@ -94,7 +95,18 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	}
 	candidateLimit := min(100, max(s.TopK, s.TopK*8))
 	var chunks []domain.Chunk
-	if scoped, ok := s.Store.(interface {
+	var trace *domain.RetrievalTrace
+	if s.KAGEnabled {
+		if emit != nil {
+			if e := emit("status", map[string]string{"stage": "graph"}); e != nil {
+				return domain.ChatResult{}, e
+			}
+		}
+		chunks, trace, err = s.kagCandidates(ctx, uid, kid, evidenceQuestion, names, candidateLimit)
+		if err == nil && emit != nil {
+			err = emit("reasoning", trace)
+		}
+	} else if scoped, ok := s.Store.(interface {
 		SearchChunksScoped(context.Context, string, string, []float32, int, bool) ([]domain.Chunk, error)
 	}); ok {
 		include := true
@@ -112,7 +124,10 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	// sheets cannot crowd out textbook explanations from the candidate pool.
 	usable := chunks[:0]
 	for _, c := range chunks {
-		c.Content = answerEvidence(question, c.Content)
+		if incomplete, _ := c.Metadata["context_incomplete"].(bool); incomplete {
+			continue
+		}
+		c.Content = answerEvidence(question, c.Content, chunkIndexText(c))
 		if c.Content != "" {
 			usable = append(usable, c)
 		}
@@ -124,7 +139,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 				chunks[i].Score = -1
 				continue
 			}
-			chunks[i].Score = lexicalEvidenceScore(evidenceQuestion, chunks[i].Content)
+			chunks[i].Score = lexicalEvidenceScore(evidenceQuestion, chunkIndexText(chunks[i]))
 		}
 		sort.SliceStable(chunks, func(i, j int) bool { return chunks[i].Score > chunks[j].Score })
 	}
@@ -146,19 +161,21 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	var evidence strings.Builder
 	var citations []domain.Citation
 	var sourceContents []string
-	for _, c := range chunks {
-		if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < s.MinScore || !evidenceRelated(evidenceQuestion, c.Content) {
-			continue
-		}
-		if len(citations) >= s.TopK {
-			break
-		}
+	dependencies := map[int][]int{}
+	appendSource := func(c domain.Chunk) int {
 		if strings.TrimSpace(c.SourceLocation) == "" {
 			if page := citationPage(c.Metadata); page > 0 {
 				c.SourceLocation = fmt.Sprintf("第%d页", page)
 			} else {
 				c.SourceLocation = fmt.Sprintf("文本片段%d", c.ChunkIndex+1)
 			}
+		}
+		if heading, ok := c.Metadata["heading_path"].(string); ok && heading != "" {
+			r := []rune(heading)
+			if len(r) > 160 {
+				heading = string(r[:160])
+			}
+			c.SourceLocation += " · " + heading
 		}
 		if page := citationPage(c.Metadata); page > 0 && (strings.HasSuffix(strings.ToLower(c.DocumentTitle), ".doc") || strings.HasSuffix(strings.ToLower(c.DocumentTitle), ".docx")) {
 			c.SourceLocation = fmt.Sprintf("Word转换第%d页 · %s", page, c.SourceLocation)
@@ -182,7 +199,28 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		citations = append(citations, citation)
 		sourceContents = append(sourceContents, c.Content)
+		return citationNumber
 	}
+	mains := 0
+	for _, c := range chunks {
+		if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < s.MinScore || !evidenceRelated(evidenceQuestion, chunkIndexText(c)) {
+			continue
+		}
+		if mains >= s.TopK {
+			break
+		}
+		mains++
+		refs := []int{}
+		for _, context := range premiseChunks(c) {
+			refs = append(refs, appendSource(context))
+		}
+		main := appendSource(c)
+		if len(refs) > 0 {
+			dependencies[main] = refs
+			fmt.Fprintf(&evidence, "来源[%d]的前提来源为%v；若选择该正文，必须同时选取前提中的条件原句。\n", main, refs)
+		}
+	}
+
 	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
 	if len(citations) > 0 {
 		if emit != nil {
@@ -200,7 +238,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if err != nil {
 			return domain.ChatResult{}, err
 		}
-		if text, sources, verified := selectedSourceAnswer(answer, sourceContents, citations); verified {
+		if text, sources, verified := selectedSourceAnswer(answer, sourceContents, citations, dependencies); verified {
 			answer, citations = text, sources
 		} else {
 			answer, citations = sourceExcerptAnswer(sourceContents, citations)
@@ -240,7 +278,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			return domain.ChatResult{}, err
 		}
 	}
-	return domain.ChatResult{Answer: answer, ConversationID: cid, Sources: citations, KnowledgePoints: points}, nil
+	return domain.ChatResult{Reasoning: trace, Answer: answer, ConversationID: cid, Sources: citations, KnowledgePoints: points}, nil
 }
 
 func (s RAGService) figureEvidence(ctx context.Context, uid, question string, citations []domain.Citation) ([]string, string, error) {

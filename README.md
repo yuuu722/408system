@@ -1,8 +1,10 @@
 # 408 考研智能学习助手
 
-408 考研智能学习助手：支持公共/个人知识库、资料解析与向量检索、带引用 AI 答疑、测评判分、薄弱点分析、每日规则计划和知识图谱查看。内置四科 12 个目录、38 个主题的讲解、例题及原创基础练习，新用户无需上传即可学习和测评。图谱支持共享目录、资料匹配以及可选模型候选的证据校验；内容不是完整官方考纲或完整教材。规则学习策略不是训练模型，RAG 不是自主 Agent。
+408 考研智能学习助手：支持公共与个人知识库、资料解析与向量检索、Neo4j 知识图谱、图谱与文档证据组合的 KAG 问答、题库审核、测评和学习反馈。公共教材与题目由管理员上传维护，个人资料仅所有者可管理；不内置完整官方教材或题库。规则学习策略不是训练模型，KAG 检索路径不是通用符号证明。
 
 ## 交接阅读入口
+
+- [Neo4j / KAG / 个人知识库升级与启动](docs/NEO4J_KAG_AND_CONTEXT.md)：当前推荐部署、旧图谱迁移、前提分块和实际能力边界。
 
 - [当前实现功能与限制](docs/CURRENT_FEATURES.md)：以当前代码为准的产品能力、模型费用及验收边界。
 - [使用与代码交接指南](docs/USER_AND_CODE_GUIDE.md)：交付清单、新电脑安装、三个终端启动、数据备份恢复、操作流程、排错与逐文件函数索引。
@@ -12,26 +14,24 @@
 
 ## 公共知识库与管理员
 
-管理员使用独立工作台维护公共知识库、上传/替换/删除资料、查看连线图谱并管理多用户；普通用户默认只读公共学习资源。上传默认200 MiB，Docker内置PDF文字提取和中文/英文OCR；本地词法向量无需模型Key。升级现有 `.env` 的具体步骤见 [知识库与管理员指南](docs/KNOWLEDGE_ADMIN_GUIDE.md)。
+管理员使用独立工作台维护公共知识库、上传/替换/删除资料、查看连线图谱并管理多用户；普通用户只读公共学习资源，也可建立和维护自己的个人知识库。上传默认200 MiB，Docker内置PDF文字提取和中文/英文OCR；本地词法向量无需模型Key。升级现有 `.env` 的具体步骤见 [知识库与管理员指南](docs/KNOWLEDGE_ADMIN_GUIDE.md)。
 
 ## 启动
 
-1. 安装 Docker Desktop（Linux 容器），新环境复制 .env.example 为 .env，替换至少 32 字符 JWT_SECRET 并配置模型；不要覆盖已有 .env。
-2. 使用本地嵌入时，按 [嵌入服务说明](services/local_embedding/README.md) 启动宿主机 8090；完整 PDF/DOCX 结构解析还需按 [解析说明](services/document_parser/README.md) 启动 8091。Compose 不启动这两个 Python 服务。
-3. 在项目根目录运行 docker compose up -d --build。后端及 worker 自动顺序执行未应用迁移；当前迁移为 1–15。已有数据升级先备份数据库与上传卷。
-4. 打开 http://localhost:5173，后端健康检查 http://localhost:8080/healthz。
-
-详细可复制 PowerShell 命令见使用指南。直接运行 Go/Python 不会自动读取根目录 .env；不要照抄只运行 go run 而未导入配置的旧步骤。
+1. 启动 Docker Desktop；已有 `.env` 不要覆盖。
+2. 在项目 PowerShell 终端运行 `powershell -ExecutionPolicy Bypass -File .\scripts\start-kag.ps1`。脚本生成缺少的本地密钥，保留现有配置，并构建启动全部服务。
+3. 打开 http://localhost:5173。管理员可在资料管理点击“升级本库分块与索引”，为旧资料建立带章节和前提的新索引。当前迁移为 1–18。
+4. 回答仍需要可用模型；已有 Ollama 配置可以继续使用。内置文字解析/OCR 和本地词法向量无需额外启动 Python 服务，独立 Python 解析/text2vec 是可选方案。
 
 ## 使用流程
 
-系统自动建立公共课程与基础图谱，worker 索引内置讲义。部署者初始化首个管理员后可维护目录、课程和公共资料；普通用户注册后即可学习、测评并检索公共资料，也可选择加入个人知识库。图谱模型抽取需显式设置 GRAPH_EXTRACTION_ENABLED=true 并配置正常模型。之后查看解析和警告 → 带引用答疑 → 检查抽取题目/做测评 → 确认 AI 辅助判分 → 查看薄弱点与生成每日任务。资料不完整时不会自动变为可用题目；没有可用资源时计划可以为空。
+管理员维护公共目录、资料与题目；普通用户可建立个人库、上传资料，并在问答中明确选择知识库。资料可用于知识库、题库或两者，自动抽取题目先审核。图谱在 Neo4j 中浏览和遍历，原文证据及 pgvector 索引保存在 PostgreSQL；来源构建记录和同步日志用于恢复。KAG 问答执行问题规划、最多两跳图查询、文档检索和前提校验，正文后统一列出来源；未命中图谱时明确标记仅使用文档证据。
 
-默认正常模型模式要求答疑所需 LLM/Embedding 配置齐全。AI_DEMO_MODE=true 只提供演示向量和检索片段预览，不是 AI 回答。当前本地 OCR/text2vec 不消耗云端模型额度；文本答疑、参考解析和生成练习可能收费。
+详见 [当前升级说明](docs/NEO4J_KAG_AND_CONTEXT.md) 和 [资料分类与题库审核](docs/RESOURCE_CATALOG_AND_REVIEW.md)。切勿用 `docker compose down -v` 清空原有数据卷。资料/OCR、图谱关系和模型组织仍需核验，不宣称已解决所有教材逻辑推理问题。
 
 ## 开发与验证
 
-前端 Vue 3/TypeScript/Vite，后端 Go/PostgreSQL/pgvector；独立 worker 使用 PostgreSQL 持久化任务。Redis 在 Compose 中保留，但不是文档任务权威队列。代码目录与函数详见使用指南第 8 节。
+前端 Vue 3/TypeScript/Vite，后端 Go/PostgreSQL/pgvector，Neo4j 保存查询图；独立 worker 使用 PostgreSQL 持久化任务。Redis 在 Compose 中保留，但不是文档任务权威队列。代码目录与函数详见使用指南第 8 节。
 
 基础命令：node scripts/check-independence.mjs；backend 下 go test -count=1 ./...、go vet ./...；frontend 下 npm ci、npm test、npm run build。数据库集成测试需显式设置 TEST_DATABASE_URL，否则可能跳过。Python 离线回归和真实链路测试的区别见使用指南。
 
