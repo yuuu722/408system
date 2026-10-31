@@ -108,15 +108,26 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	}
 	_, e = rag.Chat(ctx, b.ID, kb.ID, "", "为什么需要虚拟内存？")
 	require.Error(t, e)
+	// An old empty snapshot with a matching generation needs upgrade replay.
+	currentVersion, e := n.Version(ctx, kb.ID)
+	require.NoError(t, e)
+	require.NoError(t, n.Replace(ctx, kb.ID, domain.KnowledgeGraph{}, currentVersion))
+	_, e = p.DB.Exec(ctx, `DELETE FROM schema_migrations WHERE version=19`)
+	require.NoError(t, e)
+	require.NoError(t, migrations.Up(ctx, p.DB))
+	replayed, e := p.KnowledgeGraph(ctx, a.ID, kb.ID)
+	require.NoError(t, e)
+	require.NotEmpty(t, replayed.Nodes)
 	// Lost graph storage is detected through the namespace generation and rebuilt.
 	require.NoError(t, n.Replace(ctx, kb.ID, domain.KnowledgeGraph{}, -1))
 	g, e = p.KnowledgeGraph(ctx, a.ID, kb.ID)
 	require.NoError(t, e)
 	require.NotEmpty(t, g.Nodes)
 	p.Neo4j = &repository.Neo4jGraph{URL: endpoint, Username: "neo4j", Password: "incorrect-test-password"}
-	_, e = p.KnowledgeGraph(ctx, a.ID, kb.ID)
-	require.Error(t, e)
-	require.NotContains(t, e.Error(), password)
+	recovered, err := p.KnowledgeGraph(ctx, a.ID, kb.ID)
+	require.NoError(t, err)
+	require.Equal(t, "postgres-recovery", recovered.Storage)
+	require.NotContains(t, recovered.Warning, password)
 	p.Neo4j = n
 	require.NoError(t, p.DeleteDocument(ctx, a.ID, d.ID))
 	g, e = p.KnowledgeGraph(ctx, a.ID, kb.ID)

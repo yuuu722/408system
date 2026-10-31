@@ -1,4 +1,5 @@
 import { api } from './client'
+import {normalizeAsset} from '@/lib/assetData'
 import { errorMessage } from './errors'
 import type { ChatResult,Citation } from './types'
 
@@ -12,8 +13,8 @@ export interface DailyPlan {ID:string;Date:string;Strategy:string;BudgetMinutes:
 export interface Conversation { ID:string;KnowledgeBaseID:string;Title:string;UpdatedAt:string }
 export interface SavedMessage { ID:string;Role:'user'|'assistant';Content:string;Citations:ChatResult['Sources'] }
 export const foundation = {
- async assets():Promise<Asset[]> {return (await api.get('/exam408/assets')).data ?? []},
- async saveAsset(a:Asset):Promise<Asset>{return (await (a.ID?api.put(`/exam408/assets/${a.ID}`,a):api.post('/exam408/assets',a))).data},
+ async assets():Promise<Asset[]> {const rows=(await api.get('/exam408/assets')).data;return Array.isArray(rows)?rows.map(normalizeAsset):[]},
+ async saveAsset(a:Asset):Promise<Asset>{return normalizeAsset((await (a.ID?api.put(`/exam408/assets/${a.ID}`,a):api.post('/exam408/assets',a))).data)},
  removeAsset:(id:string)=>api.delete(`/exam408/assets/${id}`),
  async profile():Promise<Profile|null>{return (await api.get('/exam408/profile')).data},
  saveProfile:(p:Profile)=>api.put('/exam408/profile',p),

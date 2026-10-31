@@ -202,16 +202,26 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		return citationNumber
 	}
 	mains := 0
+	seenEvidence := map[string]bool{}
 	for _, c := range chunks {
 		if math.IsNaN(c.Score) || math.IsInf(c.Score, 0) || c.Score < s.MinScore || !evidenceRelated(evidenceQuestion, chunkIndexText(c)) {
 			continue
 		}
+		contexts := premiseChunks(c)
+		key := sourceWhitespace(c.Content)
+		for _, context := range contexts {
+			key += "\x00" + sourceWhitespace(context.Content)
+		}
+		if seenEvidence[key] {
+			continue
+		}
+		seenEvidence[key] = true
 		if mains >= s.TopK {
 			break
 		}
 		mains++
 		refs := []int{}
-		for _, context := range premiseChunks(c) {
+		for _, context := range contexts {
 			refs = append(refs, appendSource(context))
 		}
 		main := appendSource(c)
@@ -231,17 +241,17 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		// Buffer model selections until each complete passage is matched to source text.
 		// Provider output is never shown as an unchecked factual paraphrase.
 		if llm, ok := s.LLM.(domain.StreamingLLM); ok {
-			answer, err = llm.AnswerStream(ctx, question+extractiveAnswerInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
+			answer, err = llm.AnswerStream(ctx, question+sentenceSelectionInstruction, sentenceCatalog(question, sourceContents), history, func(string) error { return ctx.Err() })
 		} else {
-			answer, err = s.LLM.Answer(ctx, question+extractiveAnswerInstruction, evidence.String())
+			answer, err = s.LLM.Answer(ctx, question+sentenceSelectionInstruction, sentenceCatalog(question, sourceContents))
 		}
 		if err != nil {
 			return domain.ChatResult{}, err
 		}
-		if text, sources, verified := selectedSourceAnswer(answer, sourceContents, citations, dependencies); verified {
+		if text, sources, ok := selectedSourceAnswer(answer, sourceContents, citations, dependencies); ok {
 			answer, citations = text, sources
 		} else {
-			answer, citations = sourceExcerptAnswer(sourceContents, citations)
+			answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)
 		}
 
 		if emit != nil {

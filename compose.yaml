@@ -69,7 +69,7 @@ services:
     volumes: ["uploads:/data/uploads"]
     depends_on:
       postgres: { condition: service_healthy }
-      neo4j: { condition: service_healthy }
+      neo4j: { condition: service_started }
       redis: { condition: service_healthy }
   worker:
     build: ./backend
@@ -91,7 +91,7 @@ services:
     restart: unless-stopped
     depends_on:
       postgres: { condition: service_healthy }
-      neo4j: { condition: service_healthy }
+      neo4j: { condition: service_started }
   frontend:
     build:
       context: .

@@ -62,6 +62,9 @@ var documentCatalog string
 //go:embed 000018_graph_sync.up.sql
 var graphSync string
 
+//go:embed 000019_graph_source_compat.up.sql
+var graphSourceCompat string
+
 type migration struct {
 	version int
 	name    string
@@ -87,6 +90,7 @@ var all = []migration{
 	{version: 16, name: "uploaded_public_resources", sql: uploadedPublicResources},
 	{version: 17, name: "document_catalog", sql: documentCatalog},
 	{version: 18, name: "graph_sync", sql: graphSync},
+	{version: 19, name: "graph_source_compat", sql: graphSourceCompat},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

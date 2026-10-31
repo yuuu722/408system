@@ -9,6 +9,7 @@ import { messageOf } from '@/api/client'
 import { relationLabels } from '@/lib/graphLayout'
 import type { KnowledgeBase, KnowledgeGraph, KnowledgePoint, GraphNode, GraphEdge } from '@/api/types'
 const route = useRoute(), bases = ref<KnowledgeBase[]>([]), active = ref(''), graph = ref<KnowledgeGraph | null>(null)
+const error=ref('')
 const loading = ref(false), points = ref<KnowledgePoint[]>([]), focused = ref(''), showRecords = ref(false)
 const focusNode = computed(() => graph.value?.Nodes?.find(n => n.ID === focused.value))
 const focusEdges = computed(() => graph.value?.Edges?.filter(e => e.FromEntityID === focused.value || e.ToEntityID === focused.value) ?? [])
@@ -18,23 +19,26 @@ function showSource(item: GraphNode | GraphEdge) { if (item.EvidenceDocumentID) 
 async function loadGraph() {
   focused.value = ''; showRecords.value = false
   if (!active.value) { graph.value = null; return }
-  loading.value = true
+  loading.value = true;error.value=''
   try { graph.value = await learningApi.graph(active.value) }
-  catch (e) { graph.value = null; MessagePlugin.error(messageOf(e)) }
+  catch (e) { if(graph.value?.KnowledgeBaseID!==active.value)graph.value=null;error.value=messageOf(e) }
   finally { loading.value = false }
 }
-onMounted(async () => {
-  try {
-    [bases.value, points.value] = await Promise.all([learningApi.bases(), learningApi.points()])
-    active.value = bases.value.find(b => b.ID === route.query.kb)?.ID || bases.value.find(b => b.IsPublic)?.ID || bases.value[0]?.ID || ''
-    await loadGraph()
-  } catch (e) { MessagePlugin.error(messageOf(e)) }
-})
+async function initialize(){
+ try {
+  bases.value=await learningApi.bases()
+  active.value=bases.value.find(b=>b.ID===route.query.kb)?.ID||bases.value.find(b=>b.IsPublic)?.ID||bases.value[0]?.ID||''
+  await Promise.all([loadGraph(),learningApi.points().then(value=>points.value=value).catch(()=>{error.value='四科目录暂未加载，图谱节点和关系仍可查看。'})])
+ }catch(e){error.value=messageOf(e)}
+}
+function retryGraph(){if(active.value)void loadGraph();else void initialize()}
+onMounted(initialize)
+
 </script>
 <template>
   <div class="graph-page">
-    <header class="page-head"><div><p class="eyebrow">KNOWLEDGE CONNECTIONS</p><h1>知识图谱</h1><p v-if="graph?.Storage" class="muted">图谱存储：{{graph.Storage==='neo4j'?'Neo4j':'PostgreSQL（兼容模式）'}}</p><p>从知识点出发，看见四科之间的联系，沿着关系回到资料原文。</p></div><div class="graph-actions"><select v-model="active" :disabled="loading" aria-label="选择知识库" @change="loadGraph"><option v-for="b in bases" :key="b.ID" :value="b.ID">{{ b.Name }}{{ b.IsPublic ? '（公共）' : '（个人）' }}</option></select><button class="secondary" :disabled="loading || !active" @click="loadGraph">{{ loading ? '加载中…' : '刷新图谱' }}</button></div></header>
-    <section v-if="loading" class="card" role="status">正在加载知识点和关系……</section>
+    <header class="page-head"><div><p class="eyebrow">KNOWLEDGE CONNECTIONS</p><h1>知识图谱</h1><p v-if="graph?.Storage" class="muted">图谱存储：{{graph.Storage==='neo4j'?'Neo4j':graph.Storage==='postgres-recovery'?'已保存图谱（恢复模式）':'PostgreSQL（兼容模式）'}}</p><p>从知识点出发，看见四科之间的联系，沿着关系回到资料原文。</p></div><div class="graph-actions"><select v-model="active" :disabled="loading" aria-label="选择知识库" @change="loadGraph"><option v-for="b in bases" :key="b.ID" :value="b.ID">{{ b.Name }}{{ b.IsPublic ? '（公共）' : '（个人）' }}</option></select><button class="secondary" :disabled="loading || !active" @click="loadGraph">{{ loading ? '加载中…' : '刷新图谱' }}</button></div></header>
+    <p v-if="error" class="notice error" role="alert">{{error}} <button class="secondary" @click="retryGraph">重新加载图谱</button></p><p v-if="graph?.Warning" class="notice" role="status">{{graph.Warning}}</p><section v-if="loading" class="card" role="status">正在加载知识点和关系……</section>
     <template v-else-if="graph">
       <KnowledgeGraphCanvas :nodes="graph.Nodes ?? []" :edges="graph.Edges ?? []" :points="points" @select="id => focused = id">
         <template #details>
@@ -47,7 +51,7 @@ onMounted(async () => {
       </KnowledgeGraphCanvas>
       <details class="card graph-records" @toggle="showRecords = ($event.target as HTMLDetailsElement).open"><summary>查看全部节点与关系记录（{{ graph.Nodes?.length ?? 0 }} 个节点 / {{ graph.Edges?.length ?? 0 }} 条关系）</summary><template v-if="showRecords"><h2>知识点</h2><div class="list"><article v-for="n in graph.Nodes" :key="n.ID" class="list-item"><div class="grow"><b>{{ n.Name }}</b><p class="reason">{{ n.Description || n.EntityType }} · {{ sourceName(n.Source) }}</p><blockquote v-if="n.EvidenceExcerpt">{{ n.EvidenceExcerpt }}</blockquote><button v-if="n.EvidenceDocumentID" class="secondary" @click="showSource(n)">来源：{{ n.EvidenceDocumentTitle }}</button></div></article></div><h2>关系</h2><div class="list"><article v-for="e in graph.Edges" :key="e.ID" class="list-item"><div class="grow"><b>{{ nodeByID.get(e.FromEntityID)?.Name }} → {{ relationLabels[e.RelationType] || e.RelationType }} → {{ nodeByID.get(e.ToEntityID)?.Name }}</b><p class="reason">{{ sourceName(e.Source) }}</p><blockquote v-if="e.EvidenceExcerpt">{{ e.EvidenceExcerpt }}</blockquote><button v-if="e.EvidenceDocumentID" class="secondary" @click="showSource(e)">来源：{{ e.EvidenceDocumentTitle }}</button></div></article></div></template></details>
     </template>
-    <section v-else class="card"><h2>暂无可展示的图谱</h2><p>请选择可访问的知识库，或等待管理员上传并处理资料。</p></section>
+    <section v-else class="card"><h2>{{error?'图谱暂未加载':'暂无可展示的图谱'}}</h2><p>{{error?'请根据上方提示重试，已有资料无需重新上传。':'请选择可访问的知识库，或等待资料处理完成。'}}</p></section>
   </div>
 </template>
 <style scoped>

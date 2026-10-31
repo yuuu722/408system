@@ -80,9 +80,15 @@ func (p *Postgres) SyncPendingGraphs(ctx context.Context) error {
 	return nil
 }
 func (p *Postgres) RunGraphSync(ctx context.Context, report func(error)) {
+	if p.Neo4j == nil {
+		return
+	}
 	for ctx.Err() == nil {
 		attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
-		e := p.SyncPendingGraphs(attempt)
+		e := p.Neo4j.Initialize(attempt)
+		if e == nil {
+			e = p.SyncPendingGraphs(attempt)
+		}
 		cancel()
 		if e != nil && report != nil {
 			report(e)
@@ -104,11 +110,26 @@ func (p *Postgres) KnowledgeGraph(ctx context.Context, uid, kid string) (domain.
 		g.Storage = "postgres"
 		return g, e
 	}
-	if e = p.SyncKnowledgeGraph(ctx, kid); e != nil {
-		return domain.KnowledgeGraph{}, e
+	graphCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	defer cancel()
+	e = p.SyncKnowledgeGraph(graphCtx, kid)
+	var g domain.KnowledgeGraph
+	if e == nil {
+		g, e = p.Neo4j.Read(graphCtx, kid)
 	}
-	g, e := p.Neo4j.Read(ctx, kid)
+	if e != nil {
+		if ctx.Err() != nil {
+			return domain.KnowledgeGraph{}, ctx.Err()
+		}
+		g, sourceErr := p.graphProvenance(ctx, uid, kid)
+		if sourceErr != nil {
+			return g, sourceErr
+		}
+		g.Storage = "postgres-recovery"
+		g.Warning = "Neo4j图谱服务暂不可用，当前显示已保存的图谱与来源；同步任务会自动重试。此状态不代表已完成Neo4j查询。"
+		return g, nil
+	}
 	g.IsPublic = kb.IsPublic
 	g.Storage = "neo4j"
-	return g, e
+	return g, nil
 }

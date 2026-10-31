@@ -146,7 +146,7 @@ func (p *Postgres) buildKnowledgeGraphFromChunks(ctx context.Context, tx pgx.Tx,
 }
 
 func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain.KnowledgeGraph, error) {
-	var graph domain.KnowledgeGraph
+	graph := domain.KnowledgeGraph{Nodes: []domain.GraphNode{}, Edges: []domain.GraphEdge{}}
 	graph.KnowledgeBaseID = kid
 	err := p.DB.QueryRow(ctx, `SELECT is_public FROM knowledge_bases WHERE id=$1 AND (user_id=$2 OR is_public=true)`, kid, uid).Scan(&graph.IsPublic)
 	if err != nil {
@@ -155,7 +155,7 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 	rows, err := p.DB.Query(ctx, `SELECT e.id,e.name,e.entity_type,e.description,COALESCE(m.knowledge_point_id::text,''),COALESCE(source.id::text,''),COALESCE(source.content,''),COALESCE(source.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=source.document_id),''),e.source,e.confidence,e.created_at
 		FROM knowledge_entities e JOIN knowledge_bases kb ON kb.id=e.knowledge_base_id
 		LEFT JOIN LATERAL (SELECT knowledge_point_id FROM exam408_entity_mappings WHERE entity_id=e.id ORDER BY confidence DESC LIMIT 1) m ON true
-		LEFT JOIN LATERAL (SELECT c.* FROM document_chunks c JOIN knowledge_entity_evidence ev ON ev.chunk_id=c.id WHERE ev.entity_id=e.id ORDER BY c.created_at DESC,c.id LIMIT 1) source ON true
+		LEFT JOIN LATERAL (SELECT c.* FROM document_chunks c JOIN (SELECT chunk_id FROM knowledge_entity_evidence WHERE entity_id=e.id UNION SELECT e.evidence_chunk_id WHERE e.evidence_chunk_id IS NOT NULL) links ON links.chunk_id=c.id WHERE c.knowledge_base_id=e.knowledge_base_id ORDER BY c.created_at DESC,c.id LIMIT 1) source ON true
 		WHERE e.knowledge_base_id=$1 AND (e.user_id=$2 OR kb.is_public=true) AND (e.pinned OR source.id IS NOT NULL)
 		ORDER BY e.name`, kid, uid)
 	if err != nil {

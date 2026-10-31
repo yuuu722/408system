@@ -55,12 +55,11 @@ func main() {
 	}
 	if cfg.GraphBackend == "neo4j" {
 		store.Neo4j = &repository.Neo4jGraph{URL: cfg.Neo4jURL, Username: cfg.Neo4jUsername, Password: cfg.Neo4jPassword}
-		setup, cancel := context.WithTimeout(ctx, 30*time.Second)
+		setup, cancel := context.WithTimeout(ctx, 3*time.Second)
 		err = store.Neo4j.Initialize(setup)
 		cancel()
 		if err != nil {
-			log.Error("Neo4j initialization failed", "error", err)
-			os.Exit(1)
+			log.Error("Neo4j initialization pending retry; document services remain available", "error", err)
 		}
 		go store.RunGraphSync(ctx, func(e error) { log.Error("graph synchronization pending retry", "error", e) })
 	}

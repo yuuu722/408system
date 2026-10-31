@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"log/slog"
 	"mime/multipart"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -108,6 +109,21 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 	hits, e := store.SearchChunks(ctx, student.ID, kb.ID, []float32{1, 0}, 5)
 	require.NoError(t, e)
 	require.Empty(t, hits, "question-only file is not answer evidence")
+
+	t.Run("Neo4j outage keeps saved graph readable", func(t *testing.T) {
+		unavailable := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+		defer unavailable.Close()
+		store.Neo4j = &repository.Neo4jGraph{URL: unavailable.URL, Username: "neo4j", Password: "synthetic"}
+		defer func() { store.Neo4j = nil }()
+		// Older imported graphs may only have the direct evidence FK.
+		_, err := store.DB.Exec(ctx, `DELETE FROM knowledge_entity_evidence WHERE chunk_id IN (SELECT id FROM document_chunks WHERE document_id=$1)`, d.ID)
+		require.NoError(t, err)
+		var recovered domain.KnowledgeGraph
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/knowledge-bases/"+kb.ID+"/graph", token, nil, 200), &recovered))
+		require.Equal(t, "postgres-recovery", recovered.Storage)
+		require.NotEmpty(t, recovered.Warning)
+		require.NotEmpty(t, recovered.Nodes)
+	})
 	cat.Purpose = "both"
 	call("PATCH", path+"/catalog", token, cat, 200)
 	hits, e = store.SearchChunks(ctx, student.ID, kb.ID, []float32{1, 0}, 5)

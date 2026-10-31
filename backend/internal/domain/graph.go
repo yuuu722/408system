@@ -25,6 +25,7 @@ type GraphEdge struct {
 }
 
 type KnowledgeGraph struct {
+	Warning         string `json:",omitempty"`
 	Storage         string
 	KnowledgeBaseID string
 	IsPublic        bool

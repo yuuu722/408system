@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"regexp"
 	"strings"
+	"time"
 )
 
 var subquestionSeparator = regexp.MustCompile(`以及|并且|分别|[；;\n]`)
@@ -30,12 +32,25 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 	if !ok {
 		return nil, trace, &domain.RequestError{Status: 503, Message: "KAG图谱检索未接入，请检查Neo4j配置"}
 	}
-	graph, e := store.RetrieveGraphEvidence(ctx, uid, kid, append([]string{question}, names...))
+	graphCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	graph, e := store.RetrieveGraphEvidence(graphCtx, uid, kid, append([]string{question}, names...))
+	cancel()
+	degraded := false
 	if e != nil {
-		return nil, trace, e
+		if ctx.Err() != nil {
+			return nil, trace, ctx.Err()
+		}
+		var unavailable *domain.RequestError
+		if !(errors.As(e, &unavailable) && unavailable.Status == 503) && !errors.Is(e, context.DeadlineExceeded) {
+			return nil, trace, e
+		}
+		degraded = true
+		graph = domain.GraphRetrieval{Paths: []domain.KnowledgePath{}}
+		trace.Mode = "rag-degraded"
+		trace.Notice = "Neo4j暂不可用，本次仅使用所选知识库的文档检索，不宣称完成图谱推理。"
 	}
 	trace.Paths = graph.Paths
-	if len(graph.Paths) == 0 {
+	if len(graph.Paths) == 0 && !degraded {
 		trace.Notice = "本题未匹配到图谱路径，以下仅使用文档检索证据，不宣称已完成图谱推理。"
 	}
 	queries := append([]string{}, planner...)

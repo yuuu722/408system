@@ -157,3 +157,50 @@ func TestConceptQuestionRejectsOutlineAndUnresolvedOptions(t *testing.T) {
 		require.Contains(t, result.Answer, "依据不足")
 	}
 }
+
+type graphOutageStore struct{ *testutil.Store }
+
+func (s graphOutageStore) RetrieveGraphEvidence(context.Context, string, string, []string) (domain.GraphRetrieval, error) {
+	return domain.GraphRetrieval{}, &domain.RequestError{Status: 503, Message: "图谱暂不可用"}
+}
+func TestKAGOutageUsesExplicitDocumentOnlyMode(t *testing.T) {
+	ctx := context.Background()
+	base := testutil.NewStore()
+	kb, _ := base.CreateKnowledgeBase(ctx, "u1", "教材", "")
+	base.Docs["d"] = domain.Document{ID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
+	base.Chunks = []domain.Chunk{{ID: "c", DocumentID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Content: "虚拟内存通过按需调入提高内存利用率。", Embedding: []float32{1, 0}}}
+	store := graphOutageStore{base}
+	rag := service.RAGService{KAGEnabled: true, Store: store, Embedder: outageBatchEmbedding{}, LLM: editorialLLM{`{"selected":[1]}`}, Knowledge: service.KnowledgeService{Store: store}, Learning: service.LearningService{Store: store}, TopK: 3, MinScore: .35}
+	result, e := rag.Chat(ctx, "u1", kb.ID, "", "为什么需要虚拟内存？")
+	require.NoError(t, e)
+	require.Equal(t, "rag-degraded", result.Reasoning.Mode)
+	require.Contains(t, result.Reasoning.Notice, "仅使用")
+	require.Len(t, result.Sources, 1)
+}
+
+type outageBatchEmbedding struct{}
+
+func (outageBatchEmbedding) Embed(_ context.Context, inputs []string) ([][]float32, error) {
+	out := make([][]float32, len(inputs))
+	for i := range out {
+		out[i] = []float32{1, 0}
+	}
+	return out, nil
+}
+
+func TestDuplicateUploadsDoNotCrowdOutDistinctEvidence(t *testing.T) {
+	ctx := context.Background()
+	st := testutil.NewStore()
+	kb, _ := st.CreateKnowledgeBase(ctx, "u1", "教材", "")
+	st.Docs["d"] = domain.Document{ID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
+	for i := 0; i < 6; i++ {
+		st.Chunks = append(st.Chunks, domain.Chunk{ID: fmt.Sprint(i), DocumentID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Content: "虚拟内存通过按需调入提高内存利用率。", Embedding: []float32{1, 0}})
+	}
+	st.Chunks = append(st.Chunks, domain.Chunk{ID: "distinct", DocumentID: "d", UserID: "u1", KnowledgeBaseID: kb.ID, Content: "虚拟内存利用程序局部性，允许程序不必全部装入内存。", Embedding: []float32{1, 0}})
+	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: editorialLLM{`{"selected":[1,2]}`}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 3, MinScore: .35}
+	result, e := rag.Chat(ctx, "u1", kb.ID, "", "为什么需要虚拟内存？")
+	require.NoError(t, e)
+	require.Contains(t, result.Answer, "局部性")
+	require.Contains(t, result.Answer, "按需调入")
+	require.Equal(t, 1, strings.Count(result.Answer, "按需调入"))
+}
