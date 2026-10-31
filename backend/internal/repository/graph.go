@@ -152,9 +152,9 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 	if err != nil {
 		return graph, nf(err)
 	}
-	rows, err := p.DB.Query(ctx, `SELECT e.id,e.name,e.entity_type,e.description,COALESCE(m.knowledge_point_id::text,''),COALESCE(source.id::text,''),COALESCE(source.content,''),COALESCE(source.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=source.document_id),''),e.source,e.confidence,e.created_at
+	rows, err := p.DB.Query(ctx, `SELECT e.id,e.name,e.entity_type,e.description,COALESCE(m.knowledge_point_id::text,''),COALESCE(source.id::text,''),COALESCE(source.content,''),COALESCE(source.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=source.document_id),''),e.source,e.confidence,e.created_at,COALESCE((SELECT lower(s.code) FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id WHERE k.id=m.knowledge_point_id),(SELECT subject_code FROM document_catalog WHERE document_id=source.document_id AND review_state='confirmed' AND subject_code IN ('ds','co','os','cn')),'')
 		FROM knowledge_entities e JOIN knowledge_bases kb ON kb.id=e.knowledge_base_id
-		LEFT JOIN LATERAL (SELECT knowledge_point_id FROM exam408_entity_mappings WHERE entity_id=e.id ORDER BY confidence DESC LIMIT 1) m ON true
+		LEFT JOIN LATERAL (SELECT knowledge_point_id FROM exam408_entity_mappings WHERE entity_id=e.id AND (SELECT count(DISTINCT k.subject_id) FROM exam408_entity_mappings em JOIN exam408_knowledge_points k ON k.id=em.knowledge_point_id WHERE em.entity_id=e.id)=1 ORDER BY confidence DESC,knowledge_point_id LIMIT 1) m ON true
 		LEFT JOIN LATERAL (SELECT c.* FROM document_chunks c JOIN (SELECT chunk_id FROM knowledge_entity_evidence WHERE entity_id=e.id UNION SELECT e.evidence_chunk_id WHERE e.evidence_chunk_id IS NOT NULL) links ON links.chunk_id=c.id WHERE c.knowledge_base_id=e.knowledge_base_id ORDER BY c.created_at DESC,c.id LIMIT 1) source ON true
 		WHERE e.knowledge_base_id=$1 AND (e.user_id=$2 OR kb.is_public=true) AND (e.pinned OR source.id IS NOT NULL)
 		ORDER BY e.name`, kid, uid)
@@ -163,7 +163,7 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 	}
 	for rows.Next() {
 		var n domain.GraphNode
-		if err = rows.Scan(&n.ID, &n.Name, &n.EntityType, &n.Description, &n.KnowledgePointID, &n.EvidenceChunkID, &n.EvidenceExcerpt, &n.EvidenceDocumentID, &n.EvidenceDocumentTitle, &n.Source, &n.Confidence, &n.CreatedAt); err != nil {
+		if err = rows.Scan(&n.ID, &n.Name, &n.EntityType, &n.Description, &n.KnowledgePointID, &n.EvidenceChunkID, &n.EvidenceExcerpt, &n.EvidenceDocumentID, &n.EvidenceDocumentTitle, &n.Source, &n.Confidence, &n.CreatedAt, &n.SubjectCode); err != nil {
 			rows.Close()
 			return graph, err
 		}
@@ -178,18 +178,18 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 		return graph, err
 	}
 	rows.Close()
-	edgeRows, err := p.DB.Query(ctx, `SELECT r.id,r.from_entity_id,r.to_entity_id,r.relation_type,COALESCE(r.evidence_chunk_id::text,''),COALESCE(c.content,''),COALESCE(c.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=c.document_id),''),r.source,r.confidence,r.created_at
+	edgeRows, err := p.DB.Query(ctx, `SELECT DISTINCT ON (r.from_entity_id,r.to_entity_id,r.relation_type) r.id,r.from_entity_id,r.to_entity_id,r.relation_type,COALESCE(r.evidence_chunk_id::text,''),COALESCE(c.content,''),COALESCE(c.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=c.document_id),''),r.source,r.confidence,r.created_at,count(*) OVER(PARTITION BY r.from_entity_id,r.to_entity_id,r.relation_type)
 		FROM knowledge_relations r JOIN knowledge_bases kb ON kb.id=r.knowledge_base_id
 		LEFT JOIN document_chunks c ON c.id=r.evidence_chunk_id
 		WHERE r.knowledge_base_id=$1 AND (r.user_id=$2 OR kb.is_public=true) AND (r.source='canonical' OR r.evidence_chunk_id IS NOT NULL)
-		ORDER BY r.created_at`, kid, uid)
+		ORDER BY r.from_entity_id,r.to_entity_id,r.relation_type,r.confidence DESC,r.created_at DESC,r.id`, kid, uid)
 	if err != nil {
 		return graph, err
 	}
 	defer edgeRows.Close()
 	for edgeRows.Next() {
 		var e domain.GraphEdge
-		if err = edgeRows.Scan(&e.ID, &e.FromEntityID, &e.ToEntityID, &e.RelationType, &e.EvidenceChunkID, &e.EvidenceExcerpt, &e.EvidenceDocumentID, &e.EvidenceDocumentTitle, &e.Source, &e.Confidence, &e.CreatedAt); err != nil {
+		if err = edgeRows.Scan(&e.ID, &e.FromEntityID, &e.ToEntityID, &e.RelationType, &e.EvidenceChunkID, &e.EvidenceExcerpt, &e.EvidenceDocumentID, &e.EvidenceDocumentTitle, &e.Source, &e.Confidence, &e.CreatedAt, &e.EvidenceCount); err != nil {
 			return graph, err
 		}
 		if len([]rune(e.EvidenceExcerpt)) > 240 {

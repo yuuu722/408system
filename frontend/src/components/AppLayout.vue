@@ -35,6 +35,6 @@ function logout() { auth.logout(); router.push('/login') }
       <div class="account-menu"><RouterLink to="/exam408/settings" class="account-link" aria-label="账号设置"><span class="account"><b>{{ auth.user?.username || '同学' }}</b><small>{{ !auth.user ? '正在读取身份…' : auth.user.role === 'admin' ? '管理员 · 公共资源维护' : '普通用户 · 公共学习空间' }}</small></span><span class="avatar">{{ auth.user?.username?.slice(0, 1).toUpperCase() || 'U' }}</span></RouterLink><button class="text-btn" @click="logout">退出</button></div>
     </header>
     <main id="main-content" class="main" tabindex="-1"><RouterView /></main>
-    <footer class="site-footer">408 Assistant · 让资料、理解与复习连接起来</footer>
+    <footer class="site-footer">408 Assistant · 让资料、理解与复习连接起来 · 版本 2026.10.31.2</footer>
   </div>
 </template>

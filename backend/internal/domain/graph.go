@@ -8,6 +8,7 @@ import (
 type GraphNode struct {
 	ID, Name, EntityType, Description         string
 	KnowledgePointID                          string
+	SubjectCode                               string
 	EvidenceChunkID, EvidenceExcerpt          string
 	EvidenceDocumentID, EvidenceDocumentTitle string
 	Source                                    string
@@ -16,6 +17,7 @@ type GraphNode struct {
 }
 
 type GraphEdge struct {
+	EvidenceCount                              int
 	ID, FromEntityID, ToEntityID, RelationType string
 	EvidenceChunkID, EvidenceExcerpt           string
 	EvidenceDocumentID, EvidenceDocumentTitle  string

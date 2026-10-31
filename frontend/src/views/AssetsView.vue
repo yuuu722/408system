@@ -21,7 +21,7 @@ const draft=ref<Asset>(blank()),editing=ref(false)
 async function load(){
  error.value='';try{assets.value=await foundation.assets();page.value=Math.min(page.value,pageCount.value)}catch(e){error.value=messageOf(e);return}
  const [p,b]=await Promise.allSettled([learningApi.points(),learningApi.bases()]);if(p.status==='fulfilled')points.value=p.value;else error.value=messageOf(p.reason)
- if(b.status==='fulfilled'){const results=await Promise.allSettled(b.value.map(k=>learningApi.documents(k.ID)));documents.value=results.flatMap(r=>r.status==='fulfilled'?r.value:[]);if(results.some(r=>r.status==='rejected'))notice.value='部分原文列表暂未加载，已加载的题目仍可查看和审核。'}
+ if(b.status==='fulfilled'){const results=await Promise.allSettled(b.value.filter(k=>auth.user?.role!=='admin'||k.IsPublic).map(k=>learningApi.documents(k.ID)));documents.value=results.flatMap(r=>r.status==='fulfilled'?r.value:[]);if(results.some(r=>r.status==='rejected'))notice.value='部分原文列表暂未加载，已加载的题目仍可查看和审核。'}
 }
 
 const solutionDocument=ref(''),solutionPage=ref(1),solutionQuote=ref('')

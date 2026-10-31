@@ -68,6 +68,13 @@ func (p *Postgres) CreateKnowledgeBase(ctx context.Context, uid, name, desc stri
 		return k, e
 	}
 	defer tx.Rollback(ctx)
+	var admin bool
+	if e = tx.QueryRow(ctx, `SELECT role='admin' FROM users WHERE id=$1`, uid).Scan(&admin); e != nil {
+		return k, nf(e)
+	}
+	if admin {
+		return k, &domain.RequestError{Status: 403, Message: "管理员维护公共知识库，个人库通过成员配额管理"}
+	}
 	var quota, count int
 	if e = tx.QueryRow(ctx, `SELECT personal_kb_limit FROM users WHERE id=$1 FOR UPDATE`, uid).Scan(&quota); e != nil {
 		return k, nf(e)
@@ -92,7 +99,7 @@ func (p *Postgres) KnowledgeBase(ctx context.Context, uid, kid string) (domain.K
 	return scanKB(p.DB.QueryRow(ctx, `SELECT id,user_id,name,description,created_at,updated_at,is_public FROM knowledge_bases WHERE id=$1 AND (user_id=$2 OR is_public=true)`, kid, uid))
 }
 func (p *Postgres) ListKnowledgeBases(ctx context.Context, uid string) (out []domain.KnowledgeBase, err error) {
-	rows, err := p.DB.Query(ctx, `SELECT id,user_id,name,description,created_at,updated_at,is_public FROM knowledge_bases WHERE user_id=$1 OR is_public=true ORDER BY is_public DESC,updated_at DESC`, uid)
+	rows, err := p.DB.Query(ctx, `SELECT id,user_id,name,description,created_at,updated_at,is_public FROM knowledge_bases WHERE is_public=true OR (user_id=$1 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin')) ORDER BY is_public DESC,updated_at DESC`, uid)
 	if err != nil {
 		return nil, err
 	}

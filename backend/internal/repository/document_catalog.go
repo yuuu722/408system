@@ -66,6 +66,9 @@ func (p *Postgres) SaveCatalog(ctx context.Context, uid string, c domain.Documen
 	if _, e = tx.Exec(ctx, `UPDATE documents SET resource_type=$2 WHERE id=$1`, c.DocumentID, c.ResourceType); e != nil {
 		return e
 	}
+	if _, e = tx.Exec(ctx, `UPDATE graph_sync_state SET revision=revision+1,updated_at=now() WHERE knowledge_base_id=(SELECT knowledge_base_id FROM documents WHERE id=$1)`, c.DocumentID); e != nil {
+		return e
+	}
 	if c.Purpose == "knowledge" {
 		if _, e = tx.Exec(ctx, `UPDATE learning_assets SET status='unavailable',payload=jsonb_set(payload,'{ReviewStatus}','"pending"'::jsonb),revision=revision+1 WHERE document_id=$1 AND COALESCE(payload->>'ExtractionKey','')<>''`, c.DocumentID); e != nil {
 			return e

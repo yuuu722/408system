@@ -3,6 +3,7 @@ package repository_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"github.com/local/exam408-assistant/backend/internal/repository"
@@ -147,4 +148,35 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	g, e = n.Read(ctx, kb.ID)
 	require.NoError(t, e)
 	require.Empty(t, g.Nodes)
+}
+
+func TestNeo4jBoundedReadOnDenseGraph(t *testing.T) {
+	endpoint, password := os.Getenv("NEO4J_TEST_URL"), os.Getenv("NEO4J_TEST_PASSWORD")
+	if endpoint == "" || password == "" {
+		t.Skip("isolated Neo4j required")
+	}
+	ctx := context.Background()
+	n := repository.Neo4jGraph{URL: endpoint, Username: "neo4j", Password: password}
+	require.NoError(t, n.Initialize(ctx))
+	scope := uuid.NewString()
+	defer n.Replace(ctx, scope, domain.KnowledgeGraph{})
+	graph := domain.KnowledgeGraph{}
+	for i := 0; i < 180; i++ {
+		graph.Nodes = append(graph.Nodes, domain.GraphNode{ID: fmt.Sprint(i), Name: "内存概念" + fmt.Sprint(i), SubjectCode: "os"})
+	}
+	for i := 0; i < 180; i++ {
+		for j := 1; j <= 8; j++ {
+			graph.Edges = append(graph.Edges, domain.GraphEdge{ID: fmt.Sprintf("%d-%d", i, j), FromEntityID: fmt.Sprint(i), ToEntityID: fmt.Sprint((i + j) % 180), RelationType: "related"})
+		}
+	}
+	require.NoError(t, n.Replace(ctx, scope, graph, 1))
+	paths, e := n.Paths(ctx, scope, []string{"内存概念"})
+	require.NoError(t, e)
+	require.NotEmpty(t, paths)
+	require.LessOrEqual(t, len(paths), 24)
+	loaded, e := n.Read(ctx, scope)
+	require.NoError(t, e)
+	require.Len(t, loaded.Nodes, 180)
+	require.Len(t, loaded.Edges, 1440)
+	require.Equal(t, "os", loaded.Nodes[0].SubjectCode)
 }

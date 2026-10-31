@@ -56,3 +56,13 @@ func TestInlineQuestionDoesNotHideFollowingExplanation(t *testing.T) {
 	parts := completeSourceSentences("为什么需要虚拟内存？虚拟内存通过按需调入提高内存利用率。")
 	require.Contains(t, parts, "虚拟内存通过按需调入提高内存利用率。")
 }
+
+func TestWhyQuestionDoesNotSubstituteImplementationPrerequisite(t *testing.T) {
+	contents := []string{"虚拟内存技术允许将一个作业分多次调入内存。采用连续分配方式时，会使相当一部分内存空间处于空闲状态。因此，虚拟内存的实现需要建立在离散分配的内存管理方式的基础上。", "传统存储方式要求一次性全部装入，当内存不足时作业无法运行。虚拟内存利用程序的局部性，允许程序分次调入内存。"}
+	refs := []domain.Citation{{DocumentID: "book", Page: 1}, {DocumentID: "book", Page: 2}}
+	answer, _, _ := sentenceAnswer("invalid", "为什么需要虚拟内存？", contents, refs, nil)
+	require.NotContains(t, answer, "采用连续分配")
+	require.NotContains(t, answer, "实现需要建立")
+	require.Contains(t, answer, "内存不足")
+	require.Contains(t, answer, "局部性")
+}

@@ -15,11 +15,19 @@ func (p *Postgres) SyncKnowledgeGraph(ctx context.Context, kid string) error {
 		return e
 	}
 	defer tx.Rollback(ctx)
-	// Writers mark the journal within their own transactions. Holding its row
-	// freezes committed source changes for this KB during snapshot replacement.
+	// API and worker share a journal; only one may publish a scope at a time.
+	var acquired bool
+	if e = tx.QueryRow(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended($1,40821))`, kid).Scan(&acquired); e != nil {
+		return e
+	}
+	if !acquired {
+		return nil
+	}
+	// Do not hold the journal row lock during Neo4j network I/O: document
+	// writers must remain responsive. A changed revision stays dirty for replay.
 	var version, synced int64
 	var deleted bool
-	if e = tx.QueryRow(ctx, `SELECT revision,synced_revision,deleted FROM graph_sync_state WHERE knowledge_base_id=$1 FOR UPDATE`, kid).Scan(&version, &synced, &deleted); e != nil {
+	if e = tx.QueryRow(ctx, `SELECT revision,synced_revision,deleted FROM graph_sync_state WHERE knowledge_base_id=$1`, kid).Scan(&version, &synced, &deleted); e != nil {
 		return nf(e)
 	}
 	if version == synced {
@@ -41,6 +49,13 @@ func (p *Postgres) SyncKnowledgeGraph(ctx context.Context, kid string) error {
 		if e != nil {
 			return e
 		}
+	}
+	var currentVersion int64
+	if e = tx.QueryRow(ctx, `SELECT revision FROM graph_sync_state WHERE knowledge_base_id=$1`, kid).Scan(&currentVersion); e != nil {
+		return e
+	}
+	if currentVersion != version {
+		return nil
 	}
 	if e = p.Neo4j.Replace(ctx, kid, g, version); e != nil {
 		return e
@@ -84,7 +99,7 @@ func (p *Postgres) RunGraphSync(ctx context.Context, report func(error)) {
 		return
 	}
 	for ctx.Err() == nil {
-		attempt, cancel := context.WithTimeout(ctx, 45*time.Second)
+		attempt, cancel := context.WithTimeout(ctx, 120*time.Second)
 		e := p.Neo4j.Initialize(attempt)
 		if e == nil {
 			e = p.SyncPendingGraphs(attempt)

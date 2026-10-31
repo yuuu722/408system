@@ -55,3 +55,9 @@ test('bounded overview retains every subject despite grouped source ordering', (
  assert.equal(overview.nodes.length,160)
  for (let group=0;group<4;group++) assert.equal(overview.nodes.filter(n=>groups.get(n.ID)===group).length,40)
 })
+
+test('confirmed document subject classifies an otherwise unattached concept',()=>{
+ const candidate={...node('candidate'),SubjectCode:'OS'}
+ const groups=subjectGroups([candidate],[],[])
+ assert.equal(groups.get('candidate'),2)
+})

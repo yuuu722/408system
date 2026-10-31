@@ -20,7 +20,7 @@
 
 1. 启动 Docker Desktop；已有 `.env` 不要覆盖。
 2. 在项目 PowerShell 终端运行 `powershell -ExecutionPolicy Bypass -File .\scripts\start-kag.ps1`。脚本生成缺少的本地密钥，保留现有配置，并构建启动全部服务。
-3. 打开 http://localhost:5173。管理员可在资料管理点击“升级本库分块与索引”，为旧资料建立带章节和前提的新索引。当前迁移为 1–20。
+3. 打开 http://localhost:5173。管理员可在资料管理点击“升级本库分块与索引”，为旧资料建立带章节和前提的新索引。当前迁移为 1–21。
 4. 回答仍需要可用模型；已有 Ollama 配置可以继续使用。内置文字解析/OCR 和本地词法向量无需额外启动 Python 服务，独立 Python 解析/text2vec 是可选方案。
 
 ## 使用流程

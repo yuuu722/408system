@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -23,6 +25,19 @@ type cypherStatement struct {
 	Parameters map[string]any `json:"parameters"`
 }
 
+var defaultNeo4jHTTPClient = func() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = func(r *http.Request) (*url.URL, error) {
+		host := r.URL.Hostname()
+		ip := net.ParseIP(host)
+		if host == "neo4j" || host == "host.docker.internal" || host == "localhost" || (ip != nil && (ip.IsPrivate() || ip.IsLoopback())) {
+			return nil, nil
+		}
+		return http.ProxyFromEnvironment(r)
+	}
+	return &http.Client{Timeout: 90 * time.Second, Transport: transport}
+}()
+
 func (n *Neo4jGraph) query(ctx context.Context, statements ...cypherStatement) ([][]json.RawMessage, error) {
 	raw, e := json.Marshal(map[string]any{"statements": statements})
 	if e != nil {
@@ -36,15 +51,21 @@ func (n *Neo4jGraph) query(ctx context.Context, statements ...cypherStatement) (
 	req.Header.Set("Content-Type", "application/json")
 	client := n.Client
 	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
+		client = defaultNeo4jHTTPClient
 	}
 	res, e := client.Do(req)
 	if e != nil {
-		return nil, graphUnavailable()
+		if ctx.Err() != nil {
+			return nil, &domain.RequestError{Status: 503, Message: "Neo4j查询超时或被取消，请检查图谱负载与后台同步状态"}
+		}
+		return nil, &domain.RequestError{Status: 503, Message: "Neo4j连接失败，请检查容器运行状态和服务地址"}
 	}
 	defer res.Body.Close()
+	if res.StatusCode == 401 || res.StatusCode == 403 {
+		return nil, &domain.RequestError{Status: 503, Message: "Neo4j认证失败：服务配置与数据库现有密码可能不一致，请检查凭据；不要删除数据卷"}
+	}
 	if res.StatusCode != 200 {
-		return nil, graphUnavailable()
+		return nil, &domain.RequestError{Status: 503, Message: "Neo4j服务请求失败，请管理员检查图谱服务日志"}
 	}
 	var body struct {
 		Results []struct {
@@ -56,7 +77,13 @@ func (n *Neo4jGraph) query(ctx context.Context, statements ...cypherStatement) (
 			Code string `json:"code"`
 		} `json:"errors"`
 	}
-	if json.NewDecoder(io.LimitReader(res.Body, 32<<20)).Decode(&body) != nil || len(body.Errors) > 0 || len(body.Results) != len(statements) {
+	if json.NewDecoder(io.LimitReader(res.Body, 32<<20)).Decode(&body) != nil {
+		return nil, graphUnavailable()
+	}
+	if len(body.Errors) > 0 {
+		return nil, &domain.RequestError{Status: 503, Message: "Neo4j查询执行失败，请检查后端查询与图谱服务日志"}
+	}
+	if len(body.Results) != len(statements) {
 		return nil, graphUnavailable()
 	}
 	rows := [][]json.RawMessage{}
@@ -99,7 +126,7 @@ func (n *Neo4jGraph) Replace(ctx context.Context, kid string, g domain.Knowledge
 }
 func (n *Neo4jGraph) Read(ctx context.Context, kid string) (domain.KnowledgeGraph, error) {
 	out := domain.KnowledgeGraph{KnowledgeBaseID: kid, Nodes: []domain.GraphNode{}, Edges: []domain.GraphEdge{}}
-	rows, e := n.query(ctx, cypherStatement{`MATCH (g:Exam408Namespace {scope:$scope}) SET g.readCounter=coalesce(g.readCounter,0)+1 WITH g CALL {WITH g MATCH (n:Exam408Entity {scope:$scope}) RETURN collect(n.payload) AS nodes} CALL {WITH g MATCH (:Exam408Entity {scope:$scope})-[r:EXAM408_REL {scope:$scope}]->(:Exam408Entity {scope:$scope}) RETURN collect(r.payload) AS edges} RETURN nodes,edges`, map[string]any{"scope": kid}})
+	rows, e := n.query(ctx, cypherStatement{`MATCH (g:Exam408Namespace {scope:$scope}) WITH g CALL {WITH g MATCH (n:Exam408Entity {scope:$scope}) RETURN collect(n.payload) AS nodes} CALL {WITH g MATCH (:Exam408Entity {scope:$scope})-[r:EXAM408_REL {scope:$scope}]->(:Exam408Entity {scope:$scope}) RETURN collect(r.payload) AS edges} RETURN nodes,edges`, map[string]any{"scope": kid}})
 	if e != nil {
 		return out, e
 	}
@@ -131,7 +158,22 @@ func (n *Neo4jGraph) Read(ctx context.Context, kid string) (domain.KnowledgeGrap
 }
 
 func (n *Neo4jGraph) Paths(ctx context.Context, kid string, terms []string) ([]domain.KnowledgePath, error) {
-	rows, e := n.query(ctx, cypherStatement{`MATCH (g:Exam408Namespace {scope:$scope}) SET g.readCounter=coalesce(g.readCounter,0)+1 WITH g MATCH (a:Exam408Entity {scope:$scope}) WHERE any(t IN $terms WHERE size(t)>=2 AND (toLower(a.name) CONTAINS toLower(t) OR toLower(t) CONTAINS toLower(a.name))) WITH a ORDER BY size(a.name) DESC LIMIT 8 MATCH p=(a)-[:EXAM408_REL*0..2]-(b:Exam408Entity) WHERE all(n IN nodes(p) WHERE n.scope=$scope) AND all(r IN relationships(p) WHERE r.scope=$scope) RETURN [n IN nodes(p)|n.payload],[r IN relationships(p)|r.payload] ORDER BY length(p) DESC,a.name LIMIT 24`, map[string]any{"scope": kid, "terms": terms}})
+	rows, e := n.query(ctx, cypherStatement{`MATCH (g:Exam408Namespace {scope:$scope}) WITH g
+ MATCH (a:Exam408Entity {scope:$scope}) WHERE any(t IN $terms WHERE size(t)>=2 AND (toLower(a.name) CONTAINS toLower(t) OR toLower(t) CONTAINS toLower(a.name)))
+ WITH a ORDER BY size(a.name) DESC,a.id LIMIT 8
+ CALL {
+ WITH a RETURN [a.payload] AS ns,[] AS es,0 AS depth
+ UNION
+ WITH a MATCH (a)-[r:EXAM408_REL {scope:$scope}]-(b:Exam408Entity {scope:$scope})
+ WITH a,r,b ORDER BY b.id,r.id LIMIT 8 RETURN [a.payload,b.payload] AS ns,[r.payload] AS es,1 AS depth
+ UNION
+ WITH a MATCH (a)-[r:EXAM408_REL {scope:$scope}]-(b:Exam408Entity {scope:$scope})
+ WITH a,r,b ORDER BY b.id,r.id LIMIT 8
+ MATCH (b)-[s:EXAM408_REL {scope:$scope}]-(c:Exam408Entity {scope:$scope}) WHERE c<>a AND s<>r
+ WITH a,r,b,s,c ORDER BY c.id,s.id LIMIT 16
+ RETURN [a.payload,b.payload,c.payload] AS ns,[r.payload,s.payload] AS es,2 AS depth
+ }
+ RETURN ns,es ORDER BY depth DESC LIMIT 24`, map[string]any{"scope": kid, "terms": terms}})
 	if e != nil {
 		return nil, e
 	}

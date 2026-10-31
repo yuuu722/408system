@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/google/uuid"
 	"github.com/local/exam408-assistant/backend/internal/config"
 	"github.com/local/exam408-assistant/backend/internal/domain"
@@ -183,6 +184,22 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.Len(t, list.Users, 1)
 		require.Equal(t, 1, list.Users[0].PersonalKBCount)
 	})
+	t.Run("promoted admin does not browse its former personal libraries", func(t *testing.T) {
+		u, e := store.CreateUser(ctx, domain.User{Username: "promoted", Email: "promoted@example.invalid", PasswordHash: "synthetic"})
+		require.NoError(t, e)
+		personal, e := store.CreateKnowledgeBase(ctx, u.ID, "former private", "")
+		require.NoError(t, e)
+		_, e = store.DB.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, u.ID)
+		require.NoError(t, e)
+		bases, e := store.ListKnowledgeBases(ctx, u.ID)
+		require.NoError(t, e)
+		for _, base := range bases {
+			require.True(t, base.IsPublic)
+			require.NotEqual(t, personal.ID, base.ID)
+		}
+		_, e = store.CreateKnowledgeBase(ctx, u.ID, "hidden private", "")
+		require.Error(t, e)
+	})
 	t.Run("public textbooks supplement selected personal library", func(t *testing.T) {
 		publicText := "虚拟内存通过按需调入提高内存利用率，允许程序分多次装入。"
 		publicDoc, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "textbook.txt", OriginalFilename: "教材.txt", ResourceType: "textbook", Status: "ready"})
@@ -226,6 +243,48 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		related, e := store.RelatedQuestions(ctx, student.ID, kb.ID, []string{linked.PointID})
 		require.NoError(t, e)
 		require.Len(t, related, 1)
+	})
+
+	t.Run("confirmed source subject and repeated relations update graph without OCR", func(t *testing.T) {
+		var chunkID string
+		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM document_chunks WHERE document_id=$1 LIMIT 1`, d.ID).Scan(&chunkID))
+		first, second := uuid.NewString(), uuid.NewString()
+		for i, id := range []string{first, second} {
+			_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,evidence_chunk_id,source,confidence) VALUES($1,$2,$3,$4,'concept',$5,'rule_candidate',0.9)`, id, editor.ID, kb.ID, fmt.Sprintf("待分类概念%d", i), chunkID)
+			require.NoError(t, e)
+		}
+		for i := 0; i < 2; i++ {
+			_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_relations(user_id,knowledge_base_id,from_entity_id,to_entity_id,relation_type,evidence_chunk_id,source,confidence) VALUES($1,$2,$3,$4,'related',$5,'rule_candidate',0.9)`, editor.ID, kb.ID, first, second, chunkID)
+			require.NoError(t, e)
+		}
+		cat.ResourceType = "exercise"
+		cat.Purpose = "both"
+		cat.SubjectCode = "os"
+		require.NoError(t, store.SaveCatalog(ctx, editor.ID, cat))
+		graph, e := store.KnowledgeGraph(ctx, student.ID, kb.ID)
+		require.NoError(t, e)
+		for _, n := range graph.Nodes {
+			if n.ID == first {
+				require.Equal(t, "os", n.SubjectCode)
+			}
+		}
+		count := 0
+		for _, edge := range graph.Edges {
+			if edge.FromEntityID == first && edge.ToEntityID == second {
+				count++
+				require.Equal(t, 2, edge.EvidenceCount)
+			}
+		}
+		require.Equal(t, 1, count)
+		cat.SubjectCode = "cn"
+		require.NoError(t, store.SaveCatalog(ctx, editor.ID, cat))
+		graph, e = store.KnowledgeGraph(ctx, student.ID, kb.ID)
+		require.NoError(t, e)
+		for _, n := range graph.Nodes {
+			if n.ID == first {
+				require.Equal(t, "cn", n.SubjectCode)
+			}
+		}
 	})
 
 }

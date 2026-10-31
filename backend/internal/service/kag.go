@@ -47,7 +47,11 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 		degraded = true
 		graph = domain.GraphRetrieval{Paths: []domain.KnowledgePath{}}
 		trace.Mode = "rag-degraded"
-		trace.Notice = "Neo4j暂不可用，本次仅使用所选知识库的文档检索，不宣称完成图谱推理。"
+		trace.Notice = "本次仅使用文档检索，不宣称完成图谱推理。"
+		if unavailable != nil {
+			trace.Notice = unavailable.Message + "。" + trace.Notice
+		}
+		s.warn("graph retrieval unavailable", "error", e, "knowledge_base_id", kid)
 	}
 	trace.Paths = graph.Paths
 	if len(graph.Paths) == 0 && !degraded {

@@ -106,6 +106,9 @@ func sentenceCandidates(question string, contents []string) []answerSentence {
 	for i, content := range contents {
 		parts := completeSourceSentences(content)
 		for position, text := range parts {
+			if why && !strings.Contains(question, "实现") && (strings.Contains(text, "实现需要建立") || strings.Contains(text, "实现必须建立") || strings.Contains(text, "采用连续分配方式")) {
+				continue
+			}
 			key := strings.Map(func(r rune) rune {
 				if unicode.IsSpace(r) {
 					return -1
@@ -121,9 +124,9 @@ func sentenceCandidates(question string, contents []string) []answerSentence {
 				score = .2
 			}
 			if why {
-				for _, term := range []string{"不足", "无法", "不能运行", "浪费", "全部装入", "局部性", "按需", "不必", "导致", "占据"} {
+				for _, term := range []string{"不足", "无法运行", "不能运行", "不能全部", "局部性", "暂时不用", "并发度", "占据"} {
 					if strings.Contains(text, term) {
-						score += .25
+						score += .8
 					}
 				}
 			}

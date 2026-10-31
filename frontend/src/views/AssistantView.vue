@@ -34,7 +34,7 @@ async function recognizeImage(){
 const status = ref({ mode: 'unavailable', enabled: false, message: '' })
 async function load() {
  loading.value=true;error.value=''
- try { status.value=await learningApi.assistantStatus();bases.value=await learningApi.bases();history.value=await foundation.conversations();active.value=bases.value[0]?.ID||''
+ try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();active.value=bases.value[0]?.ID||''
  const saved=history.value.find(c=>c.ID===sessionStorage.getItem('408_conversation'));if(saved)await selectConversation(saved.ID)
  }catch(e){error.value=messageOf(e)}finally{loading.value=false}
 }

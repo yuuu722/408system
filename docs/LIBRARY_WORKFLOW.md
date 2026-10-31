@@ -51,4 +51,6 @@
 powershell -ExecutionPolicy Bypass -File .\scripts\start-kag.ps1 -EnablePersonal
 ```
 
-该参数显式将PERSONAL_KB_ENABLED设为true；不修改模型密钥。升级自动执行迁移20，不清空数据卷，不删除教材，也不自动重新发布候选题。
+该参数显式将PERSONAL_KB_ENABLED设为true；不修改模型密钥。升级自动执行迁移21，不清空数据卷，不删除教材，也不自动重新发布候选题。
+
+排查图谱运行状态可执行 `powershell -ExecutionPolicy Bypass -File .\scripts\check-graph.ps1`。只检查容器、凭据是否可用及日志，不打印密码、不重设数据库密码、不删除数据卷。Neo4j图谱读查询逐层限制路径数量，不再修改命名空间计数器；关系展示按端点和类型合并，原始证据完整保留在PostgreSQL。网页页脚2026.10.31.2用于辨认此次前端，仍需重新构建容器并刷新页面。

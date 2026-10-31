@@ -5,7 +5,7 @@ export const graphGroups = [
   { name: '计算机组成原理', color: '#65bf3e' },
   { name: '操作系统', color: '#e6a638' },
   { name: '计算机网络', color: '#f36b72' },
-  { name: '未归科资料概念', color: '#8896ac' },
+  { name: '跨科与待核对概念', color: '#8896ac' },
 ]
 export const relationLabels: Record<string, string> = {
   prerequisite: '先修', related: '相关', part_of: '组成', implements: '实现', uses: '使用', applies_to: '应用于',
@@ -15,7 +15,8 @@ export function subjectGroups(nodes: GraphNode[], edges: GraphEdge[], points: Kn
   const groups = new Map<string, number>()
   for (const n of nodes) {
     const subject = pointsByID.get(n.KnowledgePointID)?.SubjectName
-    const index = graphGroups.findIndex(g => g.name === subject)
+    const explicit=['ds','co','os','cn'].indexOf((n.SubjectCode??'').toLowerCase())
+    const index = explicit>=0?explicit:graphGroups.findIndex(g => g.name === subject)
     if (index >= 0 && index < 4) groups.set(n.ID, index)
   }
   // Color unattached candidates by the nearest reachable canonical subject.
