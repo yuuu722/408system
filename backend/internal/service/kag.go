@@ -32,7 +32,7 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 	if !ok {
 		return nil, trace, &domain.RequestError{Status: 503, Message: "KAG图谱检索未接入，请检查Neo4j配置"}
 	}
-	graphCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	graphCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	graph, e := store.RetrieveGraphEvidence(graphCtx, uid, kid, append([]string{question}, names...))
 	cancel()
 	degraded := false

@@ -14,5 +14,5 @@ func TestEvidenceRetainsExplanationButNeverUnresolvedOptions(t *testing.T) {
 	require.NotContains(t, got, "M/N")
 	require.NotContains(t, got, "下一题")
 	require.NotEmpty(t, answerEvidence(q, "虚拟内存通过按需调入，使程序无需全部装入物理内存即可运行。"))
-	require.NotEmpty(t, answerEvidence("请计算该选择题的答案", "虚拟内存题目\nA. 一次性 B. 多次性"))
+	require.Empty(t, answerEvidence("请计算该选择题的答案", "虚拟内存题目\nA. 一次性 B. 多次性"))
 }

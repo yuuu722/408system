@@ -135,7 +135,10 @@ func (s *DocumentService) Upload(ctx context.Context, uid, kid, resourceType str
 	if h.Size <= 0 || h.Size > s.MaxBytes {
 		return domain.Document{}, &domain.RequestError{Status: 413, Message: fmt.Sprintf("文件须为1字节至%d MB", s.MaxBytes>>20)}
 	}
-	purpose := "knowledge"
+	if resourceType == "" || resourceType == "auto" {
+		resourceType = SuggestDocumentCatalog(domain.Document{OriginalFilename: h.Filename}).ResourceType
+	}
+	purpose := SuggestDocumentCatalog(domain.Document{OriginalFilename: h.Filename, ResourceType: resourceType}).Purpose
 	if len(replaceID) > 1 && replaceID[1] != "" {
 		purpose = replaceID[1]
 	}
@@ -144,6 +147,10 @@ func (s *DocumentService) Upload(ctx context.Context, uid, kid, resourceType str
 	}
 	if resourceType == "" {
 		resourceType = "other"
+	}
+	validTypes := map[string]bool{"textbook": true, "notes": true, "past_exam": true, "exercise": true, "mock_exam": true, "solution": true, "courseware": true, "outline": true, "other": true}
+	if !validTypes[resourceType] {
+		return domain.Document{}, &domain.RequestError{Status: 400, Message: "不支持的资料类型"}
 	}
 	dir := filepath.Join(s.StorageRoot, uid, kid)
 	if err := os.MkdirAll(dir, 0700); err != nil {

@@ -20,7 +20,7 @@
 
 1. 启动 Docker Desktop；已有 `.env` 不要覆盖。
 2. 在项目 PowerShell 终端运行 `powershell -ExecutionPolicy Bypass -File .\scripts\start-kag.ps1`。脚本生成缺少的本地密钥，保留现有配置，并构建启动全部服务。
-3. 打开 http://localhost:5173。管理员可在资料管理点击“升级本库分块与索引”，为旧资料建立带章节和前提的新索引。当前迁移为 1–19。
+3. 打开 http://localhost:5173。管理员可在资料管理点击“升级本库分块与索引”，为旧资料建立带章节和前提的新索引。当前迁移为 1–20。
 4. 回答仍需要可用模型；已有 Ollama 配置可以继续使用。内置文字解析/OCR 和本地词法向量无需额外启动 Python 服务，独立 Python 解析/text2vec 是可选方案。
 
 ## 使用流程
@@ -38,3 +38,5 @@
 ## 独立实现与来源
 
 WeKnora 仅作开发设计参考，不是构建、测试、运行或部署依赖。项目不要求交付其源码。开发前读 [AGENTS.md](AGENTS.md)，能力归属见 [independence.md](docs/independence.md)，参考记录见 [weknora-reference.md](docs/weknora-reference.md)。通用开源依赖和模型保留各自许可证；独立性脚本仅检查显式耦合，不证明原创性。
+
+资料分类、教材优先问答、题目解析关联和成员配额的操作流程见 [知识库使用流程](docs/LIBRARY_WORKFLOW.md)。

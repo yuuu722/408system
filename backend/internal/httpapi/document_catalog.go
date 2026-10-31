@@ -7,6 +7,50 @@ import (
 )
 
 func (s *Server) catalogRoutes(mux *http.ServeMux) {
+	mux.Handle("POST /api/v1/exam408/assets/{id}/link-solution", s.auth(http.HandlerFunc(s.linkSolution)))
+	mux.Handle("POST /api/v1/knowledge-bases/{id}/catalog/batch", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			DocumentIDs                        []string
+			ResourceType, SubjectCode, Purpose string
+		}
+		if !s.input(w, r, &in) {
+			return
+		}
+		if len(in.DocumentIDs) == 0 || len(in.DocumentIDs) > 200 {
+			s.fail(w, &domain.RequestError{Status: 400, Message: "每批选择1至200份资料"})
+			return
+		}
+		kb, e := s.Store.KnowledgeBase(r.Context(), uid(r), r.PathValue("id"))
+		if e != nil {
+			s.fail(w, e)
+			return
+		}
+		actor, e := s.Store.UserByID(r.Context(), uid(r))
+		if e != nil {
+			s.fail(w, e)
+			return
+		}
+		if kb.IsPublic && actor.Role != "admin" {
+			s.fail(w, domain.ErrForbidden)
+			return
+		}
+		done := 0
+		failures := map[string]string{}
+		for _, id := range in.DocumentIDs {
+			d, e := s.Store.Document(r.Context(), uid(r), id)
+			if e != nil || d.KnowledgeBaseID != kb.ID {
+				failures[id] = "无权操作此资料"
+				continue
+			}
+			c := domain.DocumentCatalog{DocumentID: id, ResourceType: in.ResourceType, SubjectCode: in.SubjectCode, Purpose: in.Purpose, ReviewState: "confirmed", Reason: "维护者批量核对"}
+			if e = s.Platform.SaveCatalog(r.Context(), uid(r), c); e != nil {
+				failures[id] = e.Error()
+			} else {
+				done++
+			}
+		}
+		s.reply(w, map[string]any{"updated": done, "failed": failures}, nil)
+	})))
 	mux.Handle("POST /api/v1/knowledge-bases/{id}/rebuild-index", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		kid := r.PathValue("id")
 		kb, e := s.Store.KnowledgeBase(r.Context(), uid(r), kid)

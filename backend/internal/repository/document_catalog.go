@@ -33,7 +33,7 @@ func (p *Postgres) SaveCatalog(ctx context.Context, uid string, c domain.Documen
 	if c.Purpose != "knowledge" && c.Purpose != "questions" && c.Purpose != "both" {
 		return catalogInputError("请选择知识库、题库或两者用途")
 	}
-	valid := map[string]bool{"textbook": true, "past_exam": true, "solution": true, "courseware": true, "notes": true, "outline": true, "other": true}
+	valid := map[string]bool{"textbook": true, "past_exam": true, "exercise": true, "mock_exam": true, "solution": true, "courseware": true, "notes": true, "outline": true, "other": true}
 	if !valid[c.ResourceType] {
 		return catalogInputError("不支持的资料类型")
 	}

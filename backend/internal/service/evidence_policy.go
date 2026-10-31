@@ -12,9 +12,6 @@ var questionBoundary = regexp.MustCompile(`(?m)^\s*(?:\([0-9]+\)|（[0-9]+）|[0
 // questions, never asserted facts. Keep actual explanation sections for concept
 // questions; exercise-solving requests may still retrieve the complete exercise.
 func answerEvidence(question, content string, contextHint ...string) string {
-	if questionIntent(question) != "概念与原理" && questionIntent(question) != "比较分析" {
-		return strings.TrimSpace(content)
-	}
 	if choiceOption.MatchString(content) {
 		explanation := -1
 		for _, marker := range []string{"【解析】", "【解答】", "答案解析", "解析：", "解析:"} {
@@ -33,6 +30,9 @@ func answerEvidence(question, content string, contextHint ...string) string {
 		if choiceOption.MatchString(content) {
 			return ""
 		}
+	}
+	if questionIntent(question) != "概念与原理" && questionIntent(question) != "比较分析" {
+		return strings.TrimSpace(content)
 	}
 	// A heading/outline with relevant words is not an explanation. Require a
 	// related prose sentence with an explanatory predicate, even for outline PDFs.

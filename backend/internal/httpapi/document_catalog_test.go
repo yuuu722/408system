@@ -158,4 +158,74 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 	call("PUT", "/api/v1/exam408/assets/"+a.ID, token, a, 409)
 	cat.ResourceType = "other"
 	call("PATCH", path+"/catalog", token, cat, 400)
+	t.Run("member quotas do not expose private libraries", func(t *testing.T) {
+		call("PATCH", "/api/v1/admin/users/"+student.ID+"/quota", stoken, map[string]int{"PersonalKBLimit": 0}, 403)
+		call("PATCH", "/api/v1/admin/users/"+student.ID+"/quota", token, map[string]int{"PersonalKBLimit": 1}, 200)
+		private, e := store.CreateKnowledgeBase(ctx, student.ID, "private", "secret description")
+		require.NoError(t, e)
+		_, e = store.CreateKnowledgeBase(ctx, student.ID, "another", "")
+		require.Error(t, e)
+		bases, e := store.ListKnowledgeBases(ctx, editor.ID)
+		require.NoError(t, e)
+		for _, base := range bases {
+			require.NotEqual(t, private.ID, base.ID)
+		}
+		call("POST", "/api/v1/knowledge-bases/"+kb.ID+"/catalog/batch", stoken, map[string]any{"DocumentIDs": []string{d.ID}, "ResourceType": "textbook", "SubjectCode": "os", "Purpose": "knowledge"}, 403)
+		var result struct {
+			Updated int
+			Failed  map[string]string
+		}
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/knowledge-bases/"+kb.ID+"/catalog/batch", token, map[string]any{"DocumentIDs": []string{d.ID}, "ResourceType": "textbook", "SubjectCode": "os", "Purpose": "both"}, 200), &result))
+		require.Equal(t, 1, result.Updated)
+		require.Empty(t, result.Failed)
+		list, e := store.ManageUsers(ctx, editor.ID, "student", 0)
+		require.NoError(t, e)
+		require.Len(t, list.Users, 1)
+		require.Equal(t, 1, list.Users[0].PersonalKBCount)
+	})
+	t.Run("public textbooks supplement selected personal library", func(t *testing.T) {
+		publicText := "虚拟内存通过按需调入提高内存利用率，允许程序分多次装入。"
+		publicDoc, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "textbook.txt", OriginalFilename: "教材.txt", ResourceType: "textbook", Status: "ready"})
+		require.NoError(t, e)
+		require.NoError(t, store.ReplaceChunks(ctx, editor.ID, publicDoc.ID, []domain.Chunk{{ID: uuid.NewString(), DocumentID: publicDoc.ID, KnowledgeBaseID: kb.ID, UserID: editor.ID, Content: publicText, Embedding: []float32{1, 0}, Metadata: map[string]any{"page": 1, "embedding_space": store.EmbeddingSpace}}}))
+		var personalID string
+		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM knowledge_bases WHERE user_id=$1 AND NOT is_public LIMIT 1`, student.ID).Scan(&personalID))
+		personalDoc, e := store.CreateDocument(ctx, domain.Document{UserID: student.ID, KnowledgeBaseID: personalID, Filename: "notes.txt", OriginalFilename: "笔记.txt", ResourceType: "notes", Status: "ready"})
+		require.NoError(t, e)
+		require.NoError(t, store.ReplaceChunks(ctx, student.ID, personalDoc.ID, []domain.Chunk{{ID: uuid.NewString(), DocumentID: personalDoc.ID, KnowledgeBaseID: personalID, UserID: student.ID, Content: "虚拟内存通过按需调入提高内存利用率。", Embedding: []float32{1, 0}, Metadata: map[string]any{"page": 1, "embedding_space": store.EmbeddingSpace}}}))
+		rag := service.RAGService{Store: store, Embedder: syntheticEmbedding{}, LLM: service.OpenAILLM{DemoMode: true}, Knowledge: service.KnowledgeService{Store: store}, Learning: service.LearningService{Store: store}, TopK: 1, MinScore: .35}
+		result, e := rag.Chat(ctx, student.ID, personalID, "", "为什么需要虚拟内存？")
+		require.NoError(t, e)
+		require.Len(t, result.Sources, 1)
+		require.NotEqual(t, personalDoc.ID, result.Sources[0].DocumentID)
+		chosenDoc, e := store.Document(ctx, student.ID, result.Sources[0].DocumentID)
+		require.NoError(t, e)
+		require.Equal(t, kb.ID, chosenDoc.KnowledgeBaseID)
+		require.Equal(t, "textbook", chosenDoc.ResourceType)
+		_, e = rag.Chat(ctx, editor.ID, personalID, "", "为什么需要虚拟内存？")
+		require.Error(t, e)
+	})
+	t.Run("solution links require exact source and review", func(t *testing.T) {
+		cat.ResourceType = "exercise"
+		cat.Purpose = "both"
+		call("PATCH", path+"/catalog", token, cat, 200)
+		quote := "这是内存知识点的完整解析原文，第一项成立。"
+		source, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, OriginalFilename: "解析.txt", Filename: "solution.txt", ResourceType: "solution", Status: "ready"})
+		require.NoError(t, e)
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, source.ID, domain.ParsedDocument{Pages: []service.TextPage{{Number: 2, Text: quote}}}, nil))
+		route := "/api/v1/exam408/assets/" + a.ID + "/link-solution"
+		call("POST", route, stoken, map[string]any{"DocumentID": source.ID, "Page": 2, "Quote": quote}, 403)
+		call("POST", route, token, map[string]any{"DocumentID": source.ID, "Page": 2, "Quote": "这段话不在教材原文里。"}, 400)
+		var linked domain.Asset
+		require.NoError(t, json.Unmarshal(call("POST", route, token, map[string]any{"DocumentID": source.ID, "Page": 2, "Quote": quote, "Answer": 0}, 200), &linked))
+		require.Equal(t, "pending", linked.Payload.ReviewStatus)
+		require.Equal(t, "unavailable", linked.Status)
+		require.Equal(t, source.ID, linked.Payload.Evidence[0].DocumentID)
+		linked.Payload.ReviewStatus = "published"
+		require.NoError(t, json.Unmarshal(call("PUT", "/api/v1/exam408/assets/"+linked.ID, token, linked, 200), &linked))
+		related, e := store.RelatedQuestions(ctx, student.ID, kb.ID, []string{linked.PointID})
+		require.NoError(t, e)
+		require.Len(t, related, 1)
+	})
+
 }

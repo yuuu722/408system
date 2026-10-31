@@ -1,3 +1,4 @@
+param([switch]$EnablePersonal)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $path = Join-Path $root '.env'
@@ -18,6 +19,12 @@ foreach ($key in @('JWT_SECRET', 'NEO4J_PASSWORD')) {
         if ($match.Success) { $text = [regex]::Replace($text, $pattern, $line) }
         else { $text = $text.TrimEnd() + "`r`n" + $line + "`r`n" }
     }
+}
+if ($EnablePersonal) {
+    $pattern = '(?m)^PERSONAL_KB_ENABLED=.*$'
+    if ([regex]::IsMatch($text, $pattern)) { $text = [regex]::Replace($text, $pattern, 'PERSONAL_KB_ENABLED=true') }
+    else { $text = $text.TrimEnd() + "`r`nPERSONAL_KB_ENABLED=true`r`n" }
+    Write-Host 'Personal libraries enabled; per-member quotas still apply.'
 }
 [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
 Push-Location $root

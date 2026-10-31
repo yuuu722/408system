@@ -204,3 +204,61 @@ func TestDuplicateUploadsDoNotCrowdOutDistinctEvidence(t *testing.T) {
 	require.Contains(t, result.Answer, "按需调入")
 	require.Equal(t, 1, strings.Count(result.Answer, "按需调入"))
 }
+
+type policyScopeStore struct {
+	*testutil.Store
+	calls []string
+}
+
+func (s *policyScopeStore) KnowledgeBase(ctx context.Context, uid, kid string) (domain.KnowledgeBase, error) {
+	k := s.KBs[kid]
+	if k.ID == "" || (!k.IsPublic && k.UserID != uid) {
+		return k, domain.ErrForbidden
+	}
+	return k, nil
+}
+func (s *policyScopeStore) ListKnowledgeBases(ctx context.Context, uid string) ([]domain.KnowledgeBase, error) {
+	out := []domain.KnowledgeBase{}
+	for _, k := range s.KBs {
+		if k.IsPublic || k.UserID == uid {
+			out = append(out, k)
+		}
+	}
+	return out, nil
+}
+func (s *policyScopeStore) SearchChunks(ctx context.Context, uid, kid string, v []float32, n int) ([]domain.Chunk, error) {
+	s.calls = append(s.calls, kid)
+	out := []domain.Chunk{}
+	for _, c := range s.Chunks {
+		if c.KnowledgeBaseID == kid {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+func (s *policyScopeStore) SearchChunksScoped(ctx context.Context, uid, kid string, v []float32, n int, _ bool) ([]domain.Chunk, error) {
+	return s.SearchChunks(ctx, uid, kid, v, n)
+}
+func TestPersonalScopeAddsPublicTextbookButNeverOtherPrivateLibrary(t *testing.T) {
+	st := &policyScopeStore{Store: testutil.NewStore()}
+	st.KBs["public"] = domain.KnowledgeBase{ID: "public", IsPublic: true}
+	st.KBs["personal"] = domain.KnowledgeBase{ID: "personal", UserID: "u"}
+	st.KBs["other-own"] = domain.KnowledgeBase{ID: "other-own", UserID: "u"}
+	st.KBs["secret"] = domain.KnowledgeBase{ID: "secret", UserID: "someone-else"}
+	for _, scope := range []string{"personal", "public", "other-own", "secret"} {
+		st.Chunks = append(st.Chunks, domain.Chunk{ID: scope, DocumentID: scope, KnowledgeBaseID: scope, Score: 1, Content: "虚拟内存通过按需调入提高内存利用率。", Metadata: map[string]any{"resource_type": "notes", "is_public": scope == "public"}})
+	}
+	st.Chunks[1].Metadata["resource_type"] = "textbook"
+	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: editorialLLM{answer: "invalid"}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 1, MinScore: .35}
+	result, e := rag.Chat(context.Background(), "u", "personal", "", "为什么需要虚拟内存？")
+	require.NoError(t, e)
+	require.Len(t, result.Sources, 1)
+	require.Equal(t, "public", result.Sources[0].DocumentID)
+	require.ElementsMatch(t, []string{"personal", "public"}, st.calls)
+	st.calls = nil
+	_, e = rag.Chat(context.Background(), "u", "public", "", "为什么需要虚拟内存？")
+	require.NoError(t, e)
+	require.Equal(t, []string{"public"}, st.calls)
+	_, e = rag.Chat(context.Background(), "u", "secret", "", "为什么需要虚拟内存？")
+	require.Error(t, e)
+}

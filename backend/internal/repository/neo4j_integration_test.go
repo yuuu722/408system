@@ -69,6 +69,7 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	require.NoError(t, e)
 	chunk := domain.Chunk{ID: uuid.NewString(), DocumentID: d.ID, KnowledgeBaseID: kb.ID, UserID: a.ID, Content: text, Embedding: vec[0], Metadata: map[string]any{"page": 1, "embedding_space": "synthetic"}}
 	require.NoError(t, p.ReplaceChunks(ctx, a.ID, d.ID, []domain.Chunk{chunk}))
+	require.NoError(t, p.SyncPendingGraphs(ctx))
 	g, e := p.KnowledgeGraph(ctx, a.ID, kb.ID)
 	require.NoError(t, e)
 	require.Equal(t, "neo4j", g.Storage)
@@ -115,11 +116,16 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	_, e = p.DB.Exec(ctx, `DELETE FROM schema_migrations WHERE version=19`)
 	require.NoError(t, e)
 	require.NoError(t, migrations.Up(ctx, p.DB))
+	require.NoError(t, p.SyncPendingGraphs(ctx))
 	replayed, e := p.KnowledgeGraph(ctx, a.ID, kb.ID)
 	require.NoError(t, e)
 	require.NotEmpty(t, replayed.Nodes)
 	// Lost graph storage is detected through the namespace generation and rebuilt.
 	require.NoError(t, n.Replace(ctx, kb.ID, domain.KnowledgeGraph{}, -1))
+	g, e = p.KnowledgeGraph(ctx, a.ID, kb.ID)
+	require.NoError(t, e)
+	require.Equal(t, "postgres-recovery", g.Storage)
+	require.NoError(t, p.SyncPendingGraphs(ctx))
 	g, e = p.KnowledgeGraph(ctx, a.ID, kb.ID)
 	require.NoError(t, e)
 	require.NotEmpty(t, g.Nodes)
@@ -130,6 +136,7 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	require.NotContains(t, recovered.Warning, password)
 	p.Neo4j = n
 	require.NoError(t, p.DeleteDocument(ctx, a.ID, d.ID))
+	require.NoError(t, p.SyncPendingGraphs(ctx))
 	g, e = p.KnowledgeGraph(ctx, a.ID, kb.ID)
 	require.NoError(t, e)
 	for _, node := range g.Nodes {

@@ -232,6 +232,7 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 		t.Helper()
 		var b bytes.Buffer
 		mw := multipart.NewWriter(&b)
+		require.NoError(t, mw.WriteField("resource_type", "notes"))
 		h := textproto.MIMEHeader{}
 		h.Set("Content-Disposition", `form-data; name="file"; filename="synthetic.txt"`)
 		h.Set("Content-Type", "text/plain")

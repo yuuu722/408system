@@ -12,8 +12,8 @@ func SuggestDocumentCatalog(d domain.Document) domain.DocumentCatalog {
 	text := strings.ToLower(d.OriginalFilename)
 	rules := []struct{ kind, pattern string }{
 		{"outline", `考纲|大纲|syllabus`}, {"solution", `答案|解析|详解|解答`},
-		{"past_exam", `真题|模拟|试卷|习题|题集|题册|做题本|选择题|综合题|能力评估`},
-		{"textbook", `教材|课本|复习全书|高清带书签|电子版|王道.*(数据结构|操作系统|计算机)|计算机.*第.*版`},
+		{"mock_exam", `模拟|能力评估`}, {"past_exam", `真题|历年|统考`}, {"exercise", `试卷|习题|题集|题册|做题本|选择题|综合题`},
+		{"textbook", `教材|课本|复习全书|高清带书签|电子版|王道.*(数据结构|操作系统|计算机)|计算机.*第.*版|(?:20[0-9]{2})?(?:数据结构|操作系统|计算机网络|计算机组成原理)(?:[（(].*版[）)])?\.[a-z]+$`},
 		{"courseware", `课件|讲义|幻灯`}, {"notes", `笔记|总结|知识点|提纲`},
 	}
 	if c.ResourceType == "" || c.ResourceType == "other" || regexp.MustCompile(`考纲|大纲`).MatchString(text) {
@@ -36,8 +36,11 @@ func SuggestDocumentCatalog(d domain.Document) domain.DocumentCatalog {
 	if count != 1 {
 		c.SubjectCode = ""
 	}
-	if c.ResourceType == "past_exam" {
+	if c.ResourceType == "past_exam" || c.ResourceType == "exercise" || c.ResourceType == "mock_exam" {
 		c.Purpose = "questions"
+	}
+	if c.ResourceType == "solution" {
+		c.Purpose = "both"
 	}
 	return c
 }

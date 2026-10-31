@@ -47,3 +47,11 @@ test('search can locate nodes beyond the initial 600-node rendering cap', () => 
   assert.deepEqual(found.nodes.map(n => n.ID), ['concept-649', 'concept-0'])
   assert.equal(found.edges.length, 1)
 })
+
+test('bounded overview retains every subject despite grouped source ordering', () => {
+ const nodes = Array.from({length:400},(_,i)=>node('n'+i))
+ const groups = new Map(nodes.map((n,i)=>[n.ID,Math.floor(i/100)]))
+ const overview = graphSubset(nodes,[],groups,'',-1,160)
+ assert.equal(overview.nodes.length,160)
+ for (let group=0;group<4;group++) assert.equal(overview.nodes.filter(n=>groups.get(n.ID)===group).length,40)
+})

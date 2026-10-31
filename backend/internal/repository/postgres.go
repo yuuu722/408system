@@ -63,7 +63,25 @@ func (p *Postgres) CreateKnowledgeBase(ctx context.Context, uid, name, desc stri
 	k.UserID = uid
 	k.Name = name
 	k.Description = desc
-	err = p.DB.QueryRow(ctx, `INSERT INTO knowledge_bases(id,user_id,name,description) VALUES($1,$2,$3,$4) RETURNING created_at,updated_at,is_public`, k.ID, uid, name, desc).Scan(&k.CreatedAt, &k.UpdatedAt, &k.IsPublic)
+	tx, e := p.DB.Begin(ctx)
+	if e != nil {
+		return k, e
+	}
+	defer tx.Rollback(ctx)
+	var quota, count int
+	if e = tx.QueryRow(ctx, `SELECT personal_kb_limit FROM users WHERE id=$1 FOR UPDATE`, uid).Scan(&quota); e != nil {
+		return k, nf(e)
+	}
+	if e = tx.QueryRow(ctx, `SELECT count(*) FROM knowledge_bases WHERE user_id=$1 AND NOT is_public`, uid).Scan(&count); e != nil {
+		return k, e
+	}
+	if count >= quota {
+		return k, &domain.RequestError{Status: 409, Message: "个人知识库数量已达到成员配额，请整理已有知识库或联系管理员调整配额"}
+	}
+	err = tx.QueryRow(ctx, `INSERT INTO knowledge_bases(id,user_id,name,description) VALUES($1,$2,$3,$4) RETURNING created_at,updated_at,is_public`, k.ID, uid, name, desc).Scan(&k.CreatedAt, &k.UpdatedAt, &k.IsPublic)
+	if err == nil {
+		err = tx.Commit(ctx)
+	}
 	return
 }
 func scanKB(row pgx.Row) (k domain.KnowledgeBase, err error) {
@@ -224,15 +242,15 @@ func (p *Postgres) SearchChunks(ctx context.Context, uid, kid string, v []float3
 func (p *Postgres) SearchChunksScoped(ctx context.Context, uid, kid string, v []float32, limit int, _ bool) (out []domain.Chunk, err error) {
 	// Materialize before distance calculation: legacy dimensions must never reach <=>.
 	rows, err := p.DB.Query(ctx, `WITH compatible AS MATERIALIZED (
- SELECT c.*,d.original_filename,kb.is_public FROM document_chunks c
- JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id
+ SELECT c.*,d.original_filename,kb.is_public,COALESCE(dc.resource_type,d.resource_type) source_kind FROM document_chunks c
+ JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id LEFT JOIN document_catalog dc ON dc.document_id=d.id
  WHERE EXISTS(SELECT 1 FROM knowledge_bases chosen WHERE chosen.id=$2 AND (chosen.user_id=$1 OR chosen.is_public))
  AND c.knowledge_base_id=$2 AND (kb.is_public OR c.user_id=$1)
  AND (d.status='ready' OR d.active_revision_id IS NOT NULL)
  AND NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=d.id AND dc.purpose='questions')
  AND vector_dims(c.embedding)=$5 AND c.metadata->>'embedding_space'=$6
- ), ranked AS (SELECT *,row_number() OVER(PARTITION BY is_public ORDER BY embedding <=> $3::vector) rank FROM compatible)
- SELECT c.id,c.document_id,c.knowledge_base_id,c.user_id,c.content,c.chunk_index,c.source_location,c.metadata,c.original_filename,
+ ), ranked AS (SELECT *,row_number() OVER(PARTITION BY is_public,source_kind ORDER BY embedding <=> $3::vector) rank FROM compatible)
+ SELECT c.id,c.document_id,c.knowledge_base_id,c.user_id,c.content,c.chunk_index,c.source_location,c.metadata || jsonb_build_object('resource_type',c.source_kind,'is_public',c.is_public),c.original_filename,
  1-(c.embedding <=> $3::vector) score,c.created_at FROM ranked c WHERE rank<=$4 ORDER BY is_public DESC,score DESC`, uid, kid, vectorLiteral(v), limit, len(v), p.EmbeddingSpace)
 	if err != nil {
 		return nil, err

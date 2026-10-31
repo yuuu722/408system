@@ -57,7 +57,19 @@ export function graphSubset(nodes: GraphNode[], edges: GraphEdge[], groups: Map<
     }
   }
   const context = nodes.filter(n => selected.has(n.ID) && !matches.has(n.ID) && (group < 0 || groups.get(n.ID) === group))
-  const visible = [...matching, ...context].slice(0, Math.max(0, limit))
+  let ordered = [...matching, ...context]
+  // A bounded overview must still represent all subjects, rather than just
+  // whichever subject happens to appear first in the database result.
+  if (!needle && group < 0 && ordered.length > limit) {
+    const buckets = graphGroups.map((_, i) => ordered.filter(n => (groups.get(n.ID) ?? 4) === i))
+    ordered = []
+    for (let offset = 0; ordered.length < Math.max(0, limit); offset++) {
+      let added = false
+      for (const bucket of buckets) if (bucket[offset] && ordered.length < limit) { ordered.push(bucket[offset]!); added = true }
+      if (!added) break
+    }
+  }
+  const visible = ordered.slice(0, Math.max(0, limit))
   const ids = new Set(visible.map(n => n.ID))
   return { nodes: visible, edges: edges.filter(e => ids.has(e.FromEntityID) && ids.has(e.ToEntityID)), matches,
     total: matching.length + context.length }

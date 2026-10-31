@@ -9,7 +9,7 @@ export interface Mastery{KnowledgePointID:string;KnowledgePointName:string;Subje
 export interface Recommendation{ID:string;KnowledgePointID:string;KnowledgePointName:string;SubjectName:string;Score:number;Reason:string;RecommendedAction:string}
 export interface SourceRegion{Page:number;Segment:number;BlockID:string;Start:number;End:number;Box?:number[]}
 export interface Citation{Page?:number;RevisionID?:string;Regions?:SourceRegion[];LocationQuality?:string;DocumentID:string;DocumentTitle:string;ChunkID:string;Location:string;Excerpt:string;Score:number}
-export interface ChatResult{Reasoning?:RetrievalTrace;Answer:string;ConversationID:string;Sources:Citation[];KnowledgePoints:KnowledgePoint[]}
+export interface ChatResult{RelatedQuestions?:import('./foundation').Asset[];Reasoning?:RetrievalTrace;Answer:string;ConversationID:string;Sources:Citation[];KnowledgePoints:KnowledgePoint[]}
 export interface Dashboard{Subjects:{ID:string;Code:string;Name:string;Progress:number;KnowledgePointCount:number;TouchedCount:number}[];Weaknesses:Mastery[];Recommendations:Recommendation[];RecentDocuments:Document[];KnowledgeBaseCount:number;ReadyDocumentCount:number}
 export interface LearningEvent{ID:string;EventType:string;CreatedAt:string;Metadata:Record<string,unknown>}
 

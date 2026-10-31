@@ -69,6 +69,7 @@ type Citation struct {
 	Score                                                 float64
 }
 type ChatResult struct {
+	RelatedQuestions       []Asset         `json:",omitempty"`
 	Reasoning              *RetrievalTrace `json:",omitempty"`
 	Answer, ConversationID string
 	Sources                []Citation

@@ -7,8 +7,8 @@ import (
 	"strings"
 )
 
-var questionHead = regexp.MustCompile(`^\s*(\d{1,4})[.．、)]\s*(.+)$`)
-var optionMark = regexp.MustCompile(`(?:^|\s)([A-F])[.．、)）]\s*`)
+var questionHead = regexp.MustCompile(`^\s*[（(]?(\d{1,4})[.．、)）]\s*(.+)$`)
+var optionMark = regexp.MustCompile(`(?:^|\s)([A-F])[.．、)）:：]\s*`)
 var inlineAnswer = regexp.MustCompile(`(?:参考答案|正确答案|答案)\s*[:：]?\s*([A-F])(?:\s|$|[.。，；;])`)
 var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F])(?:\s|$|[，,；;])`)
 
@@ -61,6 +61,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		}
 		for _, line := range strings.Split(page.Text, "\n") {
 			line = strings.TrimSpace(line)
+			line = strings.NewReplacer("Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(line)
 			if line == "" {
 				continue
 			}
@@ -173,3 +174,6 @@ func hasQuestionExtractionWarning(warnings []string) bool {
 	}
 	return false
 }
+
+// CanUseQuestionPage permits pagination notices, never lost-content warnings.
+func CanUseQuestionPage(page TextPage) bool { return !hasQuestionExtractionWarning(page.Warnings) }

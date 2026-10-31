@@ -10,6 +10,18 @@ import (
 
 func (s *Server) adminRoutes(mux *http.ServeMux) {
 	s.catalogRoutes(mux)
+	mux.Handle("PATCH /api/v1/admin/users/{id}/quota", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ PersonalKBLimit *int }
+		if !s.input(w, r, &in) {
+			return
+		}
+		if in.PersonalKBLimit == nil {
+			s.fail(w, &domain.RequestError{Status: 400, Message: "请填写配额"})
+			return
+		}
+		e := s.Platform.SetPersonalQuota(r.Context(), uid(r), r.PathValue("id"), *in.PersonalKBLimit)
+		s.reply(w, map[string]bool{"ok": e == nil}, e)
+	})))
 	mux.Handle("POST /api/v1/admin/assistant/check", s.requireAdmin(http.HandlerFunc(s.checkAssistant)))
 	mux.Handle("POST /api/v1/admin/documents/retry-failed", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ KnowledgeBaseID string }

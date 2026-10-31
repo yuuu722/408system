@@ -14,9 +14,6 @@ func (p *Postgres) RetrieveGraphEvidence(ctx context.Context, uid, kid string, t
 	if p.Neo4j == nil {
 		return out, graphUnavailable()
 	}
-	if e := p.SyncKnowledgeGraph(ctx, kid); e != nil {
-		return out, e
-	}
 	paths, e := p.Neo4j.Paths(ctx, kid, terms)
 	if e != nil {
 		return out, e
@@ -51,7 +48,7 @@ func (p *Postgres) RetrieveGraphEvidence(ctx context.Context, uid, kid string, t
 	}
 	// Neo4j is navigation, not an authority for source text. Reauthorize and fetch
 	// current chunks from the selected KB; stale/deleted/other-KB IDs cannot enter.
-	rows, e := p.DB.Query(ctx, `SELECT c.id,c.document_id,c.knowledge_base_id,c.user_id,c.content,c.chunk_index,c.source_location,c.metadata,d.original_filename,c.created_at FROM document_chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id WHERE c.knowledge_base_id=$2 AND (kb.is_public OR kb.user_id=$1) AND c.id::text=ANY($3::text[]) AND (d.status='ready' OR d.active_revision_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM document_catalog cat WHERE cat.document_id=d.id AND cat.purpose='questions') ORDER BY c.chunk_index LIMIT 40`, uid, kid, ids)
+	rows, e := p.DB.Query(ctx, `SELECT c.id,c.document_id,c.knowledge_base_id,c.user_id,c.content,c.chunk_index,c.source_location,c.metadata || jsonb_build_object('resource_type',COALESCE(cat.resource_type,d.resource_type),'is_public',kb.is_public),d.original_filename,c.created_at FROM document_chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id LEFT JOIN document_catalog cat ON cat.document_id=d.id WHERE c.knowledge_base_id=$2 AND (kb.is_public OR kb.user_id=$1) AND c.id::text=ANY($3::text[]) AND (d.status='ready' OR d.active_revision_id IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM document_catalog cat WHERE cat.document_id=d.id AND cat.purpose='questions') ORDER BY c.chunk_index LIMIT 40`, uid, kid, ids)
 	if e != nil {
 		return out, e
 	}

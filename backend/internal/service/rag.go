@@ -34,8 +34,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if question == "" || len([]rune(question)) > 4000 {
 		return domain.ChatResult{}, fmt.Errorf("question is required")
 	}
-	if _, err := s.Store.KnowledgeBase(ctx, uid, kid); err != nil {
-		return domain.ChatResult{}, err
+	chosen, scopeErr := s.Store.KnowledgeBase(ctx, uid, kid)
+	if scopeErr != nil {
+		return domain.ChatResult{}, scopeErr
 	}
 	var history []domain.Message
 	cs, hasHistory := s.Store.(domain.ConversationStore)
@@ -103,9 +104,6 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			}
 		}
 		chunks, trace, err = s.kagCandidates(ctx, uid, kid, evidenceQuestion, names, candidateLimit)
-		if err == nil && emit != nil {
-			err = emit("reasoning", trace)
-		}
 	} else if scoped, ok := s.Store.(interface {
 		SearchChunksScoped(context.Context, string, string, []float32, int, bool) ([]domain.Chunk, error)
 	}); ok {
@@ -120,11 +118,49 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if err != nil {
 		return domain.ChatResult{}, err
 	}
+	if !chosen.IsPublic {
+		bases, e := s.Store.ListKnowledgeBases(ctx, uid)
+		if e != nil {
+			return domain.ChatResult{}, e
+		}
+		for _, base := range bases {
+			if !base.IsPublic {
+				continue
+			}
+			var extra []domain.Chunk
+			if s.KAGEnabled {
+				var t *domain.RetrievalTrace
+				extra, t, e = s.kagCandidates(ctx, uid, base.ID, evidenceQuestion, names, candidateLimit)
+				if t != nil && trace != nil {
+					trace.Paths = append(trace.Paths, t.Paths...)
+					if t.Mode == "rag-degraded" {
+						trace.Mode = t.Mode
+						trace.Notice = t.Notice
+					}
+				}
+			} else {
+				extra, e = s.Store.SearchChunks(ctx, uid, base.ID, vecs[0], candidateLimit)
+			}
+			if e != nil {
+				return domain.ChatResult{}, e
+			}
+			chunks = append(chunks, extra...)
+		}
+	}
+	if trace != nil && emit != nil {
+		if e := emit("reasoning", trace); e != nil {
+			return domain.ChatResult{}, e
+		}
+	}
 	// Remove non-evidence before ranking/truncation so high-scoring exercise
 	// sheets cannot crowd out textbook explanations from the candidate pool.
 	usable := chunks[:0]
 	for _, c := range chunks {
 		if incomplete, _ := c.Metadata["context_incomplete"].(bool); incomplete {
+			continue
+		}
+		kind, _ := c.Metadata["resource_type"].(string)
+		if kind == "outline" || kind == "other" {
 			continue
 		}
 		c.Content = answerEvidence(question, c.Content, chunkIndexText(c))
@@ -143,6 +179,19 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		sort.SliceStable(chunks, func(i, j int) bool { return chunks[i].Score > chunks[j].Score })
 	}
+	// Authority is applied only after relevance thresholds; a barely related
+	// textbook cannot displace a directly relevant source by type alone.
+	sort.SliceStable(chunks, func(i, j int) bool {
+		ai, aj := chunks[i].Score >= s.MinScore && evidenceRelated(evidenceQuestion, chunkIndexText(chunks[i])), chunks[j].Score >= s.MinScore && evidenceRelated(evidenceQuestion, chunkIndexText(chunks[j]))
+		if ai != aj {
+			return ai
+		}
+		ri, rj := sourcePriority(chunks[i]), sourcePriority(chunks[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return chunks[i].Score > chunks[j].Score
+	})
 	if cid == "" {
 		title := []rune(question)
 		if len(title) > 40 {
@@ -241,14 +290,16 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		// Buffer model selections until each complete passage is matched to source text.
 		// Provider output is never shown as an unchecked factual paraphrase.
 		if llm, ok := s.LLM.(domain.StreamingLLM); ok {
-			answer, err = llm.AnswerStream(ctx, question+sentenceSelectionInstruction, sentenceCatalog(question, sourceContents), history, func(string) error { return ctx.Err() })
+			answer, err = llm.AnswerStream(ctx, question+composedInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
-			answer, err = s.LLM.Answer(ctx, question+sentenceSelectionInstruction, sentenceCatalog(question, sourceContents))
+			answer, err = s.LLM.Answer(ctx, question+composedInstruction, evidence.String())
 		}
 		if err != nil {
 			return domain.ChatResult{}, err
 		}
-		if text, sources, ok := selectedSourceAnswer(answer, sourceContents, citations, dependencies); ok {
+		if text, sources, ok := s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies); ok {
+			answer, citations = text, sources
+		} else if text, sources, ok := selectedSourceAnswer(answer, sourceContents, citations, dependencies); ok {
 			answer, citations = text, sources
 		} else {
 			answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)
@@ -288,7 +339,21 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			return domain.ChatResult{}, err
 		}
 	}
-	return domain.ChatResult{Reasoning: trace, Answer: answer, ConversationID: cid, Sources: citations, KnowledgePoints: points}, nil
+	related := []domain.Asset{}
+	if store, ok := s.Store.(interface {
+		RelatedQuestions(context.Context, string, string, []string) ([]domain.Asset, error)
+	}); ok {
+		ids := []string{}
+		for _, point := range detected {
+			ids = append(ids, point.ID)
+		}
+		var relatedErr error
+		related, relatedErr = store.RelatedQuestions(ctx, uid, kid, ids)
+		if relatedErr != nil {
+			s.warn("related question lookup failed", "error", relatedErr)
+		}
+	}
+	return domain.ChatResult{RelatedQuestions: related, Reasoning: trace, Answer: answer, ConversationID: cid, Sources: citations, KnowledgePoints: points}, nil
 }
 
 func (s RAGService) figureEvidence(ctx context.Context, uid, question string, citations []domain.Citation) ([]string, string, error) {

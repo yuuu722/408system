@@ -86,9 +86,24 @@ func ContextualChunks(pages []TextPage, rid, space, title string) []domain.Chunk
 					contexts = append([]ChunkContext{{Text: text, Page: prev.Number, Segment: prev.Segment, Start: begin, End: begin + len([]rune(text)), Kind: "preceding_page"}}, contexts...)
 				}
 			}
-			if len(contexts) > 2 {
-				contexts = contexts[len(contexts)-2:]
+			// Keep all required short premises within a bounded budget. Dropping
+			// an earlier condition silently can reverse an algorithm's conclusion.
+			seenContext := map[string]bool{}
+			bounded := []ChunkContext{}
+			budget := 600
+			for _, v := range contexts {
+				if seenContext[v.Text] {
+					continue
+				}
+				seenContext[v.Text] = true
+				if len(bounded) >= 4 || len([]rune(v.Text)) > budget {
+					c.Metadata["context_incomplete"] = true
+					continue
+				}
+				budget -= len([]rune(v.Text))
+				bounded = append(bounded, v)
 			}
+			contexts = bounded
 			lead := strings.TrimSpace(c.Content)
 			depends := false
 			for _, word := range []string{"因此", "所以", "由此", "上述", "此时", "该条件", "在该条件", "这时", "其结果"} {
@@ -135,7 +150,7 @@ func chunkIndexText(c domain.Chunk) string {
 	_ = json.Unmarshal(raw, &contexts)
 	contextText := ""
 	for i, v := range contexts {
-		if i >= 2 {
+		if i >= 4 {
 			break
 		}
 		contextText += "\n" + v.Text
@@ -155,8 +170,8 @@ func premiseChunks(c domain.Chunk) []domain.Chunk {
 		meta := map[string]any{"page": v.Page, "revision_id": c.Metadata["revision_id"], "regions": []domain.SourceRegion{{Page: v.Page, Segment: v.Segment, Start: v.Start, End: v.End}}}
 		out = append(out, domain.Chunk{ID: c.ID, DocumentID: c.DocumentID, DocumentTitle: c.DocumentTitle, Content: v.Text, SourceLocation: fmt.Sprintf("前提上下文 · 第%d页", v.Page), Metadata: meta, Score: c.Score})
 	}
-	if len(out) > 2 {
-		out = out[:2]
+	if len(out) > 4 {
+		out = out[:4]
 	}
 	return out
 }

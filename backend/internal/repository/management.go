@@ -8,9 +8,11 @@ import (
 )
 
 type ManagedUser struct {
-	ID, Username, Email, Role string
-	Disabled                  bool
-	CreatedAt                 time.Time
+	ID, Username, Email, Role        string
+	PersonalKBLimit, PersonalKBCount int
+	StorageBytes                     int64
+	Disabled                         bool
+	CreatedAt                        time.Time
 }
 type UserPage struct {
 	Users                []ManagedUser
@@ -34,14 +36,14 @@ func (p *Postgres) ManageUsers(ctx context.Context, actor, query string, offset 
 	if e = p.DB.QueryRow(ctx, `SELECT count(*) FROM users WHERE id<>'40800000-0000-4000-8000-000000000001' AND (username ILIKE $1 OR email ILIKE $1)`, pattern).Scan(&out.Total); e != nil {
 		return out, e
 	}
-	rows, e := p.DB.Query(ctx, `SELECT id,username,email,role,disabled,created_at FROM users WHERE id<>'40800000-0000-4000-8000-000000000001' AND (username ILIKE $1 OR email ILIKE $1) ORDER BY created_at DESC,id LIMIT 50 OFFSET $2`, pattern, offset)
+	rows, e := p.DB.Query(ctx, `SELECT id,username,email,role,disabled,created_at,personal_kb_limit,(SELECT count(*) FROM knowledge_bases k WHERE k.user_id=users.id AND NOT k.is_public),(SELECT COALESCE(sum(d.size),0) FROM documents d JOIN knowledge_bases k ON k.id=d.knowledge_base_id WHERE k.user_id=users.id AND NOT k.is_public) FROM users WHERE id<>'40800000-0000-4000-8000-000000000001' AND (username ILIKE $1 OR email ILIKE $1) ORDER BY created_at DESC,id LIMIT 50 OFFSET $2`, pattern, offset)
 	if e != nil {
 		return out, e
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var u ManagedUser
-		if e = rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.Disabled, &u.CreatedAt); e != nil {
+		if e = rows.Scan(&u.ID, &u.Username, &u.Email, &u.Role, &u.Disabled, &u.CreatedAt, &u.PersonalKBLimit, &u.PersonalKBCount, &u.StorageBytes); e != nil {
 			return out, e
 		}
 		out.Users = append(out.Users, u)
@@ -135,4 +137,23 @@ func (p *Postgres) RetryFailedPublicDocuments(ctx context.Context, actor, kid st
 		return 0, e
 	}
 	return tag.RowsAffected(), nil
+}
+
+// Quotas govern future creation; lowering one never removes private data.
+func (p *Postgres) SetPersonalQuota(ctx context.Context, actor, target string, limit int) error {
+	if limit < 0 || limit > 100 {
+		return catalogInputError("个人知识库配额须为0至100")
+	}
+	u, e := p.UserByID(ctx, actor)
+	if e != nil {
+		return e
+	}
+	if u.Role != "admin" || u.Disabled {
+		return domain.ErrForbidden
+	}
+	tag, e := p.DB.Exec(ctx, `UPDATE users SET personal_kb_limit=$2,updated_at=now() WHERE id=$1 AND id<>'40800000-0000-4000-8000-000000000001'`, target, limit)
+	if e == nil && tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return e
 }

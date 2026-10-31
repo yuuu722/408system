@@ -110,12 +110,19 @@ func (p *Postgres) KnowledgeGraph(ctx context.Context, uid, kid string) (domain.
 		g.Storage = "postgres"
 		return g, e
 	}
-	graphCtx, cancel := context.WithTimeout(ctx, 6*time.Second)
+	graphCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	e = p.SyncKnowledgeGraph(graphCtx, kid)
 	var g domain.KnowledgeGraph
+	g, e = p.Neo4j.Read(graphCtx, kid)
 	if e == nil {
-		g, e = p.Neo4j.Read(graphCtx, kid)
+		var pending bool
+		e = p.DB.QueryRow(ctx, `SELECT revision<>synced_revision FROM graph_sync_state WHERE knowledge_base_id=$1`, kid).Scan(&pending)
+		if e == nil && pending {
+			g.Warning = "图谱正在后台更新，当前为上次完成的快照。"
+			if len(g.Nodes) == 0 {
+				e = graphUnavailable()
+			}
+		}
 	}
 	if e != nil {
 		if ctx.Err() != nil {
@@ -128,6 +135,22 @@ func (p *Postgres) KnowledgeGraph(ctx context.Context, uid, kid string) (domain.
 		g.Storage = "postgres-recovery"
 		g.Warning = "Neo4j图谱服务暂不可用，当前显示已保存的图谱与来源；同步任务会自动重试。此状态不代表已完成Neo4j查询。"
 		return g, nil
+	}
+	// Empty storage is replayed asynchronously; the page never replaces snapshots.
+	if len(g.Nodes) == 0 {
+		saved, err := p.graphProvenance(ctx, uid, kid)
+		if err != nil {
+			return saved, err
+		}
+		if len(saved.Nodes) > 0 {
+			_, err = p.DB.Exec(ctx, `UPDATE graph_sync_state SET revision=revision+1,updated_at=now() WHERE knowledge_base_id=$1 AND revision=synced_revision`, kid)
+			if err != nil {
+				return saved, err
+			}
+			saved.Storage = "postgres-recovery"
+			saved.Warning = "图谱快照尚未就绪，当前显示已保存的图谱；后台正在重建Neo4j快照。"
+			return saved, nil
+		}
 	}
 	g.IsPublic = kb.IsPublic
 	g.Storage = "neo4j"

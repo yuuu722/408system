@@ -5,10 +5,10 @@ import { createGraphLayout, graphGroups, graphSubset, relationLabels, stepGraphL
 const props = defineProps<{ nodes: GraphNode[]; edges: GraphEdge[]; points: KnowledgePoint[] }>()
 const emit = defineEmits<{ select: [id: string] }>()
 const query = ref(''), selected = ref(''), subject = ref(-1), scale = ref(1), pan = ref({ x: 0, y: 0 }), svg = ref<SVGSVGElement>()
-const showNames = ref(true), showRelations = ref(true), neighborOnly = ref(false)
+const showNames = ref(true), showRelations = ref(false), neighborOnly = ref(false), expanded=ref(false)
 const arrowID = 'knowledge-arrow-' + useId().replace(/:/g, '')
 const groups = computed(() => subjectGroups(props.nodes, props.edges, props.points))
-const subset = computed(() => graphSubset(props.nodes, props.edges, groups.value, query.value, subject.value))
+const subset = computed(() => graphSubset(props.nodes, props.edges, groups.value, query.value, subject.value, expanded.value?600:160))
 const adjacent = computed(() => {
   const ids = new Set([selected.value])
   for (const e of props.edges) {
@@ -17,9 +17,9 @@ const adjacent = computed(() => {
   }
   return ids
 })
-const visible = computed(() => neighborOnly.value && selected.value ? subset.value.nodes.filter(n => adjacent.value.has(n.ID)) : subset.value.nodes)
+const visible = computed(() => neighborOnly.value && selected.value ? props.nodes.filter(n => adjacent.value.has(n.ID)).sort((a,b)=>a.ID===selected.value?-1:b.ID===selected.value?1:0).slice(0,expanded.value?600:160) : subset.value.nodes)
 const visibleIDs = computed(() => new Set(visible.value.map(n => n.ID)))
-const links = computed(() => subset.value.edges.filter(e => visibleIDs.value.has(e.FromEntityID) && visibleIDs.value.has(e.ToEntityID)))
+const links = computed(() => (neighborOnly.value&&selected.value?props.edges:subset.value.edges).filter(e => visibleIDs.value.has(e.FromEntityID) && visibleIDs.value.has(e.ToEntityID)))
 const counts = computed(() => graphGroups.map((_, i) => props.nodes.filter(n => groups.value.get(n.ID) === i).length))
 const width = computed(() => Math.max(1300, Math.sqrt(visible.value.length) * 80))
 const height = computed(() => Math.max(860, width.value * .68))
@@ -33,10 +33,10 @@ function layout() {
   const edges = links.value
   let steps = 0
   const tick = () => {
-    for (let i = 0; i < 4; i++) stepGraphLayout(nodes, edges, width.value, height.value)
+    stepGraphLayout(nodes, edges, width.value, height.value)
     positions.value = new Map(nodes.map(n => [n.id, { ...n }]))
-    steps += 4
-    if (steps < 160) frame = requestAnimationFrame(tick)
+    steps += 1
+    if (steps < 48) frame = requestAnimationFrame(tick)
   }
   positions.value = new Map(nodes.map(n => [n.id, { ...n }]))
   frame = requestAnimationFrame(tick)
@@ -101,7 +101,7 @@ onBeforeUnmount(stop)
     <div class="graph-heading"><div><h2>408 知识关联图</h2><p>四科分色 · 知识聚类 · 来源可追溯</p></div><div class="graph-count"><strong>{{ nodes.length }}</strong> 节点 <span>·</span> <strong>{{ edges.length }}</strong> 关系</div></div>
     <div class="graph-tools"><input v-model="query" type="search" aria-label="搜索知识点" placeholder="搜索知识点，保留一层关联节点…" /><div class="graph-zoom"><button aria-label="缩小图谱" @click="zoom(.8)">−</button><span>{{ Math.round(scale * 100) }}%</span><button aria-label="放大图谱" @click="zoom(1.25)">＋</button></div><button class="secondary" @click="reset">重置视图</button></div>
     <div class="graph-legend" aria-label="按学科筛选"><button :class="{ chosen: subject === -1 }" @click="subject = -1">全部学科</button><button v-for="(g, i) in graphGroups" :key="g.name" :class="{ chosen: subject === i }" :aria-pressed="subject === i" @click="subject = subject === i ? -1 : i"><i :style="{ background: g.color }"></i>{{ g.name }} <small>{{ counts[i] }}</small></button></div>
-    <div class="graph-options"><label><input v-model="showNames" type="checkbox" />节点名称</label><label><input v-model="showRelations" type="checkbox" />关系文字</label><label><input v-model="neighborOnly" type="checkbox" :disabled="!selected" />只看选中节点及邻居</label><span>拖动节点调整位置 · 拖动空白处平移 · 滚轮缩放</span></div>
+    <div class="graph-options"><label><input v-model="showNames" type="checkbox" />节点名称</label><label><input v-model="showRelations" type="checkbox" />关系文字</label><label><input v-model="neighborOnly" type="checkbox" :disabled="!selected" />只看选中节点及邻居</label><label><input v-model="expanded" type="checkbox" />展开更多节点（最多600）</label><span>拖动节点调整位置 · 拖动空白处平移 · 滚轮缩放</span></div>
     <div class="graph-workspace"><div class="graph-stage">
       <svg ref="svg" :viewBox="`0 0 ${width} ${height}`" role="group" aria-label="408交互知识图谱" @wheel.prevent="wheel" @pointerdown="begin($event)" @pointermove="move" @pointerup="end" @pointercancel="end">
         <defs><marker :id="arrowID" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b3bfce" /></marker></defs>
@@ -119,7 +119,7 @@ onBeforeUnmount(stop)
         </g>
       </svg>
       <p v-if="!visible.length" class="graph-empty">{{ nodes.length ? '没有匹配的知识点，请调整搜索或学科筛选。' : '当前还没有图谱节点，请先处理资料或维护知识点目录。' }}</p>
-      <div class="graph-status">当前显示 {{ visible.length }} 节点 · {{ links.length }} 关系<span v-if="subset.total > 600"> · 匹配超过 600 个，请搜索或按学科缩小范围</span></div>
+      <div class="graph-status">当前显示 {{ visible.length }} 节点 · {{ links.length }} 关系<span v-if="subset.total > visible.length"> · 概览已限量显示，请搜索、筛选或展开更多节点</span></div>
     </div><aside class="graph-details" aria-label="知识点详情与证据"><slot name="details"><h3>探索知识关联</h3><p>点击节点查看知识点说明、相邻关系和资料出处。</p></slot><p class="group-note">科目颜色依据规范目录；资料候选按最近的目录关联分组，无法唯一归科的节点显示灰色。规则共现不代表因果或先修关系。</p></aside></div>
   </section>
 </template>
