@@ -189,6 +189,8 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.NoError(t, e)
 		personal, e := store.CreateKnowledgeBase(ctx, u.ID, "former private", "")
 		require.NoError(t, e)
+		privateDoc, e := store.CreateDocument(ctx, domain.Document{UserID: u.ID, KnowledgeBaseID: personal.ID, Filename: "legacy.txt", OriginalFilename: "private.txt", ResourceType: "notes", Status: "ready"})
+		require.NoError(t, e)
 		_, e = store.DB.Exec(ctx, `UPDATE users SET role='admin' WHERE id=$1`, u.ID)
 		require.NoError(t, e)
 		bases, e := store.ListKnowledgeBases(ctx, u.ID)
@@ -197,6 +199,16 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 			require.True(t, base.IsPublic)
 			require.NotEqual(t, personal.ID, base.ID)
 		}
+		_, e = store.KnowledgeBase(ctx, u.ID, personal.ID)
+		require.Error(t, e)
+		_, e = store.Document(ctx, u.ID, privateDoc.ID)
+		require.Error(t, e)
+		_, e = store.ListDocuments(ctx, u.ID, personal.ID)
+		require.Error(t, e)
+		require.Error(t, store.CanMaintainDocument(ctx, u.ID, privateDoc.ID))
+		_, e = store.UpdatePersonalKnowledgeBase(ctx, u.ID, personal.ID, "no-edit", "")
+		require.Error(t, e)
+		require.Error(t, store.DeleteKnowledgeBase(ctx, u.ID, personal.ID))
 		_, e = store.CreateKnowledgeBase(ctx, u.ID, "hidden private", "")
 		require.Error(t, e)
 	})
@@ -285,6 +297,26 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 				require.Equal(t, "cn", n.SubjectCode)
 			}
 		}
+	})
+
+	t.Run("neighboring textbook context stays within chapter and permission scope", func(t *testing.T) {
+		book, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "neighbor.txt", OriginalFilename: "教材邻接测试.txt", ResourceType: "textbook", Status: "ready"})
+		require.NoError(t, e)
+		chunks := []domain.Chunk{}
+		for i, text := range []string{"文件系统用于组织文件目录。", "传统存储管理要求一次性装入，内存不足时作业无法运行。", "虚拟内存允许分多次调入内存。"} {
+			heading := "内存管理"
+			if i == 0 {
+				heading = "文件管理"
+			}
+			chunks = append(chunks, domain.Chunk{ID: uuid.NewString(), DocumentID: book.ID, KnowledgeBaseID: kb.ID, UserID: editor.ID, ChunkIndex: i, Content: text, Embedding: []float32{1, 0}, Score: 1, Metadata: map[string]any{"page": 224 + i, "heading_path": heading, "embedding_space": store.EmbeddingSpace}})
+		}
+		require.NoError(t, store.ReplaceChunks(ctx, editor.ID, book.ID, chunks))
+		neighbors, e := store.ExpandTextbookContext(ctx, student.ID, kb.ID, []domain.Chunk{chunks[2]})
+		require.NoError(t, e)
+		require.Len(t, neighbors, 1)
+		require.Equal(t, chunks[1].ID, neighbors[0].ID)
+		require.Contains(t, neighbors[0].Content, "无法运行")
+		require.Equal(t, float64(225), neighbors[0].Metadata["page"])
 	})
 
 }

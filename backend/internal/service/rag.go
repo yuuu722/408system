@@ -152,6 +152,22 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			return domain.ChatResult{}, e
 		}
 	}
+	if store, ok := s.Store.(interface {
+		ExpandTextbookContext(context.Context, string, string, []domain.Chunk) ([]domain.Chunk, error)
+	}); ok {
+		anchors := []domain.Chunk{}
+		for _, c := range chunks {
+			if c.Metadata["resource_type"] == "textbook" && c.Score >= s.MinScore && evidenceRelated(evidenceQuestion, chunkIndexText(c)) {
+				anchors = append(anchors, c)
+			}
+		}
+		neighbors, e := store.ExpandTextbookContext(ctx, uid, kid, anchors)
+		if e != nil {
+			s.warn("textbook context lookup failed", "error", e)
+		} else {
+			chunks = append(chunks, neighbors...)
+		}
+	}
 	// Remove non-evidence before ranking/truncation so high-scoring exercise
 	// sheets cannot crowd out textbook explanations from the candidate pool.
 	usable := chunks[:0]
@@ -190,7 +206,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if ri != rj {
 			return ri < rj
 		}
-		return chunks[i].Score > chunks[j].Score
+		return questionFocusScore(question, chunks[i]) > questionFocusScore(question, chunks[j])
 	})
 	if cid == "" {
 		title := []rune(question)

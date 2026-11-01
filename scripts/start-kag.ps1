@@ -32,4 +32,20 @@ try {
     docker compose up -d --build
     if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check the service logs.' }
     docker compose ps
+    $expected = '2026.11.01.1'
+    $verified = $false
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        try {
+            $health = Invoke-RestMethod -Uri 'http://localhost:8080/healthz' -TimeoutSec 5
+            $page = Invoke-WebRequest -Uri 'http://localhost:5173/' -UseBasicParsing -TimeoutSec 5
+            if ($health.release -eq $expected -and $page.Content.Contains('name="app-release" content="' + $expected + '"')) {
+                $verified = $true
+                break
+            }
+        } catch { }
+        Start-Sleep -Seconds 1
+    }
+    if (-not $verified) { throw 'Build completed, but the running frontend/backend release could not be verified. Check ports 5173/8080 and container logs; do not remove data volumes.' }
+    Write-Host ('Frontend and backend release verified: ' + $expected)
+    Write-Host 'Open http://localhost:5173 and press Ctrl+F5. Graph readiness is checked separately with scripts/check-graph.ps1.'
 } finally { Pop-Location }

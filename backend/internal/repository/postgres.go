@@ -96,7 +96,7 @@ func scanKB(row pgx.Row) (k domain.KnowledgeBase, err error) {
 	return k, nf(err)
 }
 func (p *Postgres) KnowledgeBase(ctx context.Context, uid, kid string) (domain.KnowledgeBase, error) {
-	return scanKB(p.DB.QueryRow(ctx, `SELECT id,user_id,name,description,created_at,updated_at,is_public FROM knowledge_bases WHERE id=$1 AND (user_id=$2 OR is_public=true)`, kid, uid))
+	return scanKB(p.DB.QueryRow(ctx, `SELECT id,user_id,name,description,created_at,updated_at,is_public FROM knowledge_bases WHERE id=$1 AND (is_public=true OR (user_id=$2 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$2 AND role='admin')))`, kid, uid))
 }
 func (p *Postgres) ListKnowledgeBases(ctx context.Context, uid string) (out []domain.KnowledgeBase, err error) {
 	rows, err := p.DB.Query(ctx, `SELECT id,user_id,name,description,created_at,updated_at,is_public FROM knowledge_bases WHERE is_public=true OR (user_id=$1 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin')) ORDER BY is_public DESC,updated_at DESC`, uid)
@@ -114,7 +114,7 @@ func (p *Postgres) ListKnowledgeBases(ctx context.Context, uid string) (out []do
 	return out, rows.Err()
 }
 func (p *Postgres) DeleteKnowledgeBase(ctx context.Context, uid, kid string) error {
-	tag, err := p.DB.Exec(ctx, `DELETE FROM knowledge_bases WHERE id=$1 AND user_id=$2 AND is_public=false`, kid, uid)
+	tag, err := p.DB.Exec(ctx, `DELETE FROM knowledge_bases WHERE id=$1 AND user_id=$2 AND is_public=false AND NOT EXISTS(SELECT 1 FROM users WHERE id=$2 AND role='admin')`, kid, uid)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -128,7 +128,7 @@ func (p *Postgres) CreateDocument(ctx context.Context, d domain.Document) (domai
 		return d, err
 	}
 	defer tx.Rollback(ctx)
-	err = tx.QueryRow(ctx, `INSERT INTO documents(id,knowledge_base_id,user_id,filename,original_filename,mime_type,size,storage_path,resource_type,status) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$2 AND ((kb.user_id=$3 AND kb.is_public=false) OR (kb.is_public=true AND EXISTS(SELECT 1 FROM users u WHERE u.id=$3 AND u.role='admin')))) RETURNING created_at,updated_at`, d.ID, d.KnowledgeBaseID, d.UserID, d.Filename, d.OriginalFilename, d.MimeType, d.Size, d.StoragePath, d.ResourceType, d.Status).Scan(&d.CreatedAt, &d.UpdatedAt)
+	err = tx.QueryRow(ctx, `INSERT INTO documents(id,knowledge_base_id,user_id,filename,original_filename,mime_type,size,storage_path,resource_type,status) SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$2 AND ((kb.user_id=$3 AND kb.is_public=false AND NOT EXISTS(SELECT 1 FROM users WHERE id=$3 AND role='admin')) OR (kb.is_public=true AND EXISTS(SELECT 1 FROM users u WHERE u.id=$3 AND u.role='admin')))) RETURNING created_at,updated_at`, d.ID, d.KnowledgeBaseID, d.UserID, d.Filename, d.OriginalFilename, d.MimeType, d.Size, d.StoragePath, d.ResourceType, d.Status).Scan(&d.CreatedAt, &d.UpdatedAt)
 	if err != nil {
 		return d, nf(err)
 	}
@@ -149,12 +149,15 @@ func scanDoc(row pgx.Row) (d domain.Document, err error) {
 const docCols = `id,knowledge_base_id,user_id,filename,original_filename,mime_type,size,storage_path,resource_type,status,error_message,created_at,updated_at,progress,processing_stage,processed_chunks,total_chunks,COALESCE(active_revision_id::text,'')`
 
 func (p *Postgres) Document(ctx context.Context, uid, did string) (domain.Document, error) {
-	return scanDoc(p.DB.QueryRow(ctx, `SELECT `+docCols+` FROM documents d WHERE d.id=$1 AND (d.user_id=$2 OR EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=d.knowledge_base_id AND kb.is_public=true))`, did, uid))
+	return scanDoc(p.DB.QueryRow(ctx, `SELECT `+docCols+` FROM documents d WHERE d.id=$1 AND ((d.user_id=$2 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$2 AND role='admin')) OR EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=d.knowledge_base_id AND kb.is_public=true))`, did, uid))
 }
 func (p *Postgres) ListDocuments(ctx context.Context, uid, kid string) (out []domain.Document, err error) {
-	q := `SELECT ` + docCols + ` FROM documents WHERE user_id=$1`
+	q := `SELECT ` + docCols + ` FROM documents WHERE user_id=$1 AND (EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=documents.knowledge_base_id AND kb.is_public) OR NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin'))`
 	args := []any{uid}
 	if kid != "" {
+		if _, e := p.KnowledgeBase(ctx, uid, kid); e != nil {
+			return nil, e
+		}
 		q = `SELECT ` + docCols + ` FROM documents WHERE knowledge_base_id=$2 AND (user_id=$1 OR EXISTS(SELECT 1 FROM knowledge_bases kb WHERE kb.id=$2 AND kb.is_public=true))`
 		args = []any{uid, kid}
 	}

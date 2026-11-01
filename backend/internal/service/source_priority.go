@@ -1,6 +1,9 @@
 package service
 
-import "github.com/local/exam408-assistant/backend/internal/domain"
+import (
+	"github.com/local/exam408-assistant/backend/internal/domain"
+	"strings"
+)
 
 // Public textbooks precede personal notes; unknown synthetic stores retain compatibility.
 func sourcePriority(c domain.Chunk) int {
@@ -23,4 +26,16 @@ func sourcePriority(c domain.Chunk) int {
 		rank += 1
 	}
 	return rank
+}
+
+func questionFocusScore(question string, c domain.Chunk) float64 {
+	score := c.Score
+	if strings.Contains(question, "为什么") || strings.Contains(question, "原因") {
+		for _, term := range []string{"不足", "无法运行", "不能全部", "局部性", "暂时不用", "驻留性", "并发度"} {
+			if strings.Contains(c.Content, term) {
+				score += .15
+			}
+		}
+	}
+	return score
 }

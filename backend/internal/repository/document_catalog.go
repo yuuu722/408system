@@ -110,5 +110,5 @@ func (p *Postgres) UpdatePersonalKnowledgeBase(ctx context.Context, uid, kid, na
 	if name == "" || len([]rune(name)) > 100 {
 		return domain.KnowledgeBase{}, catalogInputError("知识库名称须为1至100字")
 	}
-	return scanKB(p.DB.QueryRow(ctx, `UPDATE knowledge_bases SET name=$3,description=$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND is_public=false RETURNING id,user_id,name,description,created_at,updated_at,is_public`, kid, uid, name, description))
+	return scanKB(p.DB.QueryRow(ctx, `UPDATE knowledge_bases SET name=$3,description=$4,updated_at=now() WHERE id=$1 AND user_id=$2 AND is_public=false AND NOT EXISTS(SELECT 1 FROM users WHERE id=$2 AND role='admin') RETURNING id,user_id,name,description,created_at,updated_at,is_public`, kid, uid, name, description))
 }

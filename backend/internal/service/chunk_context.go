@@ -155,7 +155,8 @@ func chunkIndexText(c domain.Chunk) string {
 		}
 		contextText += "\n" + v.Text
 	}
-	return text + "\n" + heading + contextText + "\n" + c.Content
+	anchor, _ := c.Metadata["retrieval_anchor"].(string)
+	return text + "\n" + heading + contextText + "\n" + anchor + "\n" + c.Content
 }
 
 func premiseChunks(c domain.Chunk) []domain.Chunk {

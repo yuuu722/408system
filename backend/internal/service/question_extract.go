@@ -10,19 +10,23 @@ import (
 var questionHead = regexp.MustCompile(`^\s*[（(]?(\d{1,4})[.．、)）]\s*(.+)$`)
 var optionMark = regexp.MustCompile(`(?:^|\s)([A-F])[.．、)）:：]\s*`)
 var inlineAnswer = regexp.MustCompile(`(?:参考答案|正确答案|答案)\s*[:：]?\s*([A-F])(?:\s|$|[.。，；;])`)
+var questionSection = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+[章节]|[0-9]+\.[0-9]+(?:\.[0-9]+)?)`)
+
 var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F])(?:\s|$|[，,；;])`)
 
 // Deliberately bounded to numbered single-choice questions. It never invents missing options or source answers.
 func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.KnowledgePoint) []domain.Asset {
 	type candidate struct {
-		number, body string
-		page         int
-		images       []string
-		issue        string
+		number, body, section string
+		page                  int
+		images                []string
+		issue                 string
 	}
 	var candidates []candidate
 	var current *candidate
 	answerMode := false
+	section := ""
+	key := func(scope, number string) string { return scope + "#" + number }
 	answers := map[string][]int{}
 	answerPages := map[string]int{}
 	flush := func() {
@@ -65,6 +69,13 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			if line == "" {
 				continue
 			}
+			if heading := questionSection.FindString(line); heading != "" && len([]rune(line)) < 80 && !strings.ContainsAny(line, "。！？?") {
+				flush()
+				section = heading
+				answerMode = strings.Contains(line, "答案") || strings.Contains(line, "解析")
+				continue
+			}
+
 			if line == "参考答案" || line == "答案与解析" || line == "答案" {
 				flush()
 				answerMode = true
@@ -76,14 +87,14 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 					continue
 				}
 				for _, m := range answerEntry.FindAllStringSubmatch(line, -1) {
-					answers[m[1]] = append(answers[m[1]], int(m[2][0]-'A'))
-					answerPages[m[1]] = page.Number
+					answers[key(section, m[1])] = append(answers[key(section, m[1])], int(m[2][0]-'A'))
+					answerPages[key(section, m[1])] = page.Number
 				}
 				continue
 			}
 			if m := questionHead.FindStringSubmatch(line); m != nil {
 				flush()
-				current = &candidate{number: m[1], body: m[2], page: page.Number}
+				current = &candidate{number: m[1], body: m[2], page: page.Number, section: section}
 			} else if current != nil {
 				current.body += "\n" + line
 			}
@@ -93,14 +104,14 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 	flush()
 	numberCount := map[string]int{}
 	for _, c := range candidates {
-		numberCount[c.number]++
+		numberCount[key(c.section, c.number)]++
 	}
 	out := []domain.Asset{}
 	seenContent := map[string]bool{}
 	for _, c := range candidates {
 		marks := optionMark.FindAllStringSubmatchIndex(c.body, -1)
 		// Numbered prose in textbooks is not a question; retain suspicious question-like incomplete items only.
-		if len(marks) == 0 && !strings.ContainsAny(c.body, "?？") && !strings.Contains(c.body, "下列") {
+		if len(marks) == 0 {
 			continue
 		}
 		a := domain.Asset{Kind: "question", Title: fmt.Sprintf("%s · 第%s题", d.OriginalFilename, c.number), Payload: domain.AssetPayload{Answer: -1, AnswerOrigin: "ai_pending", Difficulty: 1, DocumentID: d.ID, Page: c.page, Source: fmt.Sprintf("%s，第%d页，第%s题", d.OriginalFilename, c.page, c.number), Images: c.images, Issue: c.issue, QuestionOrigin: "extracted"}}
@@ -111,10 +122,10 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			a.Payload.Explanation = strings.TrimSpace(body[m[1]:])
 			body = body[:m[0]]
 			marks = optionMark.FindAllStringSubmatchIndex(body, -1)
-		} else if numberCount[c.number] == 1 && len(answers[c.number]) == 1 {
-			a.Payload.Answer = answers[c.number][0]
+		} else if numberCount[key(c.section, c.number)] == 1 && len(answers[key(c.section, c.number)]) == 1 {
+			a.Payload.Answer = answers[key(c.section, c.number)][0]
 			a.Payload.AnswerOrigin = "source"
-			a.Payload.Source += fmt.Sprintf("；答案第%d页", answerPages[c.number])
+			a.Payload.Source += fmt.Sprintf("；答案第%d页", answerPages[key(c.section, c.number)])
 		}
 		if len(marks) > 0 {
 			a.Payload.Stem = strings.TrimSpace(body[:marks[0][0]])
@@ -165,6 +176,9 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 // Unknown warnings remain blocking; do not silently waive OCR/parser failures.
 func hasQuestionExtractionWarning(warnings []string) bool {
 	for _, warning := range warnings {
+		if warning == "此页使用本地OCR识别，请核对文字和公式。" {
+			continue
+		}
 		if strings.HasPrefix(warning, "Word转换页码：来自服务端排版，不保证与Word/WPS原始页码一致；请下载原文件核对。") {
 			continue
 		}
