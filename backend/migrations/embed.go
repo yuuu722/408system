@@ -74,6 +74,9 @@ var graphSubjects string
 //go:embed 000022_directory_graph.up.sql
 var directoryGraph string
 
+//go:embed 000023_graph_subject_consensus.up.sql
+var graphSubjectConsensus string
+
 type migration struct {
 	version int
 	name    string
@@ -103,6 +106,7 @@ var all = []migration{
 	{version: 20, name: "library_policy", sql: libraryPolicy},
 	{version: 21, name: "graph_subjects", sql: graphSubjects},
 	{version: 22, name: "directory_graph", sql: directoryGraph},
+	{version: 23, name: "graph_subject_consensus", sql: graphSubjectConsensus},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

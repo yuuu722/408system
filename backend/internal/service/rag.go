@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"log/slog"
@@ -306,20 +307,46 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		// Buffer model selections until each complete passage is matched to source text.
 		// Provider output is never shown as an unchecked factual paraphrase.
-		if llm, ok := s.LLM.(domain.StreamingLLM); ok {
+		if model, ok := s.LLM.(jsonAnswerer); ok {
+			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+composedInstruction, evidence.String())
+		} else if llm, ok := s.LLM.(domain.StreamingLLM); ok {
 			answer, err = llm.AnswerStream(ctx, question+composedInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
 			answer, err = s.LLM.Answer(ctx, question+composedInstruction, evidence.String())
 		}
+		var incomplete *PublicError
+		if errors.As(err, &incomplete) && incomplete.Code == "answer_incomplete" {
+			if model, ok := s.LLM.(jsonAnswerer); ok {
+				answer, err = model.AnswerJSON(ctx, question+composedInstruction+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", evidence.String())
+			}
+		}
 		if err != nil {
 			return domain.ChatResult{}, err
 		}
-		if text, sources, ok := s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies); ok {
+		// One repair pass for real JSON-capable models. Do not silently present
+		// source excerpts as a successful model-composed answer.
+		text, sources, verified := s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies)
+		if !verified {
+			if model, ok := s.LLM.(jsonAnswerer); ok {
+				repaired, e := model.AnswerJSON(ctx, question+composedInstruction+"\n上次输出未通过完整性或依据核验。请用更短的完整句子重新整理，保留引用所需的前提，不得续写缺失原文。", evidence.String())
+				if e == nil {
+					text, sources, verified = s.composedAnswer(ctx, repaired, question, sourceContents, citations, dependencies)
+				}
+				if !verified {
+					answer = ""
+				}
+			}
+		}
+		if verified {
 			answer, citations = text, sources
 		} else if text, sources, ok := selectedSourceAnswer(answer, sourceContents, citations, dependencies); ok && adequateCoverage(question, text, sourceContents) {
 			answer, citations = text, sources
 		} else {
-			answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)
+			if _, realModel := s.LLM.(jsonAnswerer); realModel {
+				answer = "本次未能生成通过教材依据与完整性核验的整理回答，因此不展示可能被截断或补写的答案。检索到的原文来源保留在下方，可查看后重试。"
+			} else {
+				answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)
+			}
 		}
 
 		if emit != nil {

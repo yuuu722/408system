@@ -5,7 +5,8 @@ export const graphGroups = [
   { name: '计算机组成原理', color: '#65bf3e' },
   { name: '操作系统', color: '#e6a638' },
   { name: '计算机网络', color: '#f36b72' },
-  { name: '跨科与待核对概念', color: '#8896ac' },
+  { name: '跨科关联', color: '#9681bd' },
+  { name: '待归类', color: '#a0a8b3' },
 ]
 export const relationLabels: Record<string, string> = {
   prerequisite: '先修', related: '相关', part_of: '组成', implements: '实现', uses: '使用', applies_to: '应用于',
@@ -18,6 +19,7 @@ export function subjectGroups(nodes: GraphNode[], edges: GraphEdge[], points: Kn
     const explicit=['ds','co','os','cn'].indexOf((n.SubjectCode??'').toLowerCase())
     const index = explicit>=0?explicit:graphGroups.findIndex(g => g.name === subject)
     if (index >= 0 && index < 4) groups.set(n.ID, index)
+    else if(n.SubjectState==='cross_subject'||(n.SubjectCodes?.length??0)>1)groups.set(n.ID,4)
   }
   // Color unattached candidates by the nearest reachable canonical subject.
   // Multi-source BFS is O(V+E); ambiguous/disconnected candidates stay neutral.
@@ -28,7 +30,7 @@ export function subjectGroups(nodes: GraphNode[], edges: GraphEdge[], points: Kn
   }
   const distances = new Map<string, number[]>(nodes.map(n => [n.ID, [Infinity, Infinity, Infinity, Infinity]]))
   const queue: [string, number][] = []
-  for (const [id, g] of groups) { distances.get(id)![g] = 0; queue.push([id, g]) }
+  for (const [id, g] of groups) { if(g>=4)continue;distances.get(id)![g] = 0; queue.push([id, g]) }
   for (let i = 0; i < queue.length; i++) {
     const [id, g] = queue[i]!
     for (const neighbor of adjacent.get(id) ?? []) {
@@ -39,7 +41,7 @@ export function subjectGroups(nodes: GraphNode[], edges: GraphEdge[], points: Kn
   for (const n of nodes) {
     if (groups.has(n.ID)) continue
     const d = distances.get(n.ID)!, nearest = Math.min(...d)
-    groups.set(n.ID, Number.isFinite(nearest) && d.filter(v => v === nearest).length === 1 ? d.indexOf(nearest) : 4)
+    groups.set(n.ID, Number.isFinite(nearest) && d.filter(v => v === nearest).length === 1 ? d.indexOf(nearest) : Number.isFinite(nearest)?4:5)
   }
   return groups
 }
@@ -90,9 +92,9 @@ export interface LayoutNode { id: string; x: number; y: number; vx: number; vy: 
 export function createGraphLayout(nodes: GraphNode[], edges: GraphEdge[], groups: Map<string, number>, width: number, height: number): LayoutNode[] {
   const degrees = new Map<string, number>()
   for (const e of edges) for (const id of [e.FromEntityID, e.ToEntityID]) degrees.set(id, (degrees.get(id) ?? 0) + 1)
-  const counters = [0, 0, 0, 0, 0]
+  const counters = [0, 0, 0, 0, 0, 0]
   return nodes.map(n => {
-    const group = groups.get(n.ID) ?? 4, i = counters[group] ?? 0
+    const group = groups.get(n.ID) ?? 5, i = counters[group] ?? 0
     counters[group] = i + 1
     const center = groupCenter(group, width, height), angle = i * 2.399963, radius = 40 * Math.sqrt(i)
     return { id: n.ID, x: Math.max(50, Math.min(width - 120, center.x + Math.cos(angle) * radius)),
@@ -101,7 +103,7 @@ export function createGraphLayout(nodes: GraphNode[], edges: GraphEdge[], groups
   })
 }
 function groupCenter(g: number, w: number, h: number) {
-  return { x: w * ([.26, .74, .26, .74, .5][g] ?? .5), y: h * ([.25, .25, .75, .75, .5][g] ?? .5) }
+  return { x: w * ([.26, .74, .26, .74, .5, .5][g] ?? .5), y: h * ([.25, .25, .75, .75, .45, .65][g] ?? .5) }
 }
 export function stepGraphLayout(nodes: LayoutNode[], edges: GraphEdge[], width: number, height: number) {
   const byID = new Map(nodes.map(n => [n.id, n]))

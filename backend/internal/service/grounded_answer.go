@@ -42,7 +42,7 @@ func selectedSourceAnswer(raw string, contents []string, citations []domain.Cita
 	seen := map[string]bool{}
 	for _, p := range data.Passages {
 		q := sourceWhitespace(p.Quote)
-		if p.Source < 1 || p.Source > len(contents) || p.Source > len(citations) || (utf8.RuneCountInString(q) < 8 && !(requiredSource[p.Source] && q == contents[p.Source-1] && utf8.RuneCountInString(q) >= 2)) || utf8.RuneCountInString(q) > 600 || !strings.Contains(sourceWhitespace(contents[p.Source-1]), q) || danglingSentence(q) || strings.ContainsAny(q, "?？") || strings.Contains(q, "在学习本节") {
+		if p.Source < 1 || p.Source > len(contents) || p.Source > len(citations) || (utf8.RuneCountInString(q) < 8 && !(requiredSource[p.Source] && q == contents[p.Source-1] && utf8.RuneCountInString(q) >= 2)) || utf8.RuneCountInString(q) > 600 || !strings.Contains(sourceWhitespace(contents[p.Source-1]), q) || (!requiredSource[p.Source] && !completeAnswerText(q)) || danglingSentence(q) || strings.ContainsAny(q, "?？") || strings.Contains(q, "在学习本节") {
 			return "", nil, false
 		}
 		if seen[q] {

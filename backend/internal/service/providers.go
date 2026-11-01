@@ -150,6 +150,7 @@ func (p OpenAILLM) Answer(ctx context.Context, question, evidence string) (strin
 	}
 	var out struct {
 		Choices []struct {
+			Finish  string `json:"finish_reason"`
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
@@ -160,6 +161,9 @@ func (p OpenAILLM) Answer(ctx context.Context, question, evidence string) (strin
 	}
 	if len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
 		return "", providerFailure("大模型", "返回内容为空", 0)
+	}
+	if out.Choices[0].Finish == "length" {
+		return "", &PublicError{Status: 502, Code: "answer_incomplete", Message: "模型输出达到长度限制，回答未完成，请重试"}
 	}
 	return out.Choices[0].Message.Content, nil
 }

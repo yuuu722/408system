@@ -9,6 +9,8 @@ type GraphNode struct {
 	ID, Name, EntityType, Description         string
 	KnowledgePointID                          string
 	SubjectCode                               string
+	SubjectCodes                              []string `json:",omitempty"`
+	SubjectState                              string   `json:",omitempty"`
 	EvidenceChunkID, EvidenceExcerpt          string
 	EvidenceDocumentID, EvidenceDocumentTitle string
 	Source                                    string

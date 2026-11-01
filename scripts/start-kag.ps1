@@ -1,4 +1,4 @@
-param([switch]$EnablePersonal)
+param([switch]$EnablePersonal, [switch]$EnableGraphExtraction)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $path = Join-Path $root '.env'
@@ -26,13 +26,19 @@ if ($EnablePersonal) {
     else { $text = $text.TrimEnd() + "`r`nPERSONAL_KB_ENABLED=true`r`n" }
     Write-Host 'Personal libraries enabled; per-member quotas still apply.'
 }
+if ($EnableGraphExtraction) {
+    $pattern = '(?m)^GRAPH_EXTRACTION_ENABLED=.*$'
+    if ([regex]::IsMatch($text, $pattern)) { $text = [regex]::Replace($text, $pattern, 'GRAPH_EXTRACTION_ENABLED=true') }
+    else { $text = $text.TrimEnd() + "`r`nGRAPH_EXTRACTION_ENABLED=true`r`n" }
+    Write-Host 'Model graph extraction enabled for subsequent document processing; existing graph data is preserved. A configured LLM is required.'
+}
 [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
 Push-Location $root
 try {
     docker compose up -d --build
     if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check the service logs.' }
     docker compose ps
-    $expected = '2026.11.01.2'
+    $expected = '2026.11.01.3'
     $verified = $false
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         try {

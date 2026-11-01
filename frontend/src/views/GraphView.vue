@@ -6,12 +6,14 @@ import { MessagePlugin } from 'tdesign-vue-next'
 import KnowledgeGraphCanvas from '@/components/KnowledgeGraphCanvas.vue'
 import { openDocument } from '@/api/foundation'
 import { learningApi } from '@/api/learning'
-import { messageOf } from '@/api/client'
-import { relationLabels } from '@/lib/graphLayout'
+import { api,messageOf } from '@/api/client'
+import { relationLabels,subjectGroups } from '@/lib/graphLayout'
 import type { KnowledgeBase, KnowledgeGraph, KnowledgePoint, GraphNode, GraphEdge } from '@/api/types'
 const auth=useAuthStore()
 const route = useRoute(), bases = ref<KnowledgeBase[]>([]), active = ref(''), graph = ref<KnowledgeGraph | null>(null)
-const error=ref('')
+const error=ref(''),modelExtraction=ref<boolean|null>(null)
+const quality=computed(()=>{const nodes=graph.value?.Nodes??[],edges=graph.value?.Edges??[],groups=subjectGroups(nodes,edges,points.value),linked=new Set(edges.flatMap(e=>[e.FromEntityID,e.ToEntityID]));return {unknown:nodes.filter(n=>groups.get(n.ID)===5).length,cross:nodes.filter(n=>groups.get(n.ID)===4).length,isolated:nodes.filter(n=>!linked.has(n.ID)).length,directory:edges.filter(e=>e.Source==='canonical_directory').length,cooccurrence:edges.filter(e=>e.Source==='rule_candidate').length,located:edges.filter(e=>e.Source!=='canonical_directory'&&e.Source!=='rule_candidate').length}})
+
 const loading = ref(false), points = ref<KnowledgePoint[]>([]), focused = ref(''), showRecords = ref(false)
 const focusNode = computed(() => graph.value?.Nodes?.find(n => n.ID === focused.value))
 const focusEdges = computed(() => graph.value?.Edges?.filter(e => e.FromEntityID === focused.value || e.ToEntityID === focused.value) ?? [])
@@ -30,7 +32,7 @@ async function initialize(){
  try {
   bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic)
   active.value=bases.value.find(b=>b.ID===route.query.kb)?.ID||bases.value.find(b=>b.IsPublic)?.ID||bases.value[0]?.ID||''
-  await Promise.all([loadGraph(),learningApi.points().then(value=>points.value=value).catch(()=>{error.value='四科目录暂未加载，图谱节点和关系仍可查看。'})])
+  await Promise.all([api.get('/system/capabilities').then(({data})=>{modelExtraction.value=typeof data.graph_extraction_enabled==='boolean'?data.graph_extraction_enabled:null}).catch(()=>{}),loadGraph(),learningApi.points().then(value=>points.value=value).catch(()=>{error.value='四科目录暂未加载，图谱节点和关系仍可查看。'})])
  }catch(e){error.value=messageOf(e)}
 }
 function retryGraph(){if(active.value)void loadGraph();else void initialize()}
@@ -40,12 +42,12 @@ onMounted(initialize)
 <template>
   <div class="graph-page">
     <header class="page-head"><div><p class="eyebrow">KNOWLEDGE CONNECTIONS</p><h1>知识图谱</h1><p v-if="graph?.Storage" class="muted">图谱存储：{{graph.Storage==='neo4j'?'Neo4j':graph.Storage==='postgres-recovery'?'已保存图谱（恢复模式）':'PostgreSQL（兼容模式）'}}</p><p>从知识点出发，看见四科之间的联系，沿着关系回到资料原文。</p></div><div class="graph-actions"><select v-model="active" :disabled="loading" aria-label="选择知识库" @change="loadGraph"><option v-for="b in bases" :key="b.ID" :value="b.ID">{{ b.Name }}{{ b.IsPublic ? '（公共）' : '（个人）' }}</option></select><button class="secondary" :disabled="loading || !active" @click="loadGraph">{{ loading ? '加载中…' : '刷新图谱' }}</button></div></header>
-    <p v-if="error" class="notice error" role="alert">{{error}} <button class="secondary" @click="retryGraph">重新加载图谱</button></p><p v-if="graph?.Warning" class="notice" role="status">{{graph.Warning}}</p><section v-if="loading" class="card" role="status">正在加载知识点和关系……</section>
+    <section v-if="graph" class="card graph-quality"><b>图谱覆盖情况</b><p>目录关系 {{quality.directory}} · 文档定位关系 {{quality.located}} · 共现关联 {{quality.cooccurrence}}</p><p>跨科关联 {{quality.cross}} 个节点 · 待归类 {{quality.unknown}} 个 · 孤立 {{quality.isolated}} 个</p><p v-if="quality.unknown||quality.isolated" class="muted">当前图谱仍不完整。待归类表示缺少可靠的学科来源，孤立表示尚无已保存关系；不会凭空补线。跨科关联已单独列出，不再混作待核对节点。</p><p v-if="auth.user?.role==='admin'&&modelExtraction===false" class="muted">当前未开启模型关系抽取，主要使用目录与规则关联。目录关系不等于教材中的语义推导证据。</p></section><p v-if="error" class="notice error" role="alert">{{error}} <button class="secondary" @click="retryGraph">重新加载图谱</button></p><p v-if="graph?.Warning" class="notice" role="status">{{graph.Warning}}</p><section v-if="loading" class="card" role="status">正在加载知识点和关系……</section>
     <template v-else-if="graph">
       <KnowledgeGraphCanvas :nodes="graph.Nodes ?? []" :edges="graph.Edges ?? []" :points="points" @select="id => focused = id">
         <template #details>
           <template v-if="focusNode"><p class="eyebrow">KNOWLEDGE DETAIL</p><h2 class="detail-name">{{ focusNode.Name }}</h2><span class="pill">{{ sourceName(focusNode.Source) }}</span><p class="detail-description">{{ focusNode.Description || '暂无详细说明，可查看相邻关系及来源。' }}</p>
-            <h3>来源依据</h3><blockquote v-if="focusNode.EvidenceExcerpt">{{ focusNode.EvidenceExcerpt }}</blockquote><p v-else class="muted">{{ (focusNode.Source === 'canonical'||focusNode.Source==='canonical_directory') ? '管理员维护的规范目录节点。' : '此节点暂无可展示的原文片段。' }}</p><button v-if="focusNode.EvidenceDocumentID" class="secondary evidence-button" @click="showSource(focusNode)">查看原文 · {{ focusNode.EvidenceDocumentTitle }}</button>
+            <p v-if="focusNode.SubjectState==='cross_subject'" class="muted">来源涉及多个已确认学科，属于跨科关联。</p><RouterLink v-if="auth.user?.role==='admin'&&focusNode.EvidenceDocumentID" class="secondary" :to="{path:'/exam408/admin/resources',query:{kb:active,document:focusNode.EvidenceDocumentID}}">核对来源资料分类</RouterLink><h3>来源依据</h3><blockquote v-if="focusNode.EvidenceExcerpt">{{ focusNode.EvidenceExcerpt }}</blockquote><p v-else class="muted">{{ (focusNode.Source === 'canonical'||focusNode.Source==='canonical_directory') ? '管理员维护的规范目录节点。' : '此节点暂无可展示的原文片段。' }}</p><button v-if="focusNode.EvidenceDocumentID" class="secondary evidence-button" @click="showSource(focusNode)">查看原文 · {{ focusNode.EvidenceDocumentTitle }}</button>
             <h3>相邻关系 <small>{{ focusEdges.length }}</small></h3><p v-if="!focusEdges.length" class="muted">当前尚无相邻关系，未添加无依据的连线。</p><article v-for="e in focusEdges" :key="e.ID" class="relation-evidence"><b>{{ nodeByID.get(e.FromEntityID)?.Name || '未知节点' }} <span>→ {{ relationLabels[e.RelationType] || e.RelationType }} →</span> {{ nodeByID.get(e.ToEntityID)?.Name || '未知节点' }}</b><small>{{ sourceName(e.Source) }}<span v-if="(e.EvidenceCount??0)>1"> · 合并 {{e.EvidenceCount}} 条来源记录，展示一条代表依据</span>{{ e.Source === 'rule_candidate' ? ' · 共现不代表因果' : '' }}</small><blockquote v-if="e.EvidenceExcerpt">{{ e.EvidenceExcerpt }}</blockquote><button v-if="e.EvidenceDocumentID" class="secondary evidence-button" @click="showSource(e)">来源 · {{ e.EvidenceDocumentTitle }}</button><p v-else class="muted">{{ (e.Source === 'canonical'||e.Source==='canonical_directory') ? '来自规范目录关系，无上传原文。' : '暂无可访问的原文件。' }}</p></article>
           </template>
           <template v-else><p class="eyebrow">EXPLORE THE GRAPH</p><h2 class="detail-name">让知识关联一目了然</h2><p class="detail-description">每个圆点代表一个知识点或资料概念，连线代表已保存的关系。关联越多，节点越醒目。</p><ol class="explore-steps"><li>点击节点，高亮直接相连的知识点。</li><li>搜索名称，快速定位相关知识簇。</li><li>选择学科颜色，专注查看单科。</li><li>查看来源依据，核对节点与关系。</li></ol><p class="muted">节点和连线数量来自当前知识库实际数据。资料还在处理时，可稍后刷新查看新增结果。</p></template>

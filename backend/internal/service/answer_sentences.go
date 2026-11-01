@@ -73,7 +73,7 @@ func completeSourceSentences(content string) []string {
 	out := []string{}
 	add := func(text string) {
 		text = sourceWhitespace(text)
-		if len([]rune(text)) < 8 || len([]rune(text)) > 450 || danglingSentence(text) || strings.ContainsAny(text, "?？") {
+		if len([]rune(text)) < 8 || len([]rune(text)) > 450 || !completeAnswerText(text) || danglingSentence(text) || strings.ContainsAny(text, "?？") {
 			return
 		}
 		out = append(out, text)
@@ -87,15 +87,7 @@ func completeSourceSentences(content string) []string {
 				start = i + 1
 			}
 		}
-		tail := strings.TrimSpace(string(runes[start:]))
-		if len([]rune(tail)) <= 180 && !danglingSentence(tail) {
-			for _, verb := range []string{"用于", "通过", "提供", "利用", "是", "可以", "允许", "不必", "必须"} {
-				if strings.Contains(tail, verb) {
-					add(tail)
-					break
-				}
-			}
-		}
+
 	}
 	return out
 }
@@ -293,7 +285,7 @@ func sentenceAnswer(raw, question string, contents []string, citations []domain.
 			parts := completeSourceSentences(contents[required-1])
 			if len(parts) == 0 {
 				condition := sourceWhitespace(contents[required-1])
-				if len([]rune(condition)) >= 2 && len([]rune(condition)) <= 240 && !danglingSentence(condition) {
+				if len([]rune(condition)) >= 2 && len([]rune(condition)) <= 240 && completeAnswerText(condition) && !danglingSentence(condition) {
 					parts = []string{condition}
 				}
 			}

@@ -77,7 +77,8 @@ func (p OpenAILLM) answerWithImages(ctx context.Context, question, evidence stri
 		}
 		var chunk struct {
 			Choices []struct {
-				Delta struct {
+				Finish string `json:"finish_reason"`
+				Delta  struct {
 					Content string `json:"content"`
 				} `json:"delta"`
 			} `json:"choices"`
@@ -87,6 +88,9 @@ func (p OpenAILLM) answerWithImages(ctx context.Context, question, evidence stri
 			return "", providerFailure("大模型", "流式响应无效", 0)
 		}
 		if len(chunk.Choices) > 0 {
+			if chunk.Choices[0].Finish == "length" {
+				return "", &PublicError{Status: 502, Code: "answer_incomplete", Message: "模型输出达到长度限制，回答未完成，请重试"}
+			}
 			delta := chunk.Choices[0].Delta.Content
 			if delta != "" {
 				result.WriteString(delta)
@@ -127,7 +131,13 @@ func boundedHistory(messages []domain.Message) []domain.Message {
 }
 func contextualQuestion(question string, history []domain.Message) string {
 	followup := false
-	for _, word := range []string{"它", "这个", "那个", "刚才", "上面", "继续", "为什么", "区别", "举例"} {
+	plain := strings.Trim(question, " ？?。！!")
+	for _, generic := range []string{"为什么", "还有呢", "举例", "举个例子", "有什么区别"} {
+		if plain == generic {
+			followup = true
+		}
+	}
+	for _, word := range []string{"它", "这个", "那个", "刚才", "上面", "上述", "继续", "这样", "这一步"} {
 		if strings.Contains(question, word) {
 			followup = true
 		}

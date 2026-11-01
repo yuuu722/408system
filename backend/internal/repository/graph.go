@@ -152,10 +152,10 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 	if err != nil {
 		return graph, nf(err)
 	}
-	rows, err := p.DB.Query(ctx, `SELECT e.id,e.name,e.entity_type,e.description,COALESCE(m.knowledge_point_id::text,''),COALESCE(source.id::text,''),COALESCE(source.content,''),COALESCE(source.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=source.document_id),''),e.source,e.confidence,e.created_at,COALESCE((SELECT lower(s.code) FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id WHERE k.id=m.knowledge_point_id),(SELECT subject_code FROM document_catalog WHERE document_id=source.document_id AND review_state='confirmed' AND subject_code IN ('ds','co','os','cn')),'')
+	rows, err := p.DB.Query(ctx, `SELECT e.id,e.name,e.entity_type,e.description,COALESCE(m.knowledge_point_id::text,''),COALESCE(source.id::text,''),COALESCE(source.content,''),COALESCE(source.document_id::text,''),COALESCE((SELECT original_filename FROM documents WHERE id=source.document_id),''),e.source,e.confidence,e.created_at,COALESCE((SELECT lower(s.code) FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id WHERE k.id=m.knowledge_point_id),(SELECT subject_code FROM document_catalog WHERE document_id=source.document_id AND review_state='confirmed' AND subject_code IN ('ds','co','os','cn')),''),ARRAY(SELECT DISTINCT dc.subject_code FROM document_chunks ec JOIN document_catalog dc ON dc.document_id=ec.document_id WHERE ec.knowledge_base_id=e.knowledge_base_id AND ec.id IN (SELECT chunk_id FROM knowledge_entity_evidence WHERE entity_id=e.id UNION SELECT e.evidence_chunk_id WHERE e.evidence_chunk_id IS NOT NULL) AND dc.review_state='confirmed' AND dc.subject_code IN ('ds','co','os','cn') ORDER BY dc.subject_code)
 		FROM knowledge_entities e JOIN knowledge_bases kb ON kb.id=e.knowledge_base_id
 		LEFT JOIN LATERAL (SELECT knowledge_point_id FROM exam408_entity_mappings WHERE entity_id=e.id AND (SELECT count(DISTINCT k.subject_id) FROM exam408_entity_mappings em JOIN exam408_knowledge_points k ON k.id=em.knowledge_point_id WHERE em.entity_id=e.id)=1 ORDER BY confidence DESC,knowledge_point_id LIMIT 1) m ON true
-		LEFT JOIN LATERAL (SELECT c.* FROM document_chunks c JOIN (SELECT chunk_id FROM knowledge_entity_evidence WHERE entity_id=e.id UNION SELECT e.evidence_chunk_id WHERE e.evidence_chunk_id IS NOT NULL) links ON links.chunk_id=c.id WHERE c.knowledge_base_id=e.knowledge_base_id ORDER BY c.created_at DESC,c.id LIMIT 1) source ON true
+		LEFT JOIN LATERAL (SELECT c.* FROM document_chunks c JOIN (SELECT chunk_id FROM knowledge_entity_evidence WHERE entity_id=e.id UNION SELECT e.evidence_chunk_id WHERE e.evidence_chunk_id IS NOT NULL) links ON links.chunk_id=c.id WHERE c.knowledge_base_id=e.knowledge_base_id ORDER BY COALESCE((SELECT dc.review_state='confirmed' AND dc.subject_code IN ('ds','co','os','cn') FROM document_catalog dc WHERE dc.document_id=c.document_id),false) DESC,COALESCE((SELECT d.resource_type='textbook' FROM documents d WHERE d.id=c.document_id),false) DESC,c.created_at DESC,c.id LIMIT 1) source ON true
 		WHERE e.knowledge_base_id=$1 AND (e.user_id=$2 OR kb.is_public=true) AND (e.pinned OR source.id IS NOT NULL)
 		ORDER BY e.name`, kid, uid)
 	if err != nil {
@@ -163,13 +163,24 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 	}
 	for rows.Next() {
 		var n domain.GraphNode
-		if err = rows.Scan(&n.ID, &n.Name, &n.EntityType, &n.Description, &n.KnowledgePointID, &n.EvidenceChunkID, &n.EvidenceExcerpt, &n.EvidenceDocumentID, &n.EvidenceDocumentTitle, &n.Source, &n.Confidence, &n.CreatedAt, &n.SubjectCode); err != nil {
+		if err = rows.Scan(&n.ID, &n.Name, &n.EntityType, &n.Description, &n.KnowledgePointID, &n.EvidenceChunkID, &n.EvidenceExcerpt, &n.EvidenceDocumentID, &n.EvidenceDocumentTitle, &n.Source, &n.Confidence, &n.CreatedAt, &n.SubjectCode, &n.SubjectCodes); err != nil {
 			rows.Close()
 			return graph, err
 		}
 		if len([]rune(n.EvidenceExcerpt)) > 240 {
 			r := []rune(n.EvidenceExcerpt)
 			n.EvidenceExcerpt = string(r[:240])
+		}
+		if n.KnowledgePointID != "" {
+			n.SubjectState = "directory"
+		} else if len(n.SubjectCodes) == 1 {
+			n.SubjectCode = n.SubjectCodes[0]
+			n.SubjectState = "catalog_confirmed"
+		} else if len(n.SubjectCodes) > 1 {
+			n.SubjectCode = ""
+			n.SubjectState = "cross_subject"
+		} else {
+			n.SubjectState = "unclassified"
 		}
 		graph.Nodes = append(graph.Nodes, n)
 	}

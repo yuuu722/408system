@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, nextTick, ref } from 'vue'
+import {useRoute} from 'vue-router'
 import { Dialog as TDialog, MessagePlugin } from 'tdesign-vue-next'
 import { learningApi } from '@/api/learning'
 import { useAuthStore } from '@/stores/auth'
@@ -26,7 +27,7 @@ function resetPair(){pairPreview.value=null;pairQuestionSection.value='';pairAns
 const structure=ref<ParsedDocument|null>(null),structureTitle=ref(''),structureBusy=ref(false)
 async function inspectStructure(d:Document){structureBusy.value=true;try{structure.value=await foundation.structure(d.ID,d.ActiveRevisionID?'':'latest-attempt');structureTitle.value=d.OriginalFilename}catch(e){MessagePlugin.error(messageOf(e))}finally{structureBusy.value=false}}
 const bases = ref<KnowledgeBase[]>([]), docs = ref<Document[]>([]), points = ref<KnowledgePoint[]>([])
-const auth = useAuthStore()
+const auth = useAuthStore(),route=useRoute()
 const limits=ref({max_upload_bytes:200*1024*1024,index_mode:'lexical',personal_kb_enabled:false})
 const replaceTarget=ref<Document|null>(null),uploadProgress=ref(0),editingBase=ref(false)
 function editBase(){const kb=selectedBase.value;if(!kb)return;name.value=kb.Name;description.value=kb.Description;editingBase.value=true;showCreate.value=true}
@@ -66,7 +67,7 @@ async function refresh() {
   loading.value = true; error.value = ''
   try {
     bases.value = (await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic)
-    if (!bases.value.some(b => b.ID === active.value)) active.value = bases.value[0]?.ID || ''
+    if (!bases.value.some(b => b.ID === active.value)) active.value = bases.value.find(b=>b.ID===route.query.kb)?.ID || bases.value[0]?.ID || ''
     await loadDocs()
   } catch (e) { error.value = messageOf(e) } finally { loading.value = false }
 }
@@ -108,6 +109,7 @@ async function documentAction(document: Document, action: 'map' | 'retry' | 'del
 onMounted(async () => {
   try{limits.value=(await api.get('/system/capabilities')).data}catch(e){error.value=messageOf(e)}
   await refresh()
+  if(typeof route.query.document==='string'){await nextTick();document.getElementById('doc-'+route.query.document)?.scrollIntoView({behavior:'smooth',block:'center'})}
   try { points.value = await learningApi.points() } catch (e) { error.value = messageOf(e) }
 })
 onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
@@ -130,7 +132,7 @@ onUnmounted(() => { disposed = true; generation++; clearTimeout(timer) })
     </section>
     <section class="card section"><div class="section-title"><div><h2>资料文件与分类</h2><p class="muted">{{ selectedName }}</p></div><select v-model="status" aria-label="筛选文件状态"><option value="">全部状态</option><option value="ready">已就绪</option><option value="processing">处理中</option><option value="uploaded">等待处理</option><option value="failed">处理失败</option></select></div>
       <p v-if="selectedBase?.IsPublic&&!canMaintain&&docs.some(d=>catalogs[d.ID]?.ReviewState!=='confirmed')" class="notice">部分公共资料正在等待管理员核对分类，审核完成后显示。</p><div v-if="!active" class="empty">请先创建或选择一个知识库。</div><div v-else-if="!filteredDocs.length" class="empty">{{ docs.length ? '没有符合筛选条件的文件。' : '当前知识库还没有资料，点击上方“上传文件”开始。' }}</div>
-      <div class="toolbar-actions"><label>资料类型<select v-model="typeFilter"><option value="">全部类型</option><option v-for="(label,key) in typeNames" :key="key" :value="key">{{label}}</option></select></label><label>学科<select v-model="subjectFilter"><option value="">全部学科</option><option value="unassigned">待确认学科</option><option v-for="(label,key) in subjectNames" :key="key" :value="key">{{label}}</option></select></label></div><div v-if="canMaintain" class="card"><b>批量确认分类（已选 {{selectedDocs.length}} 份）</b><button class="secondary" @click="selectedDocs=filteredDocs.filter(d=>d.Status!=='processing'&&d.Status!=='uploaded').slice(0,200).map(d=>d.ID)">选择当前筛选结果（最多200份）</button><select v-model="batchType" aria-label="批量资料类型"><option v-for="(label,key) in typeNames" :key="key" :value="key">{{label}}</option></select><select v-model="batchSubject" aria-label="批量学科"><option v-for="(label,key) in subjectNames" :key="key" :value="key">{{label}}</option></select><select v-model="batchPurpose" aria-label="批量用途"><option v-for="(label,key) in purposeNames" :key="key" :value="key">{{label}}</option></select><button class="primary" :disabled="batchBusy||!selectedDocs.length" @click="batchClassify">确认所选资料</button><p>先按学科、类型筛选再确认。题目用途整理为候选题后仍需审核；不会把选择题选项作为定义。</p></div><div class="document-list"><article v-for="d in filteredDocs" :key="d.ID" class="document-card"><div class="document-heading"><div class="grow"><label v-if="canMaintain"><input type="checkbox" v-model="selectedDocs" :value="d.ID" :disabled="d.Status==='processing'||d.Status==='uploaded'" />选择此资料</label><h3>{{ d.OriginalFilename }}</h3><p class="muted">{{ (d.Size / 1024).toFixed(1) }} KB · {{ new Date(d.CreatedAt).toLocaleString() }}</p></div><span class="pill" :class="`status-${d.Status}`">{{ labels[d.Status] }}</span></div><div v-if="d.Status === 'processing' || d.Status === 'uploaded' || (d.Status === 'failed' && d.ProcessingStage)" class="processing-progress" :class="{ failed: d.Status === 'failed' }">
+      <div class="toolbar-actions"><label>资料类型<select v-model="typeFilter"><option value="">全部类型</option><option v-for="(label,key) in typeNames" :key="key" :value="key">{{label}}</option></select></label><label>学科<select v-model="subjectFilter"><option value="">全部学科</option><option value="unassigned">待确认学科</option><option v-for="(label,key) in subjectNames" :key="key" :value="key">{{label}}</option></select></label></div><div v-if="canMaintain" class="card"><b>批量确认分类（已选 {{selectedDocs.length}} 份）</b><button class="secondary" @click="selectedDocs=filteredDocs.filter(d=>d.Status!=='processing'&&d.Status!=='uploaded').slice(0,200).map(d=>d.ID)">选择当前筛选结果（最多200份）</button><select v-model="batchType" aria-label="批量资料类型"><option v-for="(label,key) in typeNames" :key="key" :value="key">{{label}}</option></select><select v-model="batchSubject" aria-label="批量学科"><option v-for="(label,key) in subjectNames" :key="key" :value="key">{{label}}</option></select><select v-model="batchPurpose" aria-label="批量用途"><option v-for="(label,key) in purposeNames" :key="key" :value="key">{{label}}</option></select><button class="primary" :disabled="batchBusy||!selectedDocs.length" @click="batchClassify">确认所选资料</button><p>先按学科、类型筛选再确认。题目用途整理为候选题后仍需审核；不会把选择题选项作为定义。</p></div><div class="document-list"><article v-for="d in filteredDocs" :key="d.ID" class="document-card" :id="'doc-'+d.ID"><div class="document-heading"><div class="grow"><label v-if="canMaintain"><input type="checkbox" v-model="selectedDocs" :value="d.ID" :disabled="d.Status==='processing'||d.Status==='uploaded'" />选择此资料</label><h3>{{ d.OriginalFilename }}</h3><p class="muted">{{ (d.Size / 1024).toFixed(1) }} KB · {{ new Date(d.CreatedAt).toLocaleString() }}</p></div><span class="pill" :class="`status-${d.Status}`">{{ labels[d.Status] }}</span></div><div v-if="d.Status === 'processing' || d.Status === 'uploaded' || (d.Status === 'failed' && d.ProcessingStage)" class="processing-progress" :class="{ failed: d.Status === 'failed' }">
 <div class="progress-caption"><span>{{ d.Status === 'failed' ? '处理已停止 · ' : '' }}{{ stages[d.ProcessingStage || 'queued'] || '处理中' }}</span><strong>{{ progressOf(d) }}%</strong></div>
 <progress :value="progressOf(d)" max="100" :aria-label="`${d.OriginalFilename} 处理进度`">{{ progressOf(d) }}%</progress>
 <small v-if="d.TotalChunks">已向量化 {{ d.ProcessedChunks || 0 }} / {{ d.TotalChunks }} 个文本块</small>

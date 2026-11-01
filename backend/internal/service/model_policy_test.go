@@ -93,7 +93,7 @@ func TestRAGWithholdsInvalidCitationsAndReturnsOriginalEvidence(t *testing.T) {
 		kb, err := st.CreateKnowledgeBase(ctx, "u1", "操作系统", "")
 		require.NoError(t, err)
 		st.Docs["d1"] = domain.Document{ID: "d1", UserID: "u1", KnowledgeBaseID: kb.ID, Status: "ready"}
-		st.Chunks = []domain.Chunk{{ID: "c1", DocumentID: "d1", UserID: "u1", KnowledgeBaseID: kb.ID, DocumentTitle: "操作系统教材.txt", Content: "虚拟内存用于地址隔离", SourceLocation: "第1页", Embedding: []float32{1, 0}}}
+		st.Chunks = []domain.Chunk{{ID: "c1", DocumentID: "d1", UserID: "u1", KnowledgeBaseID: kb.ID, DocumentTitle: "操作系统教材.txt", Content: "虚拟内存用于地址隔离。", SourceLocation: "第1页", Embedding: []float32{1, 0}}}
 		rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: editorialLLM{answer}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 5, MinScore: .35}
 		var visible strings.Builder
 		result, err := rag.ChatStream(ctx, "u1", kb.ID, "", "为什么需要虚拟内存？", func(event string, data any) error {

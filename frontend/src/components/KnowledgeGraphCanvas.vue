@@ -8,7 +8,7 @@ const query = ref(''), selected = ref(''), subject = ref(-1), scale = ref(1), pa
 const showNames = ref(true), showRelations = ref(false), neighborOnly = ref(false), expanded=ref(false),showUnclassified=ref(false)
 const arrowID = 'knowledge-arrow-' + useId().replace(/:/g, '')
 const groups = computed(() => subjectGroups(props.nodes, props.edges, props.points))
-const scopedNodes=computed(()=>showUnclassified.value||query.value.trim()||subject.value===4?props.nodes:props.nodes.filter(n=>groups.value.get(n.ID)!==4))
+const scopedNodes=computed(()=>showUnclassified.value||query.value.trim()||subject.value===5?props.nodes:props.nodes.filter(n=>groups.value.get(n.ID)!==5))
 const subset = computed(() => graphSubset(scopedNodes.value, props.edges, groups.value, query.value, subject.value, expanded.value?600:160))
 const adjacent = computed(() => {
   const ids = new Set([selected.value])
@@ -102,7 +102,7 @@ onBeforeUnmount(stop)
     <div class="graph-heading"><div><h2>408 知识关联图</h2><p>四科分色 · 知识聚类 · 来源可追溯</p></div><div class="graph-count"><strong>{{ nodes.length }}</strong> 节点 <span>·</span> <strong>{{ edges.length }}</strong> 关系</div></div>
     <div class="graph-tools"><input v-model="query" type="search" aria-label="搜索知识点" placeholder="搜索知识点，保留一层关联节点…" /><div class="graph-zoom"><button aria-label="缩小图谱" @click="zoom(.8)">−</button><span>{{ Math.round(scale * 100) }}%</span><button aria-label="放大图谱" @click="zoom(1.25)">＋</button></div><button class="secondary" @click="reset">重置视图</button></div>
     <div class="graph-legend" aria-label="按学科筛选"><button :class="{ chosen: subject === -1 }" @click="subject = -1">全部学科</button><button v-for="(g, i) in graphGroups" :key="g.name" :class="{ chosen: subject === i }" :aria-pressed="subject === i" @click="subject = subject === i ? -1 : i"><i :style="{ background: g.color }"></i>{{ g.name }} <small>{{ counts[i] }}</small></button></div>
-    <div class="graph-options"><label><input v-model="showNames" type="checkbox" />节点名称</label><label><input v-model="showRelations" type="checkbox" />关系文字</label><label><input v-model="neighborOnly" type="checkbox" :disabled="!selected" />只看选中节点及邻居</label><label><input v-model="showUnclassified" type="checkbox" />显示跨科与待核对概念（{{counts[4]}}）</label><label><input v-model="expanded" type="checkbox" />展开更多节点（最多600）</label><span>拖动节点调整位置 · 拖动空白处平移 · 滚轮缩放</span></div>
+    <div class="graph-options"><label><input v-model="showNames" type="checkbox" />节点名称</label><label><input v-model="showRelations" type="checkbox" />关系文字</label><label><input v-model="neighborOnly" type="checkbox" :disabled="!selected" />只看选中节点及邻居</label><label><input v-model="showUnclassified" type="checkbox" />显示待归类概念（{{counts[5]}}）</label><label><input v-model="expanded" type="checkbox" />展开更多节点（最多600）</label><span>拖动节点调整位置 · 拖动空白处平移 · 滚轮缩放</span></div>
     <div class="graph-workspace"><div class="graph-stage">
       <svg ref="svg" :viewBox="`0 0 ${width} ${height}`" role="group" aria-label="408交互知识图谱" @wheel.prevent="wheel" @pointerdown="begin($event)" @pointermove="move" @pointerup="end" @pointercancel="end">
         <defs><marker :id="arrowID" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#b3bfce" /></marker></defs>
@@ -112,16 +112,16 @@ onBeforeUnmount(stop)
             <text v-if="showRelations" :transform="labelTransform(e)" text-anchor="middle" y="-5" class="edge-label">{{ relationLabels[e.RelationType] || e.RelationType }}</text>
           </g>
           <g v-for="n in visible" :key="n.ID" :transform="`translate(${positions.get(n.ID)?.x || 0},${positions.get(n.ID)?.y || 0})`" :opacity="!selected || adjacent.has(n.ID) ? 1 : .16" role="button" tabindex="0" :aria-label="`${n.Name}，点击查看关系与来源`" :aria-pressed="selected === n.ID" class="graph-node" @pointerdown.stop="begin($event, n.ID)" @keydown.enter.prevent="select(n.ID)" @keydown.space.prevent="select(n.ID)">
-            <title>{{ n.Name }} · {{ graphGroups[groups.get(n.ID) ?? 4]?.name }}</title>
-            <circle v-if="selected === n.ID" :r="(positions.get(n.ID)?.radius || 12) + 7" fill="none" :stroke="graphGroups[groups.get(n.ID) ?? 4]?.color" stroke-width="2" opacity=".4" />
-            <circle :r="positions.get(n.ID)?.radius || 12" :fill="graphGroups[groups.get(n.ID) ?? 4]?.color" stroke="white" stroke-width="2.5" />
+            <title>{{ n.Name }} · {{ graphGroups[groups.get(n.ID) ?? 5]?.name }}</title>
+            <circle v-if="selected === n.ID" :r="(positions.get(n.ID)?.radius || 12) + 7" fill="none" :stroke="graphGroups[groups.get(n.ID) ?? 5]?.color" stroke-width="2" opacity=".4" />
+            <circle :r="positions.get(n.ID)?.radius || 12" :fill="graphGroups[groups.get(n.ID) ?? 5]?.color" stroke="white" stroke-width="2.5" />
             <text v-if="showNames || selected === n.ID" :x="(positions.get(n.ID)?.radius || 12) + 7" y="4.5" class="node-label">{{ n.Name.length > 18 ? n.Name.slice(0, 18) + '…' : n.Name }}</text>
           </g>
         </g>
       </svg>
-      <p v-if="!visible.length" class="graph-empty">{{ nodes.length ? counts[4]===nodes.length?'这些概念尚待核对学科；可勾选显示待核对概念，再确认来源资料的学科。':'没有匹配的知识点，请调整搜索或学科筛选。' : '当前还没有图谱节点，请先处理资料或维护知识点目录。' }}</p>
+      <p v-if="!visible.length" class="graph-empty">{{ nodes.length ? counts[5]===nodes.length?'这些概念尚待核对学科；可勾选显示待归类概念，再确认来源资料的学科。':'没有匹配的知识点，请调整搜索或学科筛选。' : '当前还没有图谱节点，请先处理资料或维护知识点目录。' }}</p>
       <div class="graph-status">当前显示 {{ visible.length }} 节点 · {{ links.length }} 关系<span v-if="subset.total > visible.length"> · 概览已限量显示，请搜索、筛选或展开更多节点</span></div>
-    </div><aside class="graph-details" aria-label="知识点详情与证据"><slot name="details"><h3>探索知识关联</h3><p>点击节点查看知识点说明、相邻关系和资料出处。</p></slot><p class="group-note">科目颜色依据规范目录；资料候选按最近的目录关联分组，无法唯一归科的节点显示灰色。规则共现不代表因果或先修关系。</p></aside></div>
+    </div><aside class="graph-details" aria-label="知识点详情与证据"><slot name="details"><h3>探索知识关联</h3><p>点击节点查看知识点说明、相邻关系和资料出处。</p></slot><p class="group-note">科目颜色来自规范目录、已确认来源或最近目录关联；跨科关联单列，缺少可靠归属的节点仍待归类。规则共现不代表因果或先修关系。</p></aside></div>
   </section>
 </template>
 

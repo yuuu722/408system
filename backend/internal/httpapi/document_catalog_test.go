@@ -384,4 +384,47 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.True(t, found)
 	})
 
+	t.Run("confirmed subject survives newer unclassified evidence and cross-subject is explicit", func(t *testing.T) {
+		sourceDocs := []domain.Document{}
+		for i := 0; i < 3; i++ {
+			d, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: fmt.Sprintf("s%d.txt", i), OriginalFilename: fmt.Sprintf("来源%d.txt", i), ResourceType: "textbook", Status: "ready"})
+			require.NoError(t, e)
+			sourceDocs = append(sourceDocs, d)
+			require.NoError(t, store.ReplaceChunks(ctx, editor.ID, d.ID, []domain.Chunk{{ID: uuid.NewString(), DocumentID: d.ID, KnowledgeBaseID: kb.ID, UserID: editor.ID, Content: "这是用于检验来源分类的独立证据原文。", Embedding: []float32{1, 0}, Metadata: map[string]any{"embedding_space": store.EmbeddingSpace}}}))
+		}
+		require.NoError(t, store.SaveCatalog(ctx, editor.ID, domain.DocumentCatalog{DocumentID: sourceDocs[0].ID, ResourceType: "textbook", SubjectCode: "os", Purpose: "knowledge", ReviewState: "confirmed"}))
+		ids := []string{}
+		for _, d := range sourceDocs {
+			var id string
+			require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM document_chunks WHERE document_id=$1`, d.ID).Scan(&id))
+			ids = append(ids, id)
+		}
+		entity := uuid.NewString()
+		_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,source,confidence,evidence_chunk_id) VALUES($1,$2,$3,'来源分类测试概念','concept','rule_candidate',0.9,$4)`, entity, editor.ID, kb.ID, ids[1])
+		require.NoError(t, e)
+		_, e = store.DB.Exec(ctx, `INSERT INTO knowledge_entity_evidence(entity_id,chunk_id) VALUES($1,$2),($1,$3)`, entity, ids[0], ids[1])
+		require.NoError(t, e)
+		graph, e := store.KnowledgeGraph(ctx, student.ID, kb.ID)
+		require.NoError(t, e)
+		for _, n := range graph.Nodes {
+			if n.ID == entity {
+				require.Equal(t, "os", n.SubjectCode)
+				require.Equal(t, "catalog_confirmed", n.SubjectState)
+				require.Equal(t, sourceDocs[0].ID, n.EvidenceDocumentID)
+			}
+		}
+		require.NoError(t, store.SaveCatalog(ctx, editor.ID, domain.DocumentCatalog{DocumentID: sourceDocs[2].ID, ResourceType: "textbook", SubjectCode: "co", Purpose: "knowledge", ReviewState: "confirmed"}))
+		_, e = store.DB.Exec(ctx, `INSERT INTO knowledge_entity_evidence(entity_id,chunk_id) VALUES($1,$2)`, entity, ids[2])
+		require.NoError(t, e)
+		graph, e = store.KnowledgeGraph(ctx, student.ID, kb.ID)
+		require.NoError(t, e)
+		for _, n := range graph.Nodes {
+			if n.ID == entity {
+				require.Empty(t, n.SubjectCode)
+				require.Equal(t, "cross_subject", n.SubjectState)
+				require.ElementsMatch(t, []string{"os", "co"}, n.SubjectCodes)
+			}
+		}
+	})
+
 }

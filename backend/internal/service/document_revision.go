@@ -336,7 +336,13 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 		"relations 用于提取明确支持的关系。relation_type 只能是 prerequisite、related、part_of、implements、uses、applies_to。若关系端点属于下面的规范知识点，优先填写其 from_point_code/to_point_code；若端点是本次 entities 中的新候选，则填写 from_entity_name/to_entity_name。prerequisite 的 from 端表示先修知识点，to 端表示后续知识点。关系 evidence 必须是原文中连续、逐字一致的 12 至 300 个字符，并且同一证据片段所在文本块应同时包含关系两端的名称。confidence 为 0 到 1 的保守置信度。\n" +
 		"只输出合法 JSON，不要 Markdown 或额外解释。格式：{\"entities\":[{\"name\":\"...\",\"entity_type\":\"concept\",\"description\":\"...\",\"evidence\":\"原文连续摘录且包含实体名称\",\"confidence\":0.85}],\"relations\":[{\"from_point_code\":\"...\",\"to_point_code\":\"...\",\"from_entity_name\":\"...\",\"to_entity_name\":\"...\",\"relation_type\":\"related\",\"evidence\":\"原文连续摘录\",\"confidence\":0.85}]}。无可靠候选时返回空数组。\n" +
 		"规范知识点代码与名称：\n" + pointList.String() + "\n资料原文：\n" + source.String()
-	raw, err := s.GraphLLM.Answer(ctx, prompt, "")
+	var raw string
+	var err error
+	if model, ok := s.GraphLLM.(jsonAnswerer); ok {
+		raw, err = model.AnswerJSON(ctx, strings.TrimSuffix(prompt, "\n资料原文：\n"+source.String()), source.String())
+	} else {
+		raw, err = s.GraphLLM.Answer(ctx, prompt, "")
+	}
 	if err != nil {
 		s.logError("graph candidate extraction failed", d.ID, err)
 		return

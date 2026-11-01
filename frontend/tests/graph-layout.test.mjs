@@ -8,7 +8,7 @@ test('candidate colors follow nearest canonical subject while ties remain neutra
   const nodes = [node('a', 'ds'), node('b'), node('c', 'os'), node('alone')]
   const groups = subjectGroups(nodes, [edge('a', 'b'), edge('b', 'c')], points)
   assert.equal(groups.get('a'), 0); assert.equal(groups.get('c'), 2)
-  assert.equal(groups.get('b'), 4); assert.equal(groups.get('alone'), 4)
+  assert.equal(groups.get('b'), 4); assert.equal(groups.get('alone'), 5)
   assert.equal(subjectGroups(nodes, [edge('a', 'b')], points).get('b'), 0)
 })
 test('search keeps direct neighbors but does not invent relations or expand beyond one hop', () => {
@@ -68,4 +68,10 @@ test('overview keeps a connected neighborhood instead of orphaning the sampled h
  const groups=new Map(nodes.map(n=>[n.ID,0]))
  const overview=graphSubset(nodes,edges,groups,'',-1,40)
  assert.equal(overview.edges.length,30)
+})
+
+test('confirmed multi-subject source is cross-subject, not an unclassified orphan',()=>{
+ const nodes=[{...node('cross'),SubjectState:'cross_subject',SubjectCodes:['os','co']},node('unknown')]
+ const groups=subjectGroups(nodes,[],[])
+ assert.equal(groups.get('cross'),4);assert.equal(groups.get('unknown'),5)
 })

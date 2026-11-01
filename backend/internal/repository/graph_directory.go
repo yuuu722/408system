@@ -43,7 +43,7 @@ func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph
 		visiting[id] = true
 		n := "directory:" + pt.ID
 		represented[id] = n
-		g.Nodes = append(g.Nodes, domain.GraphNode{ID: n, Name: pt.Name, Description: pt.Description, KnowledgePointID: pt.ID, Source: "canonical_directory", Confidence: 1, EntityType: "knowledge_point", SubjectCode: subjectCode(pt.SubjectName)})
+		g.Nodes = append(g.Nodes, domain.GraphNode{ID: n, Name: pt.Name, Description: pt.Description, KnowledgePointID: pt.ID, Source: "canonical_directory", Confidence: 1, EntityType: "knowledge_point", SubjectState: "directory", SubjectCode: subjectCode(pt.SubjectName)})
 		return n
 	}
 	edgeKeys := map[string]bool{}
