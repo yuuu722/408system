@@ -284,3 +284,35 @@ func (p *Postgres) revisionTx(ctx context.Context, d domain.Document, rid string
 	}
 	return tx, nil
 }
+
+// RewriteRevisionPages updates only an unchunked, inactive revision copied from
+// a parse checkpoint. The old active revision and original file remain intact.
+func (p *Postgres) RewriteRevisionPages(ctx context.Context, d domain.Document, rid string, pages []domain.StructuredPage) error {
+	tx, e := p.revisionTx(ctx, d, rid)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback(ctx)
+	var allowed bool
+	if e = tx.QueryRow(ctx, `SELECT NOT r.chunked AND (d.active_revision_id IS NULL OR d.active_revision_id<>r.id) FROM document_revisions r JOIN documents d ON d.id=r.document_id WHERE r.id=$1 AND d.id=$2 FOR UPDATE OF r`, rid, d.ID).Scan(&allowed); e != nil {
+		return e
+	}
+	if !allowed {
+		return fmt.Errorf("cannot rewrite an active or chunked revision")
+	}
+	total := 0
+	for i, page := range pages {
+		raw, err := json.Marshal(page)
+		if err != nil {
+			return err
+		}
+		total += len(raw)
+		if total > 64<<20 {
+			return fmt.Errorf("cleaned parse exceeds 64MiB")
+		}
+		if _, e = tx.Exec(ctx, `UPDATE revision_pages SET payload=$3 WHERE revision_id=$1 AND ordinal=$2`, rid, i, raw); e != nil {
+			return e
+		}
+	}
+	return tx.Commit(ctx)
+}

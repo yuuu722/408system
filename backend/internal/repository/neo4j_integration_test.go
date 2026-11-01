@@ -70,6 +70,17 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	require.NoError(t, e)
 	chunk := domain.Chunk{ID: uuid.NewString(), DocumentID: d.ID, KnowledgeBaseID: kb.ID, UserID: a.ID, Content: text, Embedding: vec[0], Metadata: map[string]any{"page": 1, "embedding_space": "synthetic"}}
 	require.NoError(t, p.ReplaceChunks(ctx, a.ID, d.ID, []domain.Chunk{chunk}))
+	// A shared chunk creates cooccurrence only. Exercise two-hop traversal with
+	// explicitly source-validated semantic candidates instead of relying on it.
+	require.NoError(t, p.AddValidatedGraphCandidates(ctx, a.ID, kb.ID, d.ID, []domain.GraphEntityCandidate{
+		{Name: "虚拟内存", EntityType: "concept", Evidence: text, Confidence: .9},
+		{Name: "请求分页", EntityType: "concept", Evidence: text, Confidence: .9},
+		{Name: "缺页中断", EntityType: "concept", Evidence: text, Confidence: .9},
+	}, []domain.GraphRelationCandidate{
+		{FromName: "虚拟内存", ToName: "请求分页", RelationType: "related", Evidence: text, Confidence: .9},
+		{FromName: "请求分页", ToName: "缺页中断", RelationType: "related", Evidence: text, Confidence: .9},
+	}))
+
 	require.NoError(t, p.SyncPendingGraphs(ctx))
 	g, e := p.KnowledgeGraph(ctx, a.ID, kb.ID)
 	require.NoError(t, e)

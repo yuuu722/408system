@@ -262,7 +262,7 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM document_chunks WHERE document_id=$1 LIMIT 1`, d.ID).Scan(&chunkID))
 		first, second := uuid.NewString(), uuid.NewString()
 		for i, id := range []string{first, second} {
-			_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,evidence_chunk_id,source,confidence) VALUES($1,$2,$3,$4,'concept',$5,'rule_candidate',0.9)`, id, editor.ID, kb.ID, fmt.Sprintf("待分类概念%d", i), chunkID)
+			_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,evidence_chunk_id,source,confidence,description) VALUES($1,$2,$3,$4,'concept',$5,'rule_candidate',0.9,'用于验证图谱归类的合成概念。')`, id, editor.ID, kb.ID, fmt.Sprintf("待分类概念%d", i), chunkID)
 			require.NoError(t, e)
 		}
 		for i := 0; i < 2; i++ {
@@ -400,7 +400,7 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 			ids = append(ids, id)
 		}
 		entity := uuid.NewString()
-		_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,source,confidence,evidence_chunk_id) VALUES($1,$2,$3,'来源分类测试概念','concept','rule_candidate',0.9,$4)`, entity, editor.ID, kb.ID, ids[1])
+		_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,source,confidence,evidence_chunk_id,description) VALUES($1,$2,$3,'来源分类测试概念','concept','rule_candidate',0.9,$4,'用于验证来源共识的合成概念。')`, entity, editor.ID, kb.ID, ids[1])
 		require.NoError(t, e)
 		_, e = store.DB.Exec(ctx, `INSERT INTO knowledge_entity_evidence(entity_id,chunk_id) VALUES($1,$2),($1,$3)`, entity, ids[0], ids[1])
 		require.NoError(t, e)

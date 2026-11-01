@@ -102,6 +102,7 @@ func (n *Neo4jGraph) Initialize(ctx context.Context) error {
 	return e
 }
 func (n *Neo4jGraph) Replace(ctx context.Context, kid string, g domain.KnowledgeGraph, versions ...int64) error {
+	g = qualityGraph(g)
 	nodes := []map[string]any{}
 	edges := []map[string]any{}
 	for _, v := range g.Nodes {
@@ -110,7 +111,7 @@ func (n *Neo4jGraph) Replace(ctx context.Context, kid string, g domain.Knowledge
 	}
 	for _, v := range g.Edges {
 		payload, _ := json.Marshal(v)
-		edges = append(edges, map[string]any{"id": v.ID, "from": v.FromEntityID, "to": v.ToEntityID, "kind": v.RelationType, "payload": string(payload)})
+		edges = append(edges, map[string]any{"id": v.ID, "from": v.FromEntityID, "to": v.ToEntityID, "kind": v.RelationType, "source": v.Source, "payload": string(payload)})
 	}
 	version := int64(0)
 	if len(versions) > 0 {
@@ -120,7 +121,7 @@ func (n *Neo4jGraph) Replace(ctx context.Context, kid string, g domain.Knowledge
 		cypherStatement{`MERGE (g:Exam408Namespace {scope:$scope}) SET g.version=$version`, map[string]any{"scope": kid, "version": version}},
 		cypherStatement{`MATCH (n:Exam408Entity {scope:$scope}) DETACH DELETE n`, map[string]any{"scope": kid}},
 		cypherStatement{`UNWIND $nodes AS row CREATE (n:Exam408Entity {scope:$scope,id:row.id,name:row.name,payload:row.payload})`, map[string]any{"scope": kid, "nodes": nodes}},
-		cypherStatement{`UNWIND $edges AS row MATCH (a:Exam408Entity {scope:$scope,id:row.from}),(b:Exam408Entity {scope:$scope,id:row.to}) CREATE (a)-[:EXAM408_REL {scope:$scope,id:row.id,kind:row.kind,payload:row.payload}]->(b)`, map[string]any{"scope": kid, "edges": edges}},
+		cypherStatement{`UNWIND $edges AS row MATCH (a:Exam408Entity {scope:$scope,id:row.from}),(b:Exam408Entity {scope:$scope,id:row.to}) CREATE (a)-[:EXAM408_REL {scope:$scope,id:row.id,kind:row.kind,source:row.source,payload:row.payload}]->(b)`, map[string]any{"scope": kid, "edges": edges}},
 	)
 	return e
 }
@@ -154,7 +155,7 @@ func (n *Neo4jGraph) Read(ctx context.Context, kid string) (domain.KnowledgeGrap
 		}
 		out.Edges = append(out.Edges, v)
 	}
-	return out, nil
+	return qualityGraph(out), nil
 }
 
 func (n *Neo4jGraph) Paths(ctx context.Context, kid string, terms []string) ([]domain.KnowledgePath, error) {
@@ -164,12 +165,12 @@ func (n *Neo4jGraph) Paths(ctx context.Context, kid string, terms []string) ([]d
  CALL {
  WITH a RETURN [a.payload] AS ns,[] AS es,0 AS depth
  UNION
- WITH a MATCH (a)-[r:EXAM408_REL {scope:$scope}]-(b:Exam408Entity {scope:$scope})
+ WITH a MATCH (a)-[r:EXAM408_REL {scope:$scope}]-(b:Exam408Entity {scope:$scope}) WHERE coalesce(r.source,'')<>'rule_candidate'
  WITH a,r,b ORDER BY b.id,r.id LIMIT 8 RETURN [a.payload,b.payload] AS ns,[r.payload] AS es,1 AS depth
  UNION
- WITH a MATCH (a)-[r:EXAM408_REL {scope:$scope}]-(b:Exam408Entity {scope:$scope})
+ WITH a MATCH (a)-[r:EXAM408_REL {scope:$scope}]-(b:Exam408Entity {scope:$scope}) WHERE coalesce(r.source,'')<>'rule_candidate'
  WITH a,r,b ORDER BY b.id,r.id LIMIT 8
- MATCH (b)-[s:EXAM408_REL {scope:$scope}]-(c:Exam408Entity {scope:$scope}) WHERE c<>a AND s<>r
+ MATCH (b)-[s:EXAM408_REL {scope:$scope}]-(c:Exam408Entity {scope:$scope}) WHERE c<>a AND s<>r AND coalesce(s.source,'')<>'rule_candidate'
  WITH a,r,b,s,c ORDER BY c.id,s.id LIMIT 16
  RETURN [a.payload,b.payload,c.payload] AS ns,[r.payload,s.payload] AS es,2 AS depth
  }
@@ -201,7 +202,22 @@ func (n *Neo4jGraph) Paths(ctx context.Context, kid string, terms []string) ([]d
 			}
 			path.Edges = append(path.Edges, r)
 		}
-		out = append(out, path)
+		valid := true
+		for _, node := range path.Nodes {
+			if !usableGraphNode(node) {
+				valid = false
+				break
+			}
+		}
+		for _, edge := range path.Edges {
+			if edge.Source == "rule_candidate" {
+				valid = false
+				break
+			}
+		}
+		if valid {
+			out = append(out, path)
+		}
 	}
 	return out, nil
 }

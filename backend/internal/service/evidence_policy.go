@@ -12,6 +12,9 @@ var questionBoundary = regexp.MustCompile(`(?m)^\s*(?:\([0-9]+\)|（[0-9]+）|[0
 // questions, never asserted facts. Keep actual explanation sections for concept
 // questions; exercise-solving requests may still retrieve the complete exercise.
 func answerEvidence(question, content string, contextHint ...string) string {
+	if strings.ContainsRune(content, '�') {
+		return ""
+	}
 	if choiceOption.MatchString(content) {
 		explanation := -1
 		for _, marker := range []string{"【解析】", "【解答】", "答案解析", "解析：", "解析:"} {

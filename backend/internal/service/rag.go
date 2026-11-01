@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"log/slog"
 	"math"
 	"regexp"
@@ -180,7 +181,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if kind == "outline" || kind == "other" {
 			continue
 		}
-		c.Content = answerEvidence(question, c.Content, chunkIndexText(c))
+		c.Content = answerEvidence(question, sourcequality.Clean(c.Content), chunkIndexText(c))
 		if c.Content != "" {
 			usable = append(usable, c)
 		}
@@ -283,7 +284,11 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			continue
 		}
 		seenEvidence[key] = true
-		if mains >= s.TopK {
+		limit := s.TopK
+		if questionIntent(question) == "概念与原理" {
+			limit = min(limit, 3)
+		}
+		if mains >= limit {
 			break
 		}
 		mains++
@@ -298,6 +303,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 	}
 
+	modelFailure := ""
 	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
 	if len(citations) > 0 {
 		if emit != nil {
@@ -321,12 +327,27 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			}
 		}
 		if err != nil {
-			return domain.ChatResult{}, err
+			if ctx.Err() != nil {
+				return domain.ChatResult{}, ctx.Err()
+			}
+			s.warn("model synthesis failed", "error", err)
+			var public *PublicError
+			if errors.As(err, &public) {
+				modelFailure = public.Message
+			} else {
+				modelFailure = "模型整理服务暂不可用"
+			}
+			answer = ""
+		}
+		if emit != nil {
+			if e := emit("status", map[string]string{"stage": "verifying"}); e != nil {
+				return domain.ChatResult{}, e
+			}
 		}
 		// One repair pass for real JSON-capable models. Do not silently present
 		// source excerpts as a successful model-composed answer.
 		text, sources, verified := s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies)
-		if !verified {
+		if !verified && modelFailure == "" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
 				repaired, e := model.AnswerJSON(ctx, question+composedInstruction+"\n上次输出未通过完整性或依据核验。请用更短的完整句子重新整理，保留引用所需的前提，不得续写缺失原文。", evidence.String())
 				if e == nil {
@@ -343,7 +364,16 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			answer, citations = text, sources
 		} else {
 			if _, realModel := s.LLM.(jsonAnswerer); realModel {
-				answer = "本次未能生成通过教材依据与完整性核验的整理回答，因此不展示可能被截断或补写的答案。检索到的原文来源保留在下方，可查看后重试。"
+				fallback, originalSources, _ := sentenceAnswer("", question, sourceContents, citations, dependencies)
+				if len(originalSources) > 0 && adequateCoverage(question, fallback, sourceContents) {
+					answer = "模型整理未通过核验，以下为教材中可核对的完整原句（不是模型生成答案）：\n\n" + fallback
+					citations = originalSources
+				} else {
+					answer = "本次未能生成通过教材依据与完整性核验的整理回答。检索到的原文来源保留在下方；需补充完整教材上下文后再回答。"
+				}
+				if modelFailure != "" {
+					answer = modelFailure + "。\n\n" + answer
+				}
 			} else {
 				answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)
 			}

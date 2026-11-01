@@ -302,6 +302,9 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.RAG.ChatStream(r.Context(), uid(r), in.KnowledgeBaseID, in.ConversationID, in.Question, emit, in.IncludePersonal)
 	if err != nil {
+		if s.Log != nil {
+			s.Log.Error("assistant stream failed", "error", err)
+		}
 		message := "回答未完成，请重试（Answer incomplete）"
 		var public *service.PublicError
 		if errors.As(err, &public) {

@@ -117,6 +117,35 @@ func TestRevisionRecoveryAndFencing(t *testing.T) {
 		_, e := p.DB.Exec(ctx, `UPDATE document_jobs SET available_at=now() WHERE document_id=$1`, d.ID)
 		require.NoError(t, e)
 	}
+	t.Run("clean copied checkpoint without OCR or old revision mutation", func(t *testing.T) {
+		doc := makeDoc()
+		require.NoError(t, p.EnqueueDocument(ctx, user.ID, doc.ID))
+		run(func(ctx context.Context, job domain.Document) error {
+			legacy, err := p.BeginRevision(ctx, job, domain.RevisionSpec{FileHash: "fixture", ParseKey: "legacy", ChunkKey: "old", Fingerprint: "old", EmbeddingSpace: "synthetic"})
+			require.NoError(t, err)
+			rawPage := domain.StructuredPage{Number: 1, Text: "虚 拟 内 存按需装入。\nSeas 唯一官方淘宝店"}
+			require.NoError(t, p.SaveRevisionPage(ctx, job, legacy.ID, 0, 1, rawPage))
+			require.NoError(t, p.CompleteRevisionParse(ctx, job, legacy.ID))
+			fresh, err := p.BeginRevision(ctx, job, domain.RevisionSpec{FileHash: "fixture", ParseKey: "legacy", ChunkKey: "clean", Fingerprint: "clean", EmbeddingSpace: "synthetic"})
+			require.NoError(t, err)
+			require.True(t, fresh.ParsedDone)
+			pages, err := p.RevisionPages(ctx, user.ID, job.ID, fresh.ID)
+			require.NoError(t, err)
+			require.Len(t, pages, 1)
+			service.CanonicalPage(&pages[0])
+			require.NoError(t, p.RewriteRevisionPages(ctx, job, fresh.ID, pages))
+			cleaned, err := p.RevisionPages(ctx, user.ID, job.ID, fresh.ID)
+			require.NoError(t, err)
+			require.Equal(t, "虚拟内存按需装入。", cleaned[0].Text)
+			original, err := p.RevisionPages(ctx, user.ID, job.ID, legacy.ID)
+			require.NoError(t, err)
+			require.Equal(t, rawPage.Text, original[0].Text)
+			_, err = p.DB.Exec(ctx, `UPDATE documents SET active_revision_id=$2 WHERE id=$1`, job.ID, legacy.ID)
+			require.NoError(t, err)
+			require.Error(t, p.RewriteRevisionPages(ctx, job, legacy.ID, pages))
+			return nil
+		})
+	})
 	d := makeDoc()
 	parser := &pageParser{calls: map[int]int{}, fail: 2, version: "v1", name: points[0].Name}
 	embed := &countEmbedding{failAt: 2}

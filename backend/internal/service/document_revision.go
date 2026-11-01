@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"io"
 	"math"
 	"os"
@@ -49,7 +50,7 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		parserKey = p.Fingerprint()
 	}
 	parseKey := digest(hash + "/" + parserKey)
-	chunkKey := digest(parseKey + "/context-v2/900/120")
+	chunkKey := digest(parseKey + "/context-v3/source-clean-v1/900/120")
 	points, e := s.Store.ListKnowledgePoints(ctx)
 	if e != nil {
 		return e
@@ -127,6 +128,17 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		}
 	}
 	if !rev.Chunked {
+		// Old parsed checkpoints can be cleaned without running OCR again.
+		if cleaner, ok := s.Store.(interface {
+			RewriteRevisionPages(context.Context, domain.Document, string, []domain.StructuredPage) error
+		}); ok {
+			for i := range pages {
+				CanonicalPage(&pages[i])
+			}
+			if e = cleaner.RewriteRevisionPages(ctx, d, rev.ID, pages); e != nil {
+				return e
+			}
+		}
 		chunks := ContextualChunks(pages, rev.ID, s.EmbeddingSpace, d.OriginalFilename)
 		if len(chunks) == 0 {
 			return fmt.Errorf("未提取到有效正文，可查看原文（No extractable text）")
@@ -210,7 +222,23 @@ func CanonicalPage(p *TextPage) {
 	offset := 0
 	for i := range p.Blocks {
 		b := &p.Blocks[i]
-		b.ID = fmt.Sprintf("%d:%d:%s", p.Segment, i, b.ID)
+		if strings.ContainsRune(b.Text, '�') {
+			warning := "OCR文本含无法识别字符，请核对原页；不会自动猜改公式或正文。"
+			found := false
+			for _, w := range p.Warnings {
+				if w == warning {
+					found = true
+				}
+			}
+			if !found {
+				p.Warnings = append(p.Warnings, warning)
+			}
+		}
+		b.Text = sourcequality.Clean(b.Text)
+		prefix := fmt.Sprintf("%d:%d:", p.Segment, i)
+		if !strings.HasPrefix(b.ID, prefix) {
+			b.ID = prefix + b.ID
+		}
 		b.Start = offset
 		if b.Text != "" {
 			if offset > 0 {

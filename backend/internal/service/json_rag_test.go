@@ -48,9 +48,38 @@ func TestRealProviderRepairsJSONThenReviewsBeforeShowingAnswer(t *testing.T) {
 				require.Contains(t, result.Answer, "程序按需调入")
 				require.Equal(t, 3, calls)
 			} else {
-				require.Contains(t, result.Answer, "未能生成")
+				require.Contains(t, result.Answer, "完整原句（不是模型生成答案）")
 				require.Equal(t, 2, calls)
 			}
 		})
 	}
+}
+
+func TestModelFailureStillReturnsCompleteAttributedTextbookSentences(t *testing.T) {
+	ctx := context.Background()
+	st := testutil.NewStore()
+	kb, e := st.CreateKnowledgeBase(ctx, "u", "教材", "")
+	require.NoError(t, e)
+	source := "传统一次性和驻留性要求作业全部装入并驻留内存，物理内存不足会使程序无法运行。\nSeas 唯一官方淘宝店\n虚 拟 内 存利用局部性，允许只将当前需要的程序和数据调入内存即可运行。"
+	st.Docs["d"] = domain.Document{ID: "d", UserID: "u", KnowledgeBaseID: kb.ID, Status: "ready"}
+	st.Chunks = []domain.Chunk{{ID: "c", DocumentID: "d", UserID: "u", KnowledgeBaseID: kb.ID, Content: source, Embedding: []float32{1, 0}}}
+	calls := 0
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		raw, _ := json.Marshal(body)
+		require.NotContains(t, string(raw), "淘宝")
+		w.WriteHeader(504)
+	}))
+	defer model.Close()
+	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: service.OpenAILLM{BaseURL: model.URL, APIKey: "synthetic", Model: "fixture"}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 3, MinScore: .35}
+	result, e := rag.Chat(ctx, "u", kb.ID, "", "为什么需要虚拟内存？")
+	require.NoError(t, e)
+	require.Equal(t, 1, calls)
+	require.Contains(t, result.Answer, "完整原句（不是模型生成答案）")
+	require.Contains(t, result.Answer, "物理内存不足")
+	require.Contains(t, result.Answer, "局部性")
+	require.NotContains(t, result.Answer, "淘宝")
+	require.NotEmpty(t, result.Sources)
 }

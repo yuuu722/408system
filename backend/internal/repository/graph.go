@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"regexp"
 	"strings"
 
@@ -106,7 +107,7 @@ func (p *Postgres) buildKnowledgeGraphFromChunks(ctx context.Context, tx pgx.Tx,
 					skip[name] = true
 				}
 			}
-			if skip[name] {
+			if skip[name] || !sourcequality.Definition(name, description) {
 				continue
 			}
 			var entity string
@@ -216,7 +217,7 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 	if e := p.attachDirectory(ctx, &graph); e != nil {
 		return graph, e
 	}
-	return graph, nil
+	return qualityGraph(graph), nil
 }
 
 // AddValidatedGraphRelations accepts only high-confidence proposals whose
@@ -432,6 +433,9 @@ func (p *Postgres) AddValidatedGraphCandidates(ctx context.Context, uid, kid, di
 		kind := strings.TrimSpace(candidate.EntityType)
 		if len([]rune(name)) < 2 || len([]rune(name)) > 100 || !allowedTypes[kind] ||
 			len([]rune(candidate.Description)) > 500 || candidate.Confidence < 0.75 || candidate.Confidence > 1 {
+			continue
+		}
+		if sourcequality.EntityReason(name) != "" {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(candidate.Evidence), strings.ToLower(name)) {
