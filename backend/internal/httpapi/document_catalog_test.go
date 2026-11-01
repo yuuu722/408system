@@ -319,4 +319,69 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.Equal(t, float64(225), neighbors[0].Metadata["page"])
 	})
 
+	t.Run("separate answer files preview then link without publishing", func(t *testing.T) {
+		q, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "q.txt", OriginalFilename: "测试卷题目.txt", ResourceType: "exercise", Purpose: "questions", Status: "ready"})
+		require.NoError(t, e)
+		a, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "a.txt", OriginalFilename: "测试卷答案.txt", ResourceType: "solution", Purpose: "both", Status: "ready"})
+		require.NoError(t, e)
+		qparsed := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: "第一章 练习\n1. 下列" + points[0].Name + "哪个正确？\nA. 甲 B. 乙"}}}
+		aparsed := domain.ParsedDocument{Pages: []service.TextPage{{Number: 3, Text: "第一章 参考答案\n1. B\n解析：这是本题的完整来源解释。"}}}
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, q.ID, qparsed, service.ExtractQuestions(q, qparsed.Pages, points)))
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, a.ID, aparsed, nil))
+		route := "/api/v1/documents/" + q.ID + "/answer-file"
+		input := map[string]any{"AnswerDocumentID": a.ID}
+		call("POST", route, stoken, input, 403)
+		var preview struct {
+			Fingerprint string
+			Matches     []struct {
+				AssetID string
+				Answer  int
+			}
+			Applied int
+		}
+		require.NoError(t, json.Unmarshal(call("POST", route, token, input, 200), &preview))
+		require.Len(t, preview.Matches, 1)
+		require.Equal(t, 1, preview.Matches[0].Answer)
+		input["Apply"] = true
+		input["Fingerprint"] = "outdated"
+		call("POST", route, token, input, 409)
+		input["Fingerprint"] = preview.Fingerprint
+		var result struct{ Applied int }
+		require.NoError(t, json.Unmarshal(call("POST", route, token, input, 200), &result))
+		require.Equal(t, 1, result.Applied)
+		linked, e := store.Asset(ctx, editor.ID, preview.Matches[0].AssetID)
+		require.NoError(t, e)
+		require.Equal(t, 1, linked.Payload.Answer)
+		require.Equal(t, "pending", linked.Payload.ReviewStatus)
+		require.Equal(t, "unavailable", linked.Status)
+		require.Equal(t, a.ID, linked.Payload.Evidence[0].DocumentID)
+		require.Equal(t, 3, linked.Payload.Evidence[0].Page)
+		call("POST", route, token, input, 409)
+	})
+	t.Run("directory links include ancestors without claiming textbook evidence", func(t *testing.T) {
+		var child domain.KnowledgePoint
+		for _, point := range points {
+			if point.ParentID != "" {
+				child = point
+				break
+			}
+		}
+		require.NotEmpty(t, child.ID)
+		d, e := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "dir.txt", OriginalFilename: "目录关系测试.txt", ResourceType: "textbook", Status: "ready"})
+		require.NoError(t, e)
+		text := child.Name + "用于本次合成测试中的明确知识点识别。"
+		require.NoError(t, store.ReplaceChunks(ctx, editor.ID, d.ID, []domain.Chunk{{ID: uuid.NewString(), DocumentID: d.ID, KnowledgeBaseID: kb.ID, UserID: editor.ID, Content: text, Embedding: []float32{1, 0}, Metadata: map[string]any{"embedding_space": store.EmbeddingSpace}}}))
+		graph, e := store.KnowledgeGraph(ctx, student.ID, kb.ID)
+		require.NoError(t, e)
+		found := false
+		for _, edge := range graph.Edges {
+			if edge.Source == "canonical_directory" && edge.RelationType == "part_of" {
+				found = true
+				require.Empty(t, edge.EvidenceChunkID)
+				require.Contains(t, edge.EvidenceExcerpt, "不是上传文档")
+			}
+		}
+		require.True(t, found)
+	})
+
 }

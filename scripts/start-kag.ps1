@@ -32,7 +32,7 @@ try {
     docker compose up -d --build
     if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check the service logs.' }
     docker compose ps
-    $expected = '2026.11.01.1'
+    $expected = '2026.11.01.2'
     $verified = $false
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         try {

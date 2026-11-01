@@ -61,3 +61,11 @@ test('confirmed document subject classifies an otherwise unattached concept',()=
  const groups=subjectGroups([candidate],[],[])
  assert.equal(groups.get('candidate'),2)
 })
+
+test('overview keeps a connected neighborhood instead of orphaning the sampled hub',()=>{
+ const nodes=Array.from({length:700},(_,i)=>node('n'+i))
+ const edges=Array.from({length:30},(_,i)=>edge('n0','n'+(650+i)))
+ const groups=new Map(nodes.map(n=>[n.ID,0]))
+ const overview=graphSubset(nodes,edges,groups,'',-1,40)
+ assert.equal(overview.edges.length,30)
+})

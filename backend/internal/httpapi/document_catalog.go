@@ -7,6 +7,7 @@ import (
 )
 
 func (s *Server) catalogRoutes(mux *http.ServeMux) {
+	mux.Handle("POST /api/v1/documents/{id}/answer-file", s.auth(http.HandlerFunc(s.answerFile)))
 	mux.Handle("POST /api/v1/exam408/assets/{id}/link-solution", s.auth(http.HandlerFunc(s.linkSolution)))
 	mux.Handle("POST /api/v1/knowledge-bases/{id}/catalog/batch", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct {

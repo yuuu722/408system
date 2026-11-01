@@ -208,6 +208,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		return questionFocusScore(question, chunks[i]) > questionFocusScore(question, chunks[j])
 	})
+	chunks = balanceWhyEvidence(evidenceQuestion, chunks, s.MinScore)
 	if cid == "" {
 		title := []rune(question)
 		if len(title) > 40 {
@@ -315,7 +316,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		if text, sources, ok := s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies); ok {
 			answer, citations = text, sources
-		} else if text, sources, ok := selectedSourceAnswer(answer, sourceContents, citations, dependencies); ok {
+		} else if text, sources, ok := selectedSourceAnswer(answer, sourceContents, citations, dependencies); ok && adequateCoverage(question, text, sourceContents) {
 			answer, citations = text, sources
 		} else {
 			answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)

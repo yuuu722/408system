@@ -198,7 +198,14 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 		}
 		graph.Edges = append(graph.Edges, e)
 	}
-	return graph, edgeRows.Err()
+	if e := edgeRows.Err(); e != nil {
+		return graph, e
+	}
+	edgeRows.Close()
+	if e := p.attachDirectory(ctx, &graph); e != nil {
+		return graph, e
+	}
+	return graph, nil
 }
 
 // AddValidatedGraphRelations accepts only high-confidence proposals whose

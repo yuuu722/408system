@@ -62,7 +62,17 @@ export function graphSubset(nodes: GraphNode[], edges: GraphEdge[], groups: Map<
   // A bounded overview must still represent all subjects, rather than just
   // whichever subject happens to appear first in the database result.
   if (!needle && group < 0 && ordered.length > limit) {
-    const buckets = graphGroups.map((_, i) => ordered.filter(n => (groups.get(n.ID) ?? 4) === i))
+    const byID = new Map(ordered.map(n=>[n.ID,n]))
+    const neighbors = new Map(ordered.map(n=>[n.ID,new Set<string>()]))
+    for (const e of edges) if (byID.has(e.FromEntityID)&&byID.has(e.ToEntityID)) {neighbors.get(e.FromEntityID)!.add(e.ToEntityID);neighbors.get(e.ToEntityID)!.add(e.FromEntityID)}
+    const buckets = graphGroups.map((_, i) => {
+      const pool=ordered.filter(n=>(groups.get(n.ID)??4)===i).sort((a,b)=>(neighbors.get(b.ID)?.size??0)-(neighbors.get(a.ID)?.size??0))
+      const visited=new Set<string>(),result:GraphNode[]=[]
+      for(const seed of pool){if(visited.has(seed.ID))continue;const queue=[seed.ID];visited.add(seed.ID)
+        for(let n=0;n<queue.length;n++){const id=queue[n]!;result.push(byID.get(id)!);for(const next of neighbors.get(id)??[]){if(!visited.has(next)&&(groups.get(next)??4)===i){visited.add(next);queue.push(next)}}}
+      }
+      return result
+    })
     ordered = []
     for (let offset = 0; ordered.length < Math.max(0, limit); offset++) {
       let added = false

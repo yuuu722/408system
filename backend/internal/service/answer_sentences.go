@@ -199,6 +199,38 @@ func sentenceAnswer(raw, question string, contents []string, citations []domain.
 			ids = append(ids, i+1)
 		}
 	}
+	if whyQuestion(question) {
+		balanced := []int{}
+		seenID := map[int]bool{}
+		pool := append([]int{}, ids...)
+		for i := range candidates {
+			pool = append(pool, i+1)
+		}
+		for aspect := 0; aspect < 2; aspect++ {
+			for _, id := range pool {
+				c := candidates[id-1]
+				if contextSources[c.Source] && len(dependencies[c.Source]) == 0 {
+					continue
+				}
+				p, m := answerAspects(c.Text)
+				if (aspect == 0 && p) || (aspect == 1 && m) {
+					if !seenID[id] {
+						balanced = append(balanced, id)
+						seenID[id] = true
+					}
+					break
+				}
+			}
+		}
+		for _, id := range ids {
+			if !seenID[id] && len(balanced) < 4 {
+				balanced = append(balanced, id)
+				seenID[id] = true
+			}
+		}
+		ids = balanced
+	}
+
 	paragraphs := []string{}
 	sources := []domain.Citation{}
 	seen := map[string]bool{}

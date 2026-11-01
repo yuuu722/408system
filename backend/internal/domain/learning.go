@@ -3,6 +3,7 @@ package domain
 import "time"
 
 type AssetPayload struct {
+	QuestionNumber, SectionKey                 string
 	ReviewStatus                               string
 	ParentAssetID                              string
 	GeneratorModel, GeneratedAt                string

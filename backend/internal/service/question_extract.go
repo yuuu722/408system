@@ -114,7 +114,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		if len(marks) == 0 {
 			continue
 		}
-		a := domain.Asset{Kind: "question", Title: fmt.Sprintf("%s · 第%s题", d.OriginalFilename, c.number), Payload: domain.AssetPayload{Answer: -1, AnswerOrigin: "ai_pending", Difficulty: 1, DocumentID: d.ID, Page: c.page, Source: fmt.Sprintf("%s，第%d页，第%s题", d.OriginalFilename, c.page, c.number), Images: c.images, Issue: c.issue, QuestionOrigin: "extracted"}}
+		a := domain.Asset{Kind: "question", Title: fmt.Sprintf("%s · 第%s题", d.OriginalFilename, c.number), Payload: domain.AssetPayload{QuestionNumber: c.number, SectionKey: c.section, Answer: -1, AnswerOrigin: "ai_pending", Difficulty: 1, DocumentID: d.ID, Page: c.page, Source: fmt.Sprintf("%s，第%d页，第%s题", d.OriginalFilename, c.page, c.number), Images: c.images, Issue: c.issue, QuestionOrigin: "extracted"}}
 		body := c.body
 		if m := inlineAnswer.FindStringSubmatchIndex(body); m != nil {
 			a.Payload.Answer = int(body[m[2]] - 'A')
