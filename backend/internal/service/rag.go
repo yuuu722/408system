@@ -187,7 +187,8 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if kind == "outline" || kind == "other" {
 			continue
 		}
-		c.Content = answerEvidence(question, sourcequality.Clean(c.Content), chunkIndexText(c))
+		heading, _ := c.Metadata["heading_path"].(string)
+		c.Content = answerEvidence(question, sourcequality.Clean(c.Content), chunkIndexText(c), heading)
 		if c.Content != "" {
 			usable = append(usable, c)
 		}
@@ -296,6 +297,13 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		if mains >= limit {
 			break
+		}
+		cost := len([]rune(c.Content)) + len([]rune(c.DocumentTitle)) + len([]rune(c.SourceLocation)) + 240
+		for _, context := range contexts {
+			cost += len([]rune(context.Content)) + 160
+		}
+		if _, bounded := s.LLM.(jsonAnswerer); bounded && len([]rune(evidence.String()))+cost > 3200 {
+			continue
 		}
 		mains++
 		refs := []int{}

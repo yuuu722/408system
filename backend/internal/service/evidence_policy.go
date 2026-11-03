@@ -35,7 +35,11 @@ func answerEvidence(question, content string, contextHint ...string) string {
 		}
 	}
 	if len(protocolFocus(question)) > 0 && (questionIntent(question) == "概念与原理" || questionIntent(question) == "比较分析") {
-		content = focusedProtocolEvidence(question, content)
+		heading := ""
+		if len(contextHint) > 1 {
+			heading = contextHint[1]
+		}
+		content = focusedProtocolEvidence(question, content, heading)
 		if content == "" {
 			return ""
 		}
@@ -49,6 +53,9 @@ func answerEvidence(question, content string, contextHint ...string) string {
 		related := evidenceRelated(question, sentence)
 		if !related && len(contextHint) > 0 {
 			related = evidenceRelated(question, contextHint[0])
+		}
+		if !related && len(contextHint) > 1 {
+			related = evidenceRelated(question, contextHint[1])
 		}
 		if !related {
 			continue

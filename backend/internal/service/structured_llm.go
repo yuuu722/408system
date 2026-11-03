@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/local/exam408-assistant/backend/internal/providerhttp"
 	"io"
 	"net/http"
 	"strings"
@@ -35,7 +36,7 @@ func (p OpenAILLM) AnswerJSON(ctx context.Context, instruction, evidence string)
 	}
 	client := p.Client
 	if client == nil {
-		client = &http.Client{Timeout: 300 * time.Second}
+		client = providerhttp.NewClient(300 * time.Second)
 	}
 	for attempt := 0; attempt < 2; attempt++ {
 		raw, _ := json.Marshal(body)

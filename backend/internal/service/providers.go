@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
+	"github.com/local/exam408-assistant/backend/internal/providerhttp"
 	"math"
 	"net/http"
 	"strings"
@@ -43,7 +44,7 @@ func (p OpenAIEmbedding) Embed(ctx context.Context, texts []string) ([][]float32
 	req.Header.Set("Content-Type", "application/json")
 	c := p.Client
 	if c == nil {
-		c = &http.Client{Timeout: 60 * time.Second}
+		c = providerhttp.NewClient(60 * time.Second)
 	}
 	resp, err := c.Do(req)
 	if err != nil {
@@ -138,7 +139,7 @@ func (p OpenAILLM) Answer(ctx context.Context, question, evidence string) (strin
 	req.Header.Set("Content-Type", "application/json")
 	c := p.Client
 	if c == nil {
-		c = &http.Client{Timeout: 90 * time.Second}
+		c = providerhttp.NewClient(90 * time.Second)
 	}
 	resp, err := c.Do(req)
 	if err != nil {

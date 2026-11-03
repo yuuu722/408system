@@ -13,6 +13,9 @@ var subquestionSeparator = regexp.MustCompile(`以及|并且|分别|[；;\n]`)
 
 func planKnowledgeQuestion(question string, names []string) []string {
 	out := []string{question}
+	if tcpReliabilityQuestion(question) {
+		out = append(out, "TCP 序号 确认 重传 超时重传 累计确认")
+	}
 	seen := map[string]bool{question: true}
 	for _, part := range append(subquestionSeparator.Split(question, -1), names...) {
 		part = strings.TrimSpace(part)
@@ -32,7 +35,7 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 	if !ok {
 		return nil, trace, &domain.RequestError{Status: 503, Message: "KAG图谱检索未接入，请检查Neo4j配置"}
 	}
-	graphCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	graphCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	graphTerms := append([]string{question}, names...)
 	if focus := protocolFocus(question); len(focus) > 0 {
 		graphTerms = focus

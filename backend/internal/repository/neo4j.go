@@ -6,10 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/providerhttp"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -25,18 +24,7 @@ type cypherStatement struct {
 	Parameters map[string]any `json:"parameters"`
 }
 
-var defaultNeo4jHTTPClient = func() *http.Client {
-	transport := http.DefaultTransport.(*http.Transport).Clone()
-	transport.Proxy = func(r *http.Request) (*url.URL, error) {
-		host := r.URL.Hostname()
-		ip := net.ParseIP(host)
-		if host == "neo4j" || host == "host.docker.internal" || host == "localhost" || (ip != nil && (ip.IsPrivate() || ip.IsLoopback())) {
-			return nil, nil
-		}
-		return http.ProxyFromEnvironment(r)
-	}
-	return &http.Client{Timeout: 90 * time.Second, Transport: transport}
-}()
+var defaultNeo4jHTTPClient = providerhttp.NewClient(90 * time.Second)
 
 func (n *Neo4jGraph) query(ctx context.Context, statements ...cypherStatement) ([][]json.RawMessage, error) {
 	raw, e := json.Marshal(map[string]any{"statements": statements})

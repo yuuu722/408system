@@ -93,7 +93,11 @@ func (s RAGService) composedAnswer(ctx context.Context, raw, question string, co
 	if !adequateCoverage(question, strings.Join(paragraphs, "\n"), contents) {
 		return "", nil, false
 	}
-	payload, _ := json.Marshal(map[string]any{"question": question, "claims": data.Claims})
+	scopeLabels := make([]string, len(citations))
+	for i, c := range citations {
+		scopeLabels[i] = c.Location
+	}
+	payload, _ := json.Marshal(map[string]any{"question": question, "claims": data.Claims, "source_locations": scopeLabels})
 	var review string
 	var e error
 	if model, ok := s.LLM.(jsonAnswerer); ok {

@@ -3,6 +3,7 @@ package service
 import (
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -31,4 +32,22 @@ func llmHTTPFailure(resp *http.Response) error {
 		}
 	}
 	return providerFailure("大模型", "", resp.StatusCode)
+}
+
+// Admin diagnostics show the configured host/model, never URL credentials,
+// query parameters, API keys or arbitrary provider response text.
+func (p OpenAILLM) ModelRouteDescription() string {
+	u, e := url.Parse(p.BaseURL)
+	if e != nil || u.Hostname() == "" {
+		return "模型接口地址无效，请核对后端配置"
+	}
+	model := strings.Join(strings.Fields(p.Model), " ")
+	if model == "" {
+		model = "（未设置）"
+	}
+	r := []rune(model)
+	if len(r) > 100 {
+		model = string(r[:100])
+	}
+	return "后端目标主机：" + u.Host + "；模型：" + model + "。此配置可能与宿主机命令行不同。"
 }

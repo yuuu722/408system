@@ -6,6 +6,7 @@ import (
 	"errors"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"strings"
+	"time"
 )
 
 type AssistantCheck struct {
@@ -33,17 +34,26 @@ func (s RAGService) CheckProviders(ctx context.Context) AssistantCheckReport {
 		}
 		return "连接检测失败，请管理员查看后端日志"
 	}
+	if model, ok := s.LLM.(interface{ ModelRouteDescription() string }); ok {
+		report.Checks = append(report.Checks, AssistantCheck{"模型配置摘要", true, model.ModelRouteDescription()})
+	}
+	graphOK := true
 	if s.KAGEnabled {
 		graph, ok := s.Store.(interface{ CheckGraph(context.Context) error })
 		if !ok {
 			report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", false, "图谱服务未接入"})
-			return report
+			graphOK = false
+		} else {
+			graphCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			e := graph.CheckGraph(graphCtx)
+			cancel()
+			if e != nil {
+				report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", false, "图谱连接检测失败；仍继续检测模型与检索服务"})
+				graphOK = false
+			} else {
+				report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", true, "图谱服务可连接；文档与图谱同步情况以实际知识库为准"})
+			}
 		}
-		if e := graph.CheckGraph(ctx); e != nil {
-			report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", false, "图谱连接失败，请检查Neo4j容器和凭据"})
-			return report
-		}
-		report.Checks = append(report.Checks, AssistantCheck{"Neo4j图谱", true, "图谱服务可连接；文档与图谱同步情况以实际知识库为准"})
 	}
 	vectors, err := s.Embedder.Embed(ctx, []string{"408问答连接检测"})
 	if err != nil {
@@ -82,6 +92,26 @@ func (s RAGService) CheckProviders(ctx context.Context) AssistantCheckReport {
 		return report
 	}
 	report.Checks = append(report.Checks, AssistantCheck{"回答模型", true, "模型接口已返回有效文本；具体问题仍需检索到资料依据"})
-	report.Passed = true
+	if model, ok := s.LLM.(jsonAnswerer); ok {
+		longEvidence := strings.Repeat("这是一段无用户数据的合成资料，用于验证较长输入能否正常处理。", 65)
+		probe, e := model.AnswerJSON(ctx, `只返回JSON {"ok":true}，不要总结资料。`, longEvidence)
+		valid := false
+		if e == nil {
+			var result struct {
+				OK bool `json:"ok"`
+			}
+			valid = json.Unmarshal([]byte(modelJSONObject(probe)), &result) == nil && result.OK
+		}
+		if !valid {
+			message := "后端短请求成功，但较长输入未通过JSON检测；请检查模型运行日志与上下文资源"
+			if e != nil {
+				message += "。" + safe(e)
+			}
+			report.Checks = append(report.Checks, AssistantCheck{"模型较长输入", false, message})
+			return report
+		}
+		report.Checks = append(report.Checks, AssistantCheck{"模型较长输入", true, "后端实际配置已通过短JSON和较长合成输入检测；不等于全部教材问答已验收"})
+	}
+	report.Passed = graphOK
 	return report
 }

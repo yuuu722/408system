@@ -58,15 +58,23 @@ func competingProtocol(focus []string, text string) bool {
 // Preserve complete source sentences and their conditions. Unnamed continuation
 // is accepted only immediately after an anchored sentence, in the same paragraph,
 // and never after a competing protocol. No generic heading grants relevance.
-func focusedProtocolEvidence(q, content string) string {
+func focusedProtocolEvidence(q, content string, scope ...string) string {
 	focus := protocolFocus(q)
 	if len(focus) == 0 {
 		return content
 	}
 	out := []string{}
+	scoped := len(scope) > 0 && sharesProtocol(focus, scope[0]) && !competingProtocol(focus, scope[0])
 	for _, paragraph := range strings.Split(content, "\n\n") {
-		active := false
+		active := scoped
 		for _, sentence := range completeSourceSentences(paragraph) {
+			if tcpReliabilityQuestion(q) && !strings.Contains(q, "保活") && !strings.Contains(q, "时间等待") {
+				lower := strings.ToLower(sentence)
+				if strings.Contains(sentence, "保活") || strings.Contains(sentence, "时间等待") || strings.Contains(lower, "keepalive") || strings.Contains(lower, "time_wait") {
+					active = false
+					continue
+				}
+			}
 			anchored := sharesProtocol(focus, sentence)
 			if competingProtocol(focus, sentence) && !anchored {
 				active = false
@@ -75,6 +83,11 @@ func focusedProtocolEvidence(q, content string) string {
 			continuation := false
 			for _, prefix := range []string{"它", "该协议", "其", "当", "若", "如果", "因此", "为此", "发送方", "接收方", "发送者", "接收者", "发送端", "接收端", "超时", "确认", "序号", "累计确认", "快速重传", "重传", "滑动窗口"} {
 				continuation = continuation || strings.HasPrefix(sentence, prefix)
+			}
+			if scoped && tcpReliabilityQuestion(q) {
+				for _, word := range []string{"序号", "确认", "重传", "校验", "丢失", "重复", "失序", "滑动窗口"} {
+					continuation = continuation || strings.Contains(sentence, word)
+				}
 			}
 			if anchored || active && continuation {
 				out = append(out, sentence)

@@ -91,12 +91,16 @@ func completeSourceSentences(content string) []string {
 	}
 	return out
 }
-func sentenceCandidates(question string, contents []string) []answerSentence {
+func sentenceCandidates(question string, contents []string, scopes ...[]domain.Citation) []answerSentence {
 	out := []answerSentence{}
 	seen := map[string]bool{}
 	why := strings.Contains(question, "为什么") || strings.Contains(question, "原因") || strings.Contains(question, "必要")
 	for i, content := range contents {
-		parts := completeSourceSentences(focusedProtocolEvidence(question, content))
+		scope := ""
+		if len(scopes) > 0 && i < len(scopes[0]) {
+			scope = scopes[0][i].Location
+		}
+		parts := completeSourceSentences(focusedProtocolEvidence(question, content, scope))
 		for position, text := range parts {
 			if why && !strings.Contains(question, "实现") && (strings.Contains(text, "实现需要建立") || strings.Contains(text, "实现必须建立") || strings.Contains(text, "采用连续分配方式")) {
 				continue
@@ -162,7 +166,7 @@ func parseSelection(raw string) []int {
 // Model text is never treated as an answer. It can only select deterministic,
 // source-backed sentences. A malformed selection uses bounded source ranking.
 func sentenceAnswer(raw, question string, contents []string, citations []domain.Citation, dependencies map[int][]int) (string, []domain.Citation, bool) {
-	candidates := sentenceCandidates(question, contents)
+	candidates := sentenceCandidates(question, contents, citations)
 	ids := parseSelection(raw)
 	model := len(ids) > 0 && len(ids) <= 4
 	if model {

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/providerhttp"
 	"io"
 	"net/http"
 	"strings"
@@ -51,7 +52,7 @@ func (p OpenAILLM) answerWithImages(ctx context.Context, question, evidence stri
 	req.Header.Set("Content-Type", "application/json")
 	client := p.Client
 	if client == nil {
-		client = &http.Client{Timeout: 90 * time.Second}
+		client = providerhttp.NewClient(90 * time.Second)
 	}
 	resp, err := client.Do(req)
 	if err != nil {
