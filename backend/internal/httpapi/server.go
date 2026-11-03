@@ -43,7 +43,7 @@ type Server struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		write(w, 200, map[string]string{"status": "ok", "release": "2026.11.01.4"})
+		write(w, 200, map[string]string{"status": "ok", "release": "2026.11.03.1"})
 	})
 	mux.HandleFunc("POST /api/v1/admin/bootstrap", s.bootstrapAdmin)
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)
@@ -246,7 +246,11 @@ func (s *Server) requestID(next http.Handler) http.Handler {
 		w.Header().Set("X-Request-ID", requestID)
 		started := time.Now()
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), requestIDKey, requestID)))
-		s.Log.Info("request completed", "request_id", requestID, "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds())
+		level := slog.LevelInfo
+		if r.URL.Path == "/healthz" {
+			level = slog.LevelDebug
+		}
+		s.Log.Log(r.Context(), level, "request completed", "request_id", requestID, "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds())
 	})
 }
 func (s *Server) recover(next http.Handler) http.Handler {

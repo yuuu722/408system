@@ -16,7 +16,7 @@ const sentenceSelectionInstruction = `
 
 var numberedLine = regexp.MustCompile(`^\s*[0-9]+(?:[)）、]|[.．]\s+)\s*`)
 var numericHeading = regexp.MustCompile(`^[0-9]+(?:[.．][0-9]+)*[.．]?\s*[\p{Han}A-Za-z][^。！？；?]{0,60}$`)
-var cnWhitespace = regexp.MustCompile(`([\p{Han}])\s+([\p{Han}])`)
+var cnWhitespace = regexp.MustCompile(`([\p{Han}。！？；：，、])\s+([\p{Han}])`)
 var cnContinuation = regexp.MustCompile(`([\p{Han}，。；：、])\\\r?\n`)
 var pageNoise = regexp.MustCompile(`^(?:[0-9A-F]+H\s*[|｜]|[·—\s]*第\s*[0-9]+\s*页|公众号[:：])`)
 
@@ -96,7 +96,7 @@ func sentenceCandidates(question string, contents []string) []answerSentence {
 	seen := map[string]bool{}
 	why := strings.Contains(question, "为什么") || strings.Contains(question, "原因") || strings.Contains(question, "必要")
 	for i, content := range contents {
-		parts := completeSourceSentences(content)
+		parts := completeSourceSentences(focusedProtocolEvidence(question, content))
 		for position, text := range parts {
 			if why && !strings.Contains(question, "实现") && (strings.Contains(text, "实现需要建立") || strings.Contains(text, "实现必须建立") || strings.Contains(text, "采用连续分配方式")) {
 				continue
@@ -112,6 +112,9 @@ func sentenceCandidates(question string, contents []string) []answerSentence {
 			}
 			seen[key] = true
 			score := lexicalEvidenceScore(question, text)
+			if len(protocolFocus(question)) > 0 {
+				score = max(score, .7)
+			}
 			if question == "" {
 				score = .2
 			}

@@ -14,7 +14,7 @@ func (s *Server) checkAssistant(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, service.AssistantCheckReport{Checks: []service.AssistantCheck{{Name: "模型配置", Passed: false, Message: status.Message}}})
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 120*time.Second)
 	defer cancel()
 	write(w, 200, s.RAG.CheckProviders(ctx))
 }

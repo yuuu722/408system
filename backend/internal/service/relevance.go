@@ -12,6 +12,9 @@ func evidenceRelated(question, evidence string) bool {
 }
 
 func lexicalEvidenceScore(question, evidence string) float64 {
+	if focus := protocolFocus(question); len(focus) > 0 && !sharesProtocol(focus, evidence) {
+		return 0
+	}
 	q := strings.ToLower(question)
 	for _, stop := range []string{"请根据知识库", "根据知识库", "请根据教材", "根据教材", "请根据资料", "根据资料", "说明一下", "请说明", "说明", "检索概念", "为什么", "是什么", "如何", "怎么", "什么", "请问", "请解释", "解释一下", "需要", "介绍一下", "请", "的", "吗", "呢"} {
 		q = strings.ReplaceAll(q, stop, " ")
@@ -41,5 +44,11 @@ func lexicalEvidenceScore(question, evidence string) float64 {
 	if len(tokens) == 0 {
 		return 0
 	}
-	return float64(matched) / float64(len(tokens))
+	score := float64(matched) / float64(len(tokens))
+	if tcpReliabilityQuestion(question) && sharesProtocol([]string{"TCP"}, evidence) {
+		if tcpMechanismCoverage(evidence) {
+			score = max(score, .9)
+		}
+	}
+	return score
 }

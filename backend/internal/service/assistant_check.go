@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"strings"
@@ -57,7 +58,17 @@ func (s RAGService) CheckProviders(ctx context.Context) AssistantCheckReport {
 	var answer string
 	const question = "请根据资料回复连接正常并标注引用。"
 	const evidence = "[1] 连接检测资料：本次请求用于验证模型接口是否返回有效文本，不涉及用户知识库。"
-	if llm, ok := s.LLM.(domain.StreamingLLM); ok {
+	if model, ok := s.LLM.(jsonAnswerer); ok {
+		answer, err = model.AnswerJSON(ctx, `只返回JSON {"ok":true}，用于检查结构化接口。`, "本次为无用户资料的连接测试。")
+		if err == nil {
+			var result struct {
+				OK bool `json:"ok"`
+			}
+			if json.Unmarshal([]byte(modelJSONObject(answer)), &result) != nil || !result.OK {
+				err = providerFailure("大模型", "结构化检测未返回有效JSON", 0)
+			}
+		}
+	} else if llm, ok := s.LLM.(domain.StreamingLLM); ok {
 		answer, err = llm.AnswerStream(ctx, question, evidence, nil, func(string) error { return ctx.Err() })
 	} else {
 		answer, err = s.LLM.Answer(ctx, question, evidence)

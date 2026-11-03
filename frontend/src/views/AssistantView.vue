@@ -20,7 +20,7 @@ async function copyAnswer(text:string){try{await navigator.clipboard.writeText(t
 function jumpToBottom(){followBottom.value=true;void nextTick(()=>box.value?.scrollTo({top:box.value.scrollHeight,behavior:'auto'}))}
 
 const auth=useAuthStore(),checking=ref(false),checkReport=ref<{passed:boolean;checks:{name:string;passed:boolean;message:string}[]}|null>(null)
-async function checkConnection(){if(checking.value||busy.value)return;checking.value=true;error.value='';checkReport.value=null;try{checkReport.value=(await api.post('/admin/assistant/check',{}, {timeout:55000})).data}catch(e){error.value=messageOf(e)}finally{checking.value=false}}
+async function checkConnection(){if(checking.value||busy.value)return;checking.value=true;error.value='';checkReport.value=null;try{checkReport.value=(await api.post('/admin/assistant/check',{}, {timeout:135000})).data}catch(e){error.value=messageOf(e)}finally{checking.value=false}}
 
 const imageFile=ref<File|null>(null),imageURL=ref(''),recognizing=ref(false),recognized=ref(false),imageWarnings=ref<string[]>([]),imageMethod=ref('')
 const imageController=ref<AbortController>()
@@ -40,7 +40,7 @@ async function recognizeImage(){
 const status = ref({ mode: 'unavailable', enabled: false, message: '' })
 async function load() {
  loading.value=true;error.value=''
- try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();const capabilities=(await api.get('/system/capabilities')).data;versionWarning.value=capabilities.release==='2026.11.01.4'?'':'前端与服务端版本不一致，最新功能尚未完整部署。请管理员拉取源码并重建 backend、worker 和 frontend。';active.value=bases.value[0]?.ID||''
+ try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();const capabilities=(await api.get('/system/capabilities')).data;versionWarning.value=capabilities.release==='2026.11.03.1'?'':'前端与服务端版本不一致，最新功能尚未完整部署。请管理员拉取源码并重建 backend、worker 和 frontend。';active.value=bases.value[0]?.ID||''
  const saved=history.value.find(c=>c.ID===sessionStorage.getItem('408_conversation'));if(saved)await selectConversation(saved.ID)
  }catch(e){error.value=messageOf(e)}finally{loading.value=false}
 }
@@ -114,7 +114,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
      <div v-if="imageFile" class="attachment-preview"><img :src="imageURL" alt="待识别题目"/><div><strong>{{imageFile.name}}</strong><p>{{recognized?'识别完成，请核对下方题干和公式':'识别图片后核对题干，再发送问题'}}</p><button :disabled="recognizing||recognized||busy" @click="recognizeImage">{{recognizing?'识别中…':recognized?'已识别':'识别题目'}}</button></div><button class="icon-button" aria-label="移除图片" :disabled="recognizing||busy" @click="clearImage">×</button></div>
      <p v-for="warning in imageWarnings" :key="warning" class="image-warning">{{warning}}</p>
      <form class="chat-composer" @submit.prevent="send"><label class="sr-only" for="question">向助教提问或核对图片识别文字</label><textarea id="question" v-model="question" rows="2" :disabled="!active||busy||recognizing||loading" placeholder="向 408 助教提问，或添加题目图片…" @input="resizeInput" @keydown.enter="onEnter"/><div class="composer-tools"><label class="attach-control" title="添加题目图片"><span>＋</span><span class="attach-label">添加图片</span><input type="file" accept="image/png,image/jpeg" aria-label="添加题目图片" :disabled="busy||recognizing||loading||!active" @change="chooseImage"/></label><span class="composer-scope">{{bases.find(b=>b.ID===active)?.IsPublic?'教材优先':'公共教材＋个人资料'}}</span><button v-if="busy" type="button" class="send-control stop" aria-label="停止生成" @click="controller?.abort()">■</button><button v-else class="send-control" aria-label="发送问题" :disabled="!active||recognizing||!question.trim()||!status.enabled||loading||!!imageFile&&!recognized">↑</button></div></form>
-     <div class="composer-foot"><span>回答附原文出处，请核对公式与推导。Shift＋Enter 换行</span><small title="界面版本">2026.11.01.4</small></div>
+     <div class="composer-foot"><span>回答附原文出处，请核对公式与推导。Shift＋Enter 换行</span><small title="界面版本">2026.11.03.1</small></div>
     </div>
    </div>
    <div v-if="copyNotice" class="copy-toast" role="status">{{copyNotice}}</div>

@@ -59,7 +59,7 @@ func (p OpenAILLM) answerWithImages(ctx context.Context, question, evidence stri
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return "", providerFailure("大模型", "", resp.StatusCode)
+		return "", llmHTTPFailure(resp)
 	}
 	scanner := bufio.NewScanner(io.LimitReader(resp.Body, 4<<20))
 	scanner.Buffer(make([]byte, 4096), 1<<20)

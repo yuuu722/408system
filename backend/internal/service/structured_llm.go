@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -55,8 +56,14 @@ func (p OpenAILLM) AnswerJSON(ctx context.Context, instruction, evidence string)
 			continue
 		}
 		if resp.StatusCode/100 != 2 {
+			failure := llmHTTPFailure(resp)
 			resp.Body.Close()
-			return "", providerFailure("大模型", "", resp.StatusCode)
+			var public *PublicError
+			if attempt == 0 && errors.As(failure, &public) && public.Code == "model_response_format_unsupported" {
+				delete(body, "response_format")
+				continue
+			}
+			return "", failure
 		}
 		var data struct {
 			Choices []struct {

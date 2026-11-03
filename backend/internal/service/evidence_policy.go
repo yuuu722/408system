@@ -34,6 +34,12 @@ func answerEvidence(question, content string, contextHint ...string) string {
 			return ""
 		}
 	}
+	if len(protocolFocus(question)) > 0 && (questionIntent(question) == "概念与原理" || questionIntent(question) == "比较分析") {
+		content = focusedProtocolEvidence(question, content)
+		if content == "" {
+			return ""
+		}
+	}
 	if questionIntent(question) != "概念与原理" && questionIntent(question) != "比较分析" {
 		return strings.TrimSpace(content)
 	}

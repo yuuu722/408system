@@ -146,7 +146,7 @@ func (p OpenAILLM) Answer(ctx context.Context, question, evidence string) (strin
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
-		return "", providerFailure("大模型", "", resp.StatusCode)
+		return "", llmHTTPFailure(resp)
 	}
 	var out struct {
 		Choices []struct {

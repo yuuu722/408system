@@ -70,6 +70,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if len(names) >= 6 {
 			break
 		}
+		if focus := protocolFocus(evidenceQuestion); len(focus) > 0 && !sharesProtocol(focus, point.Name) {
+			continue
+		}
 		names = append(names, point.Name)
 	}
 	if len(names) > 0 {
@@ -148,6 +151,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			}
 			chunks = append(chunks, extra...)
 		}
+	}
+	if trace != nil {
+		trace.Paths = focusedPaths(evidenceQuestion, trace.Paths)
 	}
 	if trace != nil && emit != nil {
 		if e := emit("reasoning", trace); e != nil {
@@ -366,13 +372,20 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			if _, realModel := s.LLM.(jsonAnswerer); realModel {
 				fallback, originalSources, _ := sentenceAnswer("", question, sourceContents, citations, dependencies)
 				if len(originalSources) > 0 && adequateCoverage(question, fallback, sourceContents) {
-					answer = "模型整理未通过核验，以下为教材中可核对的完整原句（不是模型生成答案）：\n\n" + fallback
+					notice := "模型整理未通过核验"
+					if modelFailure != "" {
+						notice = "模型服务未完成整理"
+					}
+					answer = notice + "，以下为教材中可核对的完整原句（不是模型生成答案）：\n\n" + fallback
 					citations = originalSources
 				} else {
 					answer = "本次未能生成通过教材依据与完整性核验的整理回答。检索到的原文来源保留在下方；需补充完整教材上下文后再回答。"
+					if tcpReliabilityQuestion(question) {
+						answer = "当前检索片段不足以完整解释TCP的可靠传输机制。需要教材中关于TCP序号、确认和重传机制的完整讲解；不会用HDLC或无线链路的资料替代。"
+					}
 				}
 				if modelFailure != "" {
-					answer = modelFailure + "。\n\n" + answer
+					answer = strings.TrimRight(modelFailure, "。.!！ ") + "。\n\n" + answer
 				}
 			} else {
 				answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)

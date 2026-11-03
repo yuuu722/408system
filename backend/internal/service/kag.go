@@ -33,7 +33,11 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 		return nil, trace, &domain.RequestError{Status: 503, Message: "KAG图谱检索未接入，请检查Neo4j配置"}
 	}
 	graphCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	graph, e := store.RetrieveGraphEvidence(graphCtx, uid, kid, append([]string{question}, names...))
+	graphTerms := append([]string{question}, names...)
+	if focus := protocolFocus(question); len(focus) > 0 {
+		graphTerms = focus
+	}
+	graph, e := store.RetrieveGraphEvidence(graphCtx, uid, kid, graphTerms)
 	cancel()
 	degraded := false
 	if e != nil {
@@ -52,6 +56,17 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 			trace.Notice = unavailable.Message + "。" + trace.Notice
 		}
 		s.warn("graph retrieval unavailable", "error", e, "knowledge_base_id", kid)
+	}
+	graph.Paths = focusedPaths(question, graph.Paths)
+	if len(protocolFocus(question)) > 0 {
+		graph.Terms = nil
+		for _, path := range graph.Paths {
+			for _, node := range path.Nodes {
+				if sharesProtocol(protocolFocus(question), node.Name) {
+					graph.Terms = append(graph.Terms, node.Name)
+				}
+			}
+		}
 	}
 	trace.Paths = graph.Paths
 	if len(graph.Paths) == 0 && !degraded {
