@@ -13,7 +13,7 @@ func llmHTTPFailure(resp *http.Response) error {
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8192))
 	text := strings.ToLower(string(raw))
 	class := func(code, msg string) error { return &PublicError{Code: code, Status: 502, Message: msg} }
-	if (resp.StatusCode == 400 || resp.StatusCode == 422 || resp.StatusCode >= 500) && strings.Contains(text, "response_format") && (strings.Contains(text, "unsupported") || strings.Contains(text, "not supported") || strings.Contains(text, "unmarshal")) {
+	if (resp.StatusCode == 400 || resp.StatusCode == 422 || resp.StatusCode >= 500) && (strings.Contains(text, "response_format") || strings.Contains(text, "json_schema")) && (strings.Contains(text, "unsupported") || strings.Contains(text, "not supported") || strings.Contains(text, "unmarshal")) {
 		return class("model_response_format_unsupported", "回答模型接口不支持当前JSON格式参数，请检查兼容接口版本。")
 	}
 	if resp.StatusCode >= 500 || resp.StatusCode == 400 || resp.StatusCode == 404 {

@@ -34,11 +34,14 @@ func (p OpenAILLM) AnswerJSON(ctx context.Context, instruction, evidence string)
 	if strings.Contains(instruction, "知识图谱候选抽取器") {
 		body["max_tokens"] = 4096
 	}
+	if strings.Contains(instruction, factCompositionInstruction) {
+		body["response_format"] = factResponseFormat(evidence)
+	}
 	client := p.Client
 	if client == nil {
 		client = providerhttp.NewClient(300 * time.Second)
 	}
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < 3; attempt++ {
 		raw, _ := json.Marshal(body)
 		req, e := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(p.BaseURL, "/")+"/chat/completions", bytes.NewReader(raw))
 		if e != nil {
@@ -50,18 +53,18 @@ func (p OpenAILLM) AnswerJSON(ctx context.Context, instruction, evidence string)
 		if e != nil {
 			return "", providerFailure("大模型", "网络连接失败或请求超时", 0)
 		}
-		if resp.StatusCode == 400 && attempt == 0 {
+		if (resp.StatusCode == 400 || resp.StatusCode == 422) && body["response_format"] != nil && attempt < 2 {
 			io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 			resp.Body.Close()
-			delete(body, "response_format")
+			downgradeJSONFormat(body)
 			continue
 		}
 		if resp.StatusCode/100 != 2 {
 			failure := llmHTTPFailure(resp)
 			resp.Body.Close()
 			var public *PublicError
-			if attempt == 0 && errors.As(failure, &public) && public.Code == "model_response_format_unsupported" {
-				delete(body, "response_format")
+			if attempt < 2 && body["response_format"] != nil && errors.As(failure, &public) && public.Code == "model_response_format_unsupported" {
+				downgradeJSONFormat(body)
 				continue
 			}
 			return "", failure
@@ -85,4 +88,12 @@ func (p OpenAILLM) AnswerJSON(ctx context.Context, instruction, evidence string)
 		return data.Choices[0].Message.Content, nil
 	}
 	return "", providerFailure("大模型", "不支持结构化回答", 0)
+}
+
+func downgradeJSONFormat(body map[string]any) {
+	if current, ok := body["response_format"].(map[string]any); ok && current["type"] == "json_schema" {
+		body["response_format"] = map[string]string{"type": "json_object"}
+	} else {
+		delete(body, "response_format")
+	}
 }

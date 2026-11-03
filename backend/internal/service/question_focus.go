@@ -9,6 +9,8 @@ import (
 
 // Explicit protocol names constrain expansion; a shared word such as
 // "reliable" cannot replace the protocol the student actually asked about.
+var ackToken = regexp.MustCompile(`(?i)\bACK\b`)
+
 var protocolName = regexp.MustCompile(`(?i)(?:TCP|UDP|HDLC|PPP|HTTP[S]?|FTP|SMTP|DNS|DHCP|ARP|ICMP|IPv[46]|OSPF|BGP|RIP|TLS|SSL)`)
 
 func protocolFocus(text string) []string {
@@ -145,7 +147,7 @@ func tcpReliabilityQuestion(q string) bool {
 // Definitions alone cannot answer a request to explain the mechanism.
 func tcpMechanismCoverage(text string) bool {
 	sequence := strings.Contains(text, "序号") || strings.Contains(text, "序列号") || strings.Contains(text, "编号") || strings.Contains(strings.ToLower(text), "sequence")
-	ack := strings.Contains(text, "确认") || strings.Contains(strings.ToLower(text), "acknowledg")
+	ack := strings.Contains(text, "确认") || strings.Contains(text, "应答") || ackToken.MatchString(text) || strings.Contains(strings.ToLower(text), "acknowledg")
 	retransmit := strings.Contains(text, "重传") || strings.Contains(text, "重发") || strings.Contains(text, "重新发送") || strings.Contains(strings.ToLower(text), "retransmi")
 	return sequence && ack && retransmit
 }

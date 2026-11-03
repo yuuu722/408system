@@ -102,6 +102,9 @@ func sentenceCandidates(question string, contents []string, scopes ...[]domain.C
 		}
 		parts := completeSourceSentences(focusedProtocolEvidence(question, content, scope))
 		for position, text := range parts {
+			if strings.Contains(text, "这里不再") || strings.Contains(text, "此处不再") {
+				continue
+			}
 			if why && !strings.Contains(question, "实现") && (strings.Contains(text, "实现需要建立") || strings.Contains(text, "实现必须建立") || strings.Contains(text, "采用连续分配方式")) {
 				continue
 			}

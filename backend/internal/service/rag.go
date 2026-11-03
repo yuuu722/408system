@@ -317,6 +317,8 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 	}
 
+	catalog := buildAnswerFacts(question, sourceContents, citations, dependencies)
+	modelEvidence := catalog.JSON()
 	modelFailure := ""
 	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
 	if len(citations) > 0 {
@@ -328,7 +330,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		// Buffer model selections until each complete passage is matched to source text.
 		// Provider output is never shown as an unchecked factual paraphrase.
 		if model, ok := s.LLM.(jsonAnswerer); ok {
-			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+composedInstruction, evidence.String())
+			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+factCompositionInstruction, modelEvidence)
 		} else if llm, ok := s.LLM.(domain.StreamingLLM); ok {
 			answer, err = llm.AnswerStream(ctx, question+composedInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
@@ -337,7 +339,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		var incomplete *PublicError
 		if errors.As(err, &incomplete) && incomplete.Code == "answer_incomplete" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
-				answer, err = model.AnswerJSON(ctx, question+composedInstruction+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", evidence.String())
+				answer, err = model.AnswerJSON(ctx, question+factCompositionInstruction+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", modelEvidence)
 			}
 		}
 		if err != nil {
@@ -360,17 +362,26 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		// One repair pass for real JSON-capable models. Do not silently present
 		// source excerpts as a successful model-composed answer.
-		text, sources, verified := s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies)
+		text, sources, verified := "", []domain.Citation(nil), false
+		rejectReason := ""
+		if _, ok := s.LLM.(jsonAnswerer); ok {
+			text, sources, verified, rejectReason = s.factComposedAnswer(ctx, answer, question, catalog, sourceContents, citations, dependencies)
+		} else {
+			text, sources, verified = s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies)
+		}
 		if !verified && modelFailure == "" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
-				repaired, e := model.AnswerJSON(ctx, question+composedInstruction+"\n上次输出未通过完整性或依据核验。请用更短的完整句子重新整理，保留引用所需的前提，不得续写缺失原文。", evidence.String())
+				repaired, e := model.AnswerJSON(ctx, question+factCompositionInstruction+"\n上次输出未通过核验（"+rejectReason+"）。必须填写有效facts编号，保留条件，用更短的完整句子重新整理。", modelEvidence)
 				if e == nil {
-					text, sources, verified = s.composedAnswer(ctx, repaired, question, sourceContents, citations, dependencies)
+					text, sources, verified, rejectReason = s.factComposedAnswer(ctx, repaired, question, catalog, sourceContents, citations, dependencies)
 				}
 				if !verified {
 					answer = ""
 				}
 			}
+		}
+		if !verified && modelFailure == "" {
+			s.warn("answer grounding rejected", "reason", rejectReason)
 		}
 		if verified {
 			answer, citations = text, sources
