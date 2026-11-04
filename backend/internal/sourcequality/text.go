@@ -96,7 +96,7 @@ func EntityReason(name string) string {
 	if len(r) < 2 || len(r) > 24 || garbage.MatchString(n) || strings.ContainsAny(n, "\n\r。！？?！：:=<>\\|{}") {
 		return "invalid_label"
 	}
-	for _, v := range []string{"的特点是", "可分为", "主要有", "是一个", "此题", "本题", "答案", "解析", "第一趟", "第一个", "如下", "一般有", "主要由", "要注意", "计算结果", "填空", "通话质量", "文件A ", "第几", "考虑以下", "由图可知"} {
+	for _, v := range []string{"的特点是", "可分为", "主要有", "是一个", "此题", "本题", "答案", "解析", "第一趟", "第一个", "如下", "一般有", "主要由", "包括", "分为", "分成", "要建立", "可以把", "我们", "如下所示", "要注意", "计算结果", "填空", "通话质量", "文件A ", "第几", "考虑以下", "由图可知"} {
 		if strings.Contains(n, v) {
 			return "sentence_or_question"
 		}
@@ -132,3 +132,9 @@ func Definition(name, description string) bool {
 	}
 	return false
 }
+
+// SuspectFormula quarantines OCR ambiguity; it must never silently repair a
+// mathematical character using model memory. The original remains viewable.
+var suspectFormula = regexp.MustCompile(`(?i)(?:[a-z0-9]\s*[-−]\s*[!！]|[a-z]\s*[-−]\s*[lI]\b|[�])`)
+
+func SuspectFormula(text string) bool { return suspectFormula.MatchString(text) }

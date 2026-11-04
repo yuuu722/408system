@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"regexp"
 	"sort"
 	"strings"
@@ -73,7 +74,7 @@ func completeSourceSentences(content string) []string {
 	out := []string{}
 	add := func(text string) {
 		text = sourceWhitespace(text)
-		if len([]rune(text)) < 8 || len([]rune(text)) > 450 || !completeAnswerText(text) || danglingSentence(text) || strings.ContainsAny(text, "?？") {
+		if sourcequality.SuspectFormula(text) || len([]rune(text)) < 8 || len([]rune(text)) > 450 || !completeAnswerText(text) || danglingSentence(text) || strings.ContainsAny(text, "?？") {
 			return
 		}
 		out = append(out, text)

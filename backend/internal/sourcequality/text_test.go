@@ -34,3 +34,19 @@ func TestReportedGraphPollutionRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestSentenceLabelsAndAmbiguousFormula(t *testing.T) {
+	for _, label := range []string{"一个结点包括三部分内容", "服务器之间要建立两个并行的TCP连接", "我们可以把二维数组看成这样"} {
+		if EntityReason(label) == "" {
+			t.Errorf("accepted sentence %s", label)
+		}
+	}
+	for _, label := range []string{"线性表", "TCP滑动窗口", "存储系统"} {
+		if EntityReason(label) != "" {
+			t.Errorf("rejected term %s", label)
+		}
+	}
+	if !SuspectFormula("到序号N- !为止") || SuspectFormula("序号N-1") {
+		t.Fatal("formula ambiguity guard")
+	}
+}
