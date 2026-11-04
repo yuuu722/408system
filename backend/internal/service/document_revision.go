@@ -222,6 +222,15 @@ func CanonicalPage(p *TextPage) {
 	offset := 0
 	for i := range p.Blocks {
 		b := &p.Blocks[i]
+		if b.Kind == "paragraph_break" {
+			b.Start = offset
+			if offset > 0 {
+				text.WriteByte('\n')
+				offset++
+			}
+			b.End = offset
+			continue
+		}
 		if strings.ContainsRune(b.Text, '�') {
 			warning := "OCR文本含无法识别字符，请核对原页；不会自动猜改公式或正文。"
 			found := false
@@ -295,8 +304,12 @@ func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 			continue
 		}
 		regions := []domain.SourceRegion{}
+		uncertain := false
 		for _, b := range page.Blocks {
 			if b.End > start && b.Start < end {
+				if b.Confidence != nil && *b.Confidence < .8 {
+					uncertain = true
+				}
 				bounds := b.Box
 				if page.CoordinateSpace != "normalized-top-left-displayed-page" {
 					bounds = nil
@@ -304,7 +317,7 @@ func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 				regions = append(regions, domain.SourceRegion{Page: page.Number, Segment: page.Segment, BlockID: b.ID, Start: max(start, b.Start), End: min(end, b.End), Box: bounds})
 			}
 		}
-		out = append(out, domain.Chunk{Content: string(runes[start:end]), Metadata: map[string]any{"page": page.Number, "revision_id": rid, "embedding_space": space, "regions": regions, "offset_unit": "unicode_codepoint", "start": start, "end": end}})
+		out = append(out, domain.Chunk{Content: string(runes[start:end]), Metadata: map[string]any{"page": page.Number, "revision_id": rid, "embedding_space": space, "regions": regions, "offset_unit": "unicode_codepoint", "parser_uncertain": uncertain, "start": start, "end": end}})
 		if end == len(runes) {
 			break
 		}
@@ -347,7 +360,18 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 		if source.Len() >= 12000 {
 			break
 		}
-		source.WriteString(page.Text)
+		if len(page.Blocks) == 0 {
+			source.WriteString(page.Text)
+		} else {
+			for _, block := range page.Blocks {
+				if block.Confidence != nil && *block.Confidence < .8 || sourcequality.SuspectFormula(block.Text) {
+					source.WriteString("\n\n")
+					continue
+				}
+				source.WriteString(block.Text)
+				source.WriteString("\n")
+			}
+		}
 		source.WriteString("\n\n")
 	}
 	text := []rune(source.String())
@@ -360,8 +384,8 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 	}
 
 	prompt := "你是计算机考研教材知识图谱候选抽取器。只能把明确有原文证据的内容作为候选，不得臆造。\n" +
-		"entities 用于提取资料中的概念、算法、数据结构、协议、公式、机制或组件。entity_type 只能是 concept、algorithm、data_structure、protocol、formula、mechanism、component。实体名称要简洁且具体；evidence 必须是原文中连续、逐字一致的 12 至 300 个字符，并且包含该实体名称。\n" +
-		"relations 用于提取明确支持的关系。relation_type 只能是 prerequisite、related、part_of、implements、uses、applies_to。若关系端点属于下面的规范知识点，优先填写其 from_point_code/to_point_code；若端点是本次 entities 中的新候选，则填写 from_entity_name/to_entity_name。prerequisite 的 from 端表示先修知识点，to 端表示后续知识点。关系 evidence 必须是原文中连续、逐字一致的 12 至 300 个字符，并且同一证据片段所在文本块应同时包含关系两端的名称。confidence 为 0 到 1 的保守置信度。\n" +
+		"entities 用于提取资料中的概念、算法、数据结构、协议、公式、机制或组件。entity_type 只能是 concept、algorithm、data_structure、protocol、formula、mechanism、component。实体名称必须是408相关专业概念名词或名词短语，例如线性表、滑动窗口、虚拟内存。不要抽取整句话、动作描述、普通词、标题说明、广告；例如“一个结点包括三部分内容”“发生异常的可能”不是实体。公式类型的名称应是公式的专业名称而非一串算式。宁缺毋滥，名称无法确认时不输出；description用于保存解释句，不能拿解释句当名称。evidence 必须是原文中连续、逐字一致的 12 至 300 个字符，并且包含该实体名称。\n" +
+		"relations 用于提取明确支持的关系。relation_type 只能是 prerequisite、related、part_of、implements、uses、applies_to。若关系端点属于下面的规范知识点，优先填写其 from_point_code/to_point_code；若端点是本次 entities 中的新候选，则填写 from_entity_name/to_entity_name。prerequisite 的 from 端表示先修知识点，to 端表示后续知识点。只有原文明示的语义关系才可输出，两个名词同段出现不能证明related。关系 evidence 必须是原文中连续、逐字一致的 12 至 300 个字符，并且同一证据片段所在文本块应同时包含关系两端的名称。confidence 为 0 到 1 的保守置信度。\n" +
 		"只输出合法 JSON，不要 Markdown 或额外解释。格式：{\"entities\":[{\"name\":\"...\",\"entity_type\":\"concept\",\"description\":\"...\",\"evidence\":\"原文连续摘录且包含实体名称\",\"confidence\":0.85}],\"relations\":[{\"from_point_code\":\"...\",\"to_point_code\":\"...\",\"from_entity_name\":\"...\",\"to_entity_name\":\"...\",\"relation_type\":\"related\",\"evidence\":\"原文连续摘录\",\"confidence\":0.85}]}。无可靠候选时返回空数组。\n" +
 		"规范知识点代码与名称：\n" + pointList.String() + "\n资料原文：\n" + source.String()
 	var raw string

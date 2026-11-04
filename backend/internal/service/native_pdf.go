@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,30 +43,36 @@ func (p Parser) nativePDFBatch(ctx context.Context, path string, start, limit in
 		if e != nil {
 			return nil, total, true, fmt.Errorf("PDF第%d页文字提取失败", n)
 		}
+
 		page := TextPage{Number: n, Text: strings.TrimSpace(string(data))}
-		if !ValidBody(page.Text) {
-			if _, e := exec.LookPath("tesseract"); e != nil {
-				return nil, total, true, fmt.Errorf("PDF第%d页需要OCR；请重建包含Tesseract的后端镜像", n)
-			}
-			dir, e := os.MkdirTemp("", "exam408-ocr-")
-			if e != nil {
-				return nil, total, true, e
-			}
-			prefix := filepath.Join(dir, "page")
-			_, e = exec.CommandContext(ctx, "pdftoppm", "-f", strconv.Itoa(n), "-l", strconv.Itoa(n), "-singlefile", "-scale-to", "2200", "-png", path, prefix).Output()
-			if e == nil {
-				data, e = exec.CommandContext(ctx, "tesseract", prefix+".png", "stdout", "-l", p.ocrLanguages()).Output()
-			}
-			os.RemoveAll(dir)
-			if e != nil {
-				return nil, total, true, fmt.Errorf("PDF第%d页OCR失败，请检查语言包与文件", n)
-			}
-			page.Text = strings.TrimSpace(string(data))
-			page.Warnings = []string{"此页使用本地OCR识别，请核对文字和公式。"}
-			if !ValidBody(page.Text) {
-				page.Warnings = append(page.Warnings, "此页未识别到足够正文，可能是空白页或图片。")
+		// Use geometry rather than trusting a flattened text layer, including
+		// on text-rich pages where the old OCR fallback never ran.
+		if layout, err := exec.CommandContext(ctx, "pdftotext", "-f", strconv.Itoa(n), "-l", strconv.Itoa(n), "-bbox-layout", "-enc", "UTF-8", path, "-").Output(); err == nil {
+			if structured, err := decodePDFLayout(layout, n); err == nil && ValidBody(structured.Text) {
+				page = structured
 			}
 		}
+		invalid := !ValidBody(page.Text)
+		suspect := sourcequality.SuspectFormula(page.Text)
+		if invalid || suspect {
+			original := page
+			recognized, err := p.ocrPDFPage(ctx, path, n, suspect && !invalid)
+			if err != nil {
+				if invalid {
+					return nil, total, true, err
+				}
+				page.Warnings = append(page.Warnings, "文字层含疑似公式错误，图像复读失败；请核对原页，未自动更改数字。")
+			} else if invalid {
+				page = recognized
+			} else if !sourcequality.SuspectFormula(recognized.Text) && sameSurroundingText(original.Text, recognized.Text) {
+				page = recognized
+				page.Warnings = append(page.Warnings, "文字层疑似损坏，已由两种OCR布局复读一致的页面替代，仍需核对公式。")
+			} else {
+				page = original
+				page.Warnings = append(page.Warnings, "文字层与图像复读存在分歧，未自动更改公式，请核对原页。")
+			}
+		}
+
 		pages = append(pages, page)
 	}
 	return pages, total, true, nil
@@ -85,4 +92,84 @@ func (p Parser) ocrLanguages() string {
 		return "chi_sim+eng"
 	}
 	return "eng"
+}
+
+func (p Parser) ocrPDFPage(ctx context.Context, path string, n int, verify bool) (TextPage, error) {
+	dir, err := os.MkdirTemp("", "exam408-ocr-")
+	if err != nil {
+		return TextPage{}, err
+	}
+	defer os.RemoveAll(dir)
+	prefix := filepath.Join(dir, "page")
+	if _, err = exec.CommandContext(ctx, "pdftoppm", "-f", strconv.Itoa(n), "-l", strconv.Itoa(n), "-singlefile", "-r", "300", "-png", path, prefix).Output(); err != nil {
+		return TextPage{}, fmt.Errorf("PDF第%d页渲染失败", n)
+	}
+	data, err := exec.CommandContext(ctx, "tesseract", prefix+".png", "stdout", "-l", p.ocrLanguages(), "--psm", "3", "tsv").Output()
+	if err != nil {
+		return TextPage{}, fmt.Errorf("PDF第%d页OCR失败，请检查工具与语言包", n)
+	}
+	page, err := decodeOCRTSV(data, n)
+	if err != nil {
+		return TextPage{}, err
+	}
+	page.Warnings = append(page.Warnings, "此页使用本地OCR识别，请核对文字和公式。")
+	if verify {
+		second, e := exec.CommandContext(ctx, "tesseract", prefix+".png", "stdout", "-l", p.ocrLanguages(), "--psm", "6").Output()
+		if e != nil || compactRecognition(page.Text) != compactRecognition(string(second)) {
+			return TextPage{}, fmt.Errorf("OCR复读不一致")
+		}
+		for _, b := range page.Blocks {
+			if b.Confidence != nil && *b.Confidence < .8 {
+				return TextPage{}, fmt.Errorf("OCR置信度不足")
+			}
+		}
+	}
+	if !ValidBody(page.Text) {
+		page.Warnings = append(page.Warnings, "此页未识别到足够正文，可能是空白页或图片。")
+	}
+	return page, nil
+}
+func compactRecognition(s string) string {
+	return strings.Join(strings.Fields(sourcequality.Normalize(s)), "")
+}
+
+// A replacement must preserve the surrounding content, not merely remove the
+// suspicious character. This is deliberately conservative for dense formulas.
+func sameSurroundingText(a, b string) bool {
+	x, y := []rune(compactRecognition(a)), []rune(compactRecognition(b))
+	if len(x) < 20 || len(y) < 20 || len(x) > 20000 || len(y) > 20000 {
+		return false
+	}
+	// Bounded edit distance: at most 2% character changes are allowed.
+	budget := max(2, len(x)/50)
+	if len(x)-len(y) > budget || len(y)-len(x) > budget {
+		return false
+	}
+
+	prev, cur := make([]int, len(y)+1), make([]int, len(y)+1)
+	for j := range prev {
+		prev[j] = min(j, budget+1)
+		cur[j] = budget + 1
+	}
+	for i, c := range x {
+		row := i + 1
+		lo, hi := max(1, row-budget), min(len(y), row+budget)
+		cur[0] = min(row, budget+1)
+		if lo > 1 {
+			cur[lo-1] = budget + 1
+		}
+		for j := lo; j <= hi; j++ {
+			cost := 0
+			if c != y[j-1] {
+				cost = 1
+			}
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+		}
+		if hi < len(y) {
+			cur[hi+1] = budget + 1
+		}
+		prev, cur = cur, prev
+	}
+
+	return prev[len(y)] <= budget
 }

@@ -221,7 +221,7 @@ func (p *Postgres) ActivateRevision(ctx context.Context, d domain.Document, rid 
 	if _, e = tx.Exec(ctx, `INSERT INTO document_chunks(id,document_id,knowledge_base_id,user_id,content,chunk_index,source_location,metadata,embedding) SELECT gen_random_uuid(),$2,$3,$4,content,ordinal,'分块 '||(ordinal+1)::text,metadata,embedding FROM revision_chunks WHERE revision_id=$1`, rid, d.ID, d.KnowledgeBaseID, d.UserID); e != nil {
 		return e
 	}
-	graphRows, e := tx.Query(ctx, `SELECT id,content,chunk_index,source_location FROM document_chunks WHERE document_id=$1 AND user_id=$2`, d.ID, d.UserID)
+	graphRows, e := tx.Query(ctx, `SELECT id,content,chunk_index,source_location,metadata FROM document_chunks WHERE document_id=$1 AND user_id=$2`, d.ID, d.UserID)
 	if e != nil {
 		return e
 	}
@@ -229,7 +229,7 @@ func (p *Postgres) ActivateRevision(ctx context.Context, d domain.Document, rid 
 	for graphRows.Next() {
 		var ch domain.Chunk
 		ch.DocumentID, ch.KnowledgeBaseID, ch.UserID = d.ID, d.KnowledgeBaseID, d.UserID
-		if e = graphRows.Scan(&ch.ID, &ch.Content, &ch.ChunkIndex, &ch.SourceLocation); e != nil {
+		if e = graphRows.Scan(&ch.ID, &ch.Content, &ch.ChunkIndex, &ch.SourceLocation, &ch.Metadata); e != nil {
 			graphRows.Close()
 			return e
 		}

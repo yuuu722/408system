@@ -262,7 +262,7 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM document_chunks WHERE document_id=$1 LIMIT 1`, d.ID).Scan(&chunkID))
 		first, second := uuid.NewString(), uuid.NewString()
 		for i, id := range []string{first, second} {
-			_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,evidence_chunk_id,source,confidence,description) VALUES($1,$2,$3,$4,'concept',$5,'rule_candidate',0.9,'用于验证图谱归类的合成概念。')`, id, editor.ID, kb.ID, fmt.Sprintf("待分类概念%d", i), chunkID)
+			_, e := store.DB.Exec(ctx, `INSERT INTO knowledge_entities(id,user_id,knowledge_base_id,name,entity_type,evidence_chunk_id,source,confidence,description) VALUES($1,$2,$3,$4,'concept',$5,'rule_candidate',0.9,'用于验证图谱归类的合成概念。')`, id, editor.ID, kb.ID, fmt.Sprintf("合成%d页表", i), chunkID)
 			require.NoError(t, e)
 		}
 		for i := 0; i < 2; i++ {

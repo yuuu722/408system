@@ -50,3 +50,16 @@ func TestSentenceLabelsAndAmbiguousFormula(t *testing.T) {
 		t.Fatal("formula ambiguity guard")
 	}
 }
+
+func TestProfessionalNounAdmission(t *testing.T) {
+	for _, name := range []string{"一个结点包括三部分内容", "字符串的局部分析", "发生异常的可能", "进程的基本思想", "注意区别数据类型", "我们可以把二维数组看成这样", "内容", "操作", "将数据存储", "通过滑动窗口", "发生缺页中断"} {
+		if TechnicalNoun(name) {
+			t.Errorf("not a technical noun: %s", name)
+		}
+	}
+	for _, name := range []string{"线性表", "栈", "堆", "图", "广义表", "循环队列", "TCP", "滑动窗口", "请求分页", "页面置换算法", "中断向量表", "虚拟内存", "局部性", "克鲁斯卡尔算法", "哈夫曼树"} {
+		if !TechnicalNoun(name) {
+			t.Errorf("valid concept rejected: %s", name)
+		}
+	}
+}

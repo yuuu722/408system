@@ -92,7 +92,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		if s.Config.DemoMode {
 			mode = "demo"
 		}
-		write(w, 200, map[string]any{"release": "2026.11.04.2", "graph_extraction_enabled": os.Getenv("GRAPH_EXTRACTION_ENABLED") == "true", "graph_backend": s.Config.GraphBackend, "assistant_mode": s.Config.AssistantMode, "max_upload_bytes": max, "index_mode": mode, "personal_kb_enabled": s.Config.PersonalKBEnabled, "native_ocr": service.NativeOCRAvailable()})
+		write(w, 200, map[string]any{"release": "2026.11.04.3", "graph_extraction_enabled": os.Getenv("GRAPH_EXTRACTION_ENABLED") == "true", "graph_backend": s.Config.GraphBackend, "assistant_mode": s.Config.AssistantMode, "max_upload_bytes": max, "index_mode": mode, "personal_kb_enabled": s.Config.PersonalKBEnabled, "native_ocr": service.NativeOCRAvailable()})
 	})))
 
 	save := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -187,6 +187,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	// sheets cannot crowd out textbook explanations from the candidate pool.
 	usable := chunks[:0]
 	for _, c := range chunks {
+		if uncertain, _ := c.Metadata["parser_uncertain"].(bool); uncertain {
+			continue
+		}
 		if incomplete, _ := c.Metadata["context_incomplete"].(bool); incomplete {
 			continue
 		}

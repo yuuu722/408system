@@ -38,3 +38,17 @@ func TestOldNeo4jPathsCannotInjectAdvertisingOrCooccurrence(t *testing.T) {
 	require.Len(t, paths, 1)
 	require.Equal(t, "页表", paths[0].Nodes[1].Name)
 }
+
+func TestNonNounLegacyNodesCannotAppearInGraphOrPaths(t *testing.T) {
+	g := domain.KnowledgeGraph{Nodes: []domain.GraphNode{
+		{ID: "a", Name: "线性表", Source: "canonical"},
+		{ID: "b", Name: "一个结点包括三部分内容", Source: "llm_candidate"},
+		{ID: "c", Name: "发生异常的可能", Source: "rule_candidate", Description: "表示发生异常的可能。"},
+		{ID: "d", Name: "循环队列", Source: "llm_candidate"},
+	}, Edges: []domain.GraphEdge{{FromEntityID: "a", ToEntityID: "b"}, {FromEntityID: "a", ToEntityID: "c"}, {FromEntityID: "a", ToEntityID: "d"}}}
+	filtered := qualityGraph(g)
+	require.Len(t, filtered.Nodes, 2)
+	require.Len(t, filtered.Edges, 1)
+	require.Equal(t, "d", filtered.Edges[0].ToEntityID)
+	require.Len(t, g.Nodes, 4, "original evidence retained")
+}

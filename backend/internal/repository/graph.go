@@ -63,6 +63,9 @@ func (p *Postgres) buildKnowledgeGraphFromChunks(ctx context.Context, tx pgx.Tx,
 	relRows.Close()
 
 	for _, chunk := range chunks {
+		if uncertain, _ := chunk.Metadata["parser_uncertain"].(bool); uncertain {
+			continue
+		}
 		text := strings.ToLower(chunk.Content)
 		matched := map[string]string{}
 		for _, point := range points {
@@ -107,7 +110,7 @@ func (p *Postgres) buildKnowledgeGraphFromChunks(ctx context.Context, tx pgx.Tx,
 					skip[name] = true
 				}
 			}
-			if skip[name] || !sourcequality.Definition(name, description) {
+			if skip[name] || !sourcequality.TechnicalNoun(name) || !sourcequality.Definition(name, description) {
 				continue
 			}
 			var entity string
@@ -117,14 +120,8 @@ func (p *Postgres) buildKnowledgeGraphFromChunks(ctx context.Context, tx pgx.Tx,
 			if _, err = tx.Exec(ctx, `INSERT INTO knowledge_entity_evidence(entity_id,chunk_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, entity, chunk.ID); err != nil {
 				return err
 			}
-			for _, canonical := range matched {
-				if canonical == entity {
-					continue
-				}
-				if _, err = tx.Exec(ctx, `INSERT INTO knowledge_relations(user_id,knowledge_base_id,from_entity_id,to_entity_id,relation_type,evidence_chunk_id,source,confidence) SELECT $1,$2,$3,$4,'related',$5,'rule_candidate',0.8 WHERE NOT EXISTS(SELECT 1 FROM knowledge_relations WHERE from_entity_id=$3 AND to_entity_id=$4 AND evidence_chunk_id=$5 AND relation_type='related')`, uid, kid, canonical, entity, chunk.ID); err != nil {
-					return err
-				}
-			}
+			// A definition and a canonical term sharing a chunk do not prove a relation.
+
 		}
 		for _, rel := range relations {
 			from, hasFrom := matched[rel.from]
@@ -347,7 +344,7 @@ func (p *Postgres) AddValidatedGraphCandidates(ctx context.Context, uid, kid, di
 	}
 
 	type sourceChunk struct{ id, content string }
-	chunkRows, err := tx.Query(ctx, `SELECT id,content FROM document_chunks WHERE document_id=$1 AND user_id=$2 AND knowledge_base_id=$3 ORDER BY chunk_index`, did, uid, kid)
+	chunkRows, err := tx.Query(ctx, `SELECT id,content FROM document_chunks WHERE document_id=$1 AND user_id=$2 AND knowledge_base_id=$3 AND COALESCE(metadata->>'parser_uncertain','false')<>'true' ORDER BY chunk_index`, did, uid, kid)
 	if err != nil {
 		return err
 	}
@@ -431,11 +428,11 @@ func (p *Postgres) AddValidatedGraphCandidates(ctx context.Context, uid, kid, di
 	for _, candidate := range entities {
 		name := strings.TrimSpace(candidate.Name)
 		kind := strings.TrimSpace(candidate.EntityType)
-		if len([]rune(name)) < 2 || len([]rune(name)) > 100 || !allowedTypes[kind] ||
+		if len([]rune(name)) < 1 || len([]rune(name)) > 100 || !allowedTypes[kind] ||
 			len([]rune(candidate.Description)) > 500 || candidate.Confidence < 0.75 || candidate.Confidence > 1 {
 			continue
 		}
-		if sourcequality.EntityReason(name) != "" {
+		if !sourcequality.TechnicalNoun(name) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(candidate.Evidence), strings.ToLower(name)) {

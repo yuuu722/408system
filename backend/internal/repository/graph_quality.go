@@ -12,9 +12,9 @@ func usableGraphNode(n domain.GraphNode) bool {
 		return true
 	}
 	if n.Source == "rule_candidate" {
-		return sourcequality.Definition(n.Name, n.Description)
+		return sourcequality.TechnicalNoun(n.Name) && sourcequality.Definition(n.Name, n.Description)
 	}
-	return sourcequality.EntityReason(n.Name) == ""
+	return sourcequality.TechnicalNoun(n.Name)
 }
 func qualityGraph(g domain.KnowledgeGraph) domain.KnowledgeGraph {
 	keep := map[string]bool{}

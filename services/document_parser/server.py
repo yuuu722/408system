@@ -56,6 +56,7 @@ def structure(image):
     ocr = data.get("overall_ocr_res", {})
     ocr_texts = ocr.get("rec_texts", [])
     ocr_boxes = ocr.get("rec_boxes", [])
+    ocr_scores = ocr.get("rec_scores", [])
     blocks = []
     for i, item in enumerate(data.get("parsing_res_list", [])):
         kind = item.get("block_label", "text")
@@ -70,12 +71,34 @@ def structure(image):
                 text = "\n".join(t for _, _, t in sorted(lines))
         block = {"ID": str(i), "Kind": kind, "Text": text,
                  "Box": box(coords, image.width, image.height)}
+        if kind in ("text", "paragraph_title", "doc_title") and len(ocr_scores) == len(ocr_boxes):
+            scores = [float(score) for b, score in zip(ocr_boxes, ocr_scores)
+                      if coords[0] <= (float(b[0]) + float(b[2])) / 2 <= coords[2]
+                      and coords[1] <= (float(b[1]) + float(b[3])) / 2 <= coords[3]
+                      and 0 <= float(score) <= 1]
+            if scores:
+                block["Confidence"] = min(scores)
         if kind in ("image", "figure", "chart", "table", "formula", "display_formula", "inline_formula"):
             block["Image"] = png(image.crop(tuple(coords)))
         blocks.append(block)
     if not blocks:
         raise ValueError("OCR engine produced no layout blocks")
     return blocks
+
+
+def uncertain_text_layer(text, chars):
+    """Route damaged glyphs and raised/lowered small glyphs to math/layout OCR."""
+    if re.search(r"[�]|[A-Za-z0-9]\s*[-−]\s*[!！]|[∑∫√≤≥∈∞]|\^|_\{", text):
+        return True
+    for previous, char in zip(chars, chars[1:]):
+        # An adjacent smaller glyph on a shifted baseline may be a script.
+        height = float(previous.get("size", 0))
+        size = float(char.get("size", 0))
+        if (height > 0 and 0 < size < height * .85 and
+                abs(float(char.get("x0", 0)) - float(previous.get("x1", 0))) < height and
+                abs(float(char.get("top", 0)) - float(previous.get("top", 0))) > height * .15):
+            return True
+    return False
 
 
 def parse_pdf(path, start=1, limit=0):
@@ -91,14 +114,16 @@ def parse_pdf(path, start=1, limit=0):
             # Formula/complex graphical regions and scans need the layout engine.
             scanned = len(re.sub(r"\s", "", text)) < 20
             complex_page = bool(page.images or page.curves or page.lines or
-                                re.search(r"[∑∫√≤≥∈∞]|\^|_{", text) or
+                                uncertain_text_layer(text, page.chars) or
                                 any(re.search(r"math|symbol|cmsy|cmmi", c.get("fontname", ""), re.I) for c in page.chars))
             if scanned or complex_page:
-                bitmap = renderer[number - 1].render(scale=1.8)
+                bitmap = renderer[number - 1].render(scale=3.0)
                 image = bitmap.to_pil().copy()
                 bitmap.close()
                 try:
                     blocks = structure(image)
+                    if any(b.get("Confidence", 1) < .8 for b in blocks):
+                        warnings.append("本页存在低置信度OCR区域，请核对原页数字与公式。")
                     text = "\n".join(b["Text"] for b in blocks if b["Text"])
                 except Exception:
                     logging.exception("page %s layout parsing failed", number)

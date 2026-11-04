@@ -93,7 +93,7 @@ func EntityReason(name string) string {
 	if Advertising(n) {
 		return "advertising"
 	}
-	if len(r) < 2 || len(r) > 24 || garbage.MatchString(n) || strings.ContainsAny(n, "\n\r。！？?！：:=<>\\|{}") {
+	if (len(r) < 2 && !strings.Contains("栈堆树图串页段帧锁", n) || n == "") || len(r) > 24 || garbage.MatchString(n) || strings.ContainsAny(n, "\n\r。！？?！：:=<>\\|{}") {
 		return "invalid_label"
 	}
 	for _, v := range []string{"的特点是", "可分为", "主要有", "是一个", "此题", "本题", "答案", "解析", "第一趟", "第一个", "如下", "一般有", "主要由", "包括", "分为", "分成", "要建立", "可以把", "我们", "如下所示", "要注意", "计算结果", "填空", "通话质量", "文件A ", "第几", "考虑以下", "由图可知"} {
@@ -138,3 +138,28 @@ func Definition(name, description string) bool {
 var suspectFormula = regexp.MustCompile(`(?i)(?:[a-z0-9]\s*[-−]\s*[!！]|[a-z]\s*[-−]\s*[lI]\b|[�])`)
 
 func SuspectFormula(text string) bool { return suspectFormula.MatchString(text) }
+
+// TechnicalNoun admits named computing concepts, not any short fragment. This
+// is a conservative morphology gate, not an exhaustive 408 vocabulary.
+var nounClause = regexp.MustCompile(`^(?:把|将|若|如果|当|因为|所以|为了|通过|采用|使用|进行|发生|执行|获得|得到|使|让|该|其|此|本|这)`)
+
+func TechnicalNoun(name string) bool {
+	n := strings.TrimSpace(name)
+	if EntityReason(n) != "" || nounClause.MatchString(n) {
+		return false
+	}
+	if knownLatin[strings.ToLower(n)] {
+		return true
+	}
+	for _, stop := range []string{"我们", "你", "此时", "其中", "一个", "两个", "三个", "每个", "应该", "能够", "可以", "需要", "不能", "如何", "为什么", "发生", "进行", "得到", "指出", "注意", "这里", "这些", "以下", "上述", "结果为", "的可能", "的基本思想", "的局部分析"} {
+		if strings.Contains(n, stop) {
+			return false
+		}
+	}
+	for _, suffix := range []string{"表", "树", "图", "栈", "队列", "数组", "串", "集合", "指针", "堆", "散列", "哈希", "递归", "迭代", "回溯", "贪心", "动态规划", "临界区", "工作集", "碎片", "抖动", "命中率", "缺页率", "服务端", "客户端", "结点", "节点", "链", "算法", "排序", "查找", "遍历", "协议", "报文", "分组", "帧", "端口", "地址", "掩码", "网络", "层", "信道", "带宽", "时延", "吞吐量", "窗口", "连接", "控制", "传输", "重传", "确认", "校验", "校验和", "系统", "进程", "线程", "同步", "互斥", "死锁", "调度", "信号量", "管程", "内存", "存储", "存储器", "缓存", "页", "段", "页框", "页表", "置换", "分配", "回收", "分页", "分段", "文件", "目录", "磁盘", "设备", "中断", "通道", "总线", "处理器", "运算器", "控制器", "寄存器", "指令", "流水线", "周期", "编码", "补码", "原码", "反码", "数", "运算", "局部性", "管理", "机制", "模型", "结构", "函数", "表达式", "复杂度", "定理", "定律", "公式"} {
+		if strings.HasSuffix(n, suffix) {
+			return true
+		}
+	}
+	return false
+}

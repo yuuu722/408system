@@ -432,7 +432,7 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	require.Equal(t, replacement, string(call("GET", "/api/v1/documents/"+second.ID+"/file", token, nil, 200)))
 	graph, e = store.KnowledgeGraph(ctx, student.ID, managedKB.ID)
 	require.NoError(t, e)
-	require.NotEmpty(t, graph.Edges)
+	require.Empty(t, graph.Edges, "co-occurrence of a new definition and memory management does not establish a relationship")
 	call("DELETE", "/api/v1/documents/"+second.ID, editorToken, nil, 204)
 	graph, e = store.KnowledgeGraph(ctx, student.ID, managedKB.ID)
 	require.NoError(t, e)
