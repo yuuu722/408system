@@ -13,3 +13,6 @@ output/playwright/
 
 __pycache__/
 *.pyc
+
+# Machine-specific offline clone override; never publish runtime paths.
+compose.transfer.json
