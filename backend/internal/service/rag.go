@@ -100,6 +100,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		localIndex = marker.IsLocalIndex()
 	}
 	candidateLimit := min(100, max(s.TopK, s.TopK*8))
+	scopeIDs := []string{kid}
 	var chunks []domain.Chunk
 	var trace *domain.RetrievalTrace
 	if s.KAGEnabled {
@@ -132,6 +133,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			if !base.IsPublic {
 				continue
 			}
+			scopeIDs = append(scopeIDs, base.ID)
 			var extra []domain.Chunk
 			if s.KAGEnabled {
 				var t *domain.RetrievalTrace
@@ -152,6 +154,11 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			chunks = append(chunks, extra...)
 		}
 	}
+	intentScopes := scopeIDs
+	if !chosen.IsPublic && len(scopeIDs) > 1 {
+		intentScopes = append(append([]string{}, scopeIDs[1:]...), scopeIDs[0])
+	}
+	chunks = append(chunks, s.intentEvidence(ctx, uid, intentScopes, evidenceQuestion)...)
 	if trace != nil {
 		trace.Paths = focusedPaths(evidenceQuestion, trace.Paths)
 	}
@@ -319,9 +326,19 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 
 	catalog := buildAnswerFacts(question, sourceContents, citations, dependencies)
 	modelEvidence := catalog.JSON()
+	generation := &domain.GenerationTrace{Facts: len(catalog.Facts), Stage: "retrieval", FailureCode: "no_usable_evidence"}
 	modelFailure := ""
 	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
-	if len(citations) > 0 {
+	canGenerate := len(citations) > 0
+	if _, model := s.LLM.(jsonAnswerer); model && len(catalog.Facts) == 0 && canGenerate {
+		canGenerate = false
+		generation.FailureCode = "no_complete_facts"
+		answer = "检索到相关片段，但缺少可引用的完整讲解句，暂时无法整理回答。请查看下方原页。"
+	}
+	if canGenerate {
+		generation.Attempted = true
+		generation.Stage = "generation"
+		generation.Attempts++
 		if emit != nil {
 			if e := emit("status", map[string]string{"stage": "generating"}); e != nil {
 				return domain.ChatResult{}, e
@@ -339,10 +356,13 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		var incomplete *PublicError
 		if errors.As(err, &incomplete) && incomplete.Code == "answer_incomplete" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
+				generation.Attempts++
 				answer, err = model.AnswerJSON(ctx, question+factCompositionInstruction+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", modelEvidence)
 			}
 		}
+		generation.ProviderReturned = err == nil
 		if err != nil {
+			generation.FailureCode = "provider_error"
 			if ctx.Err() != nil {
 				return domain.ChatResult{}, ctx.Err()
 			}
@@ -369,9 +389,20 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		} else {
 			text, sources, verified = s.composedAnswer(ctx, answer, question, sourceContents, citations, dependencies)
 		}
-		if !verified && modelFailure == "" {
+		if !verified && modelFailure == "" && rejectReason != "invalid_review_format" && rejectReason != "support_review_unavailable" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
-				repaired, e := model.AnswerJSON(ctx, question+factCompositionInstruction+"\n上次输出未通过核验（"+rejectReason+"）。必须填写有效facts编号，保留条件，用更短的完整句子重新整理。", modelEvidence)
+				generation.Attempts++
+				repaired, e := model.AnswerJSON(ctx, question+factCompositionInstruction+"\n上次输出未通过核验（"+rejectReason+"）。"+repairAnswerGuidance(rejectReason, question), modelEvidence)
+				if e != nil {
+					generation.Stage = "generation"
+					generation.FailureCode = "repair_request_failed"
+					var public *PublicError
+					if errors.As(e, &public) {
+						modelFailure = public.Message
+					} else {
+						modelFailure = "整理重试请求失败"
+					}
+				}
 				if e == nil {
 					text, sources, verified, rejectReason = s.factComposedAnswer(ctx, repaired, question, catalog, sourceContents, citations, dependencies)
 				}
@@ -382,6 +413,14 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 		if !verified && modelFailure == "" {
 			s.warn("answer grounding rejected", "reason", rejectReason)
+		}
+		generation.Verified = verified
+		if verified {
+			generation.Stage = "complete"
+			generation.FailureCode = ""
+		} else if generation.ProviderReturned && modelFailure == "" {
+			generation.Stage = "verification"
+			generation.FailureCode = rejectReason
 		}
 		if verified {
 			answer, citations = text, sources
@@ -417,7 +456,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			}
 		}
 	}
-	if len(citations) == 0 && emit != nil {
+	if !canGenerate && emit != nil {
 		if e := emit("delta", map[string]string{"text": answer}); e != nil {
 			return domain.ChatResult{}, e
 		}
@@ -459,7 +498,10 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			s.warn("related question lookup failed", "error", relatedErr)
 		}
 	}
-	return domain.ChatResult{RelatedQuestions: related, Reasoning: trace, Answer: answer, ConversationID: cid, Sources: citations, KnowledgePoints: points}, nil
+	if !generation.Verified {
+		generation.Notice = generationFailureLabel(generation.FailureCode)
+	}
+	return domain.ChatResult{Generation: generation, RelatedQuestions: related, Reasoning: trace, Answer: answer, ConversationID: cid, Sources: citations, KnowledgePoints: points}, nil
 }
 
 func (s RAGService) figureEvidence(ctx context.Context, uid, question string, citations []domain.Citation) ([]string, string, error) {

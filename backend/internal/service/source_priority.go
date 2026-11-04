@@ -30,6 +30,9 @@ func sourcePriority(c domain.Chunk) int {
 
 func questionFocusScore(question string, c domain.Chunk) float64 {
 	score := c.Score
+	if virtualMemoryWhy(question) && virtualMemoryMotivation(c.Content) {
+		score += 1.2
+	}
 	if tcpReliabilityQuestion(question) && tcpMechanismCoverage(c.Content) {
 		score += 1
 	}

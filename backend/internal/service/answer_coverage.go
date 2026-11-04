@@ -11,10 +11,10 @@ func whyQuestion(q string) bool {
 	return strings.Contains(q, "为什么") || strings.Contains(q, "原因") || strings.Contains(q, "必要")
 }
 func answerAspects(text string) (problem, mechanism bool) {
-	for _, s := range []string{"不足", "无法", "一次性", "驻留性", "限制", "浪费"} {
+	for _, s := range []string{"不足", "无法", "一次性", "驻留性", "限制", "浪费", "有限", "约束", "装不下", "容纳不了", "全部装入", "长期占用"} {
 		problem = problem || strings.Contains(text, s)
 	}
-	for _, s := range []string{"局部性", "按需", "当前需要", "分次", "分多次", "通过", "从而", "允许"} {
+	for _, s := range []string{"局部性", "按需", "当前需要", "分次", "分多次", "通过", "从而", "允许", "只将", "仅将", "需要的部分", "不必全部", "无需全部", "分批"} {
 		mechanism = mechanism || strings.Contains(text, s)
 	}
 	return
@@ -23,6 +23,7 @@ func adequateCoverage(q, answer string, contents []string) bool {
 	if tcpReliabilityQuestion(q) && !tcpMechanismCoverage(answer) {
 		return false
 	}
+
 	if !whyQuestion(q) {
 		return true
 	}

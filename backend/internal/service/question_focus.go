@@ -106,14 +106,25 @@ func focusedPaths(q string, paths []domain.KnowledgePath) []domain.KnowledgePath
 	out := []domain.KnowledgePath{}
 	seen := map[string]bool{}
 	for _, p := range paths {
-		found := len(focus) == 0
+		vm := virtualMemoryWhy(q)
+		found := len(focus) == 0 && !vm
 		invalid := false
 		ids := []string{}
 		kinds := []string{}
 		for _, n := range p.Nodes {
 			found = found || sharesProtocol(focus, n.Name)
+			if vm {
+				found = found || strings.Contains(n.Name, "虚拟内存") || strings.Contains(n.Name, "虚拟存储")
+			}
 			invalid = invalid || len(focus) > 0 && competingProtocol(focus, n.Name)
-			ids = append(ids, n.ID)
+			key := n.KnowledgePointID
+			if key == "" {
+				key = strings.ToLower(strings.Join(strings.Fields(n.Name), ""))
+			}
+			if key == "" {
+				key = n.ID
+			}
+			ids = append(ids, key)
 		}
 		if !found || invalid {
 			continue

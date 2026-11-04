@@ -68,9 +68,16 @@ type Citation struct {
 	DocumentID, DocumentTitle, ChunkID, Location, Excerpt string
 	Score                                                 float64
 }
+type GenerationTrace struct {
+	Notice                                string
+	Attempted, ProviderReturned, Verified bool
+	Attempts, Facts                       int
+	Stage, FailureCode                    string
+}
 type ChatResult struct {
-	RelatedQuestions       []Asset         `json:",omitempty"`
-	Reasoning              *RetrievalTrace `json:",omitempty"`
+	Generation             *GenerationTrace `json:",omitempty"`
+	RelatedQuestions       []Asset          `json:",omitempty"`
+	Reasoning              *RetrievalTrace  `json:",omitempty"`
 	Answer, ConversationID string
 	Sources                []Citation
 	KnowledgePoints        []KnowledgePoint

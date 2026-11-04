@@ -126,8 +126,11 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	if json.Unmarshal([]byte(modelJSONObject(raw)), &data) != nil {
 		return "", nil, false, "invalid_json"
 	}
-	if len(data.Claims) == 0 || len(data.Claims) > 3 {
-		return "", nil, false, "empty_or_excess_claims"
+	if len(data.Claims) == 0 {
+		return "", nil, false, "model_abstained"
+	}
+	if len(data.Claims) > 3 {
+		return "", nil, false, "excess_claims"
 	}
 	claims := []groundedClaim{}
 	reviewClaims := []map[string]any{}
@@ -135,8 +138,8 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	for _, claim := range data.Claims {
 		// Strict compatibility for older providers; the old quote verifier remains.
 		if len(claim.Facts) == 0 && len(claim.Evidence) > 0 {
-			text, sources, ok := s.composedAnswer(ctx, raw, question, contents, citations, deps)
-			return text, sources, ok, "legacy_quote_rejected"
+			text, sources, ok, why := s.composedAnswerDetail(ctx, raw, question, contents, citations, deps)
+			return text, sources, ok, why
 		}
 		if len(claim.Facts) == 0 || len(claim.Facts) > 8 {
 			return "", nil, false, "missing_fact_ids"
@@ -186,9 +189,9 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	reviewData["question"] = question
 	reviewData["claims"] = reviewClaims
 	reviewPayload, _ := json.Marshal(reviewData)
-	text, sources, ok := s.composedAnswer(ctx, string(expanded), question, contents, citations, deps, string(reviewPayload))
+	text, sources, ok, why := s.composedAnswerDetail(ctx, string(expanded), question, contents, citations, deps, string(reviewPayload))
 	if !ok {
-		return "", nil, false, "support_or_completeness_rejected"
+		return "", nil, false, why
 	}
 	return text, sources, true, ""
 }

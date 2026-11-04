@@ -13,6 +13,9 @@ var subquestionSeparator = regexp.MustCompile(`以及|并且|分别|[；;\n]`)
 
 func planKnowledgeQuestion(question string, names []string) []string {
 	out := []string{question}
+	if virtualMemoryWhy(question) {
+		out = append(out, "虚拟内存 传统存储管理 一次性 驻留性 局部性")
+	}
 	if tcpReliabilityQuestion(question) {
 		out = append(out, "TCP 序号 确认 重传 超时重传 累计确认")
 	}
@@ -61,11 +64,11 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 		s.warn("graph retrieval unavailable", "error", e, "knowledge_base_id", kid)
 	}
 	graph.Paths = focusedPaths(question, graph.Paths)
-	if len(protocolFocus(question)) > 0 {
+	if len(protocolFocus(question)) > 0 || virtualMemoryWhy(question) {
 		graph.Terms = nil
 		for _, path := range graph.Paths {
 			for _, node := range path.Nodes {
-				if sharesProtocol(protocolFocus(question), node.Name) {
+				if sharesProtocol(protocolFocus(question), node.Name) || virtualMemoryWhy(question) && (strings.Contains(node.Name, "虚拟内存") || strings.Contains(node.Name, "虚拟存储")) {
 					graph.Terms = append(graph.Terms, node.Name)
 				}
 			}
