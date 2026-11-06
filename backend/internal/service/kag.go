@@ -13,6 +13,9 @@ var subquestionSeparator = regexp.MustCompile(`以及|并且|分别|[；;\n]`)
 
 func planKnowledgeQuestion(question string, names []string) []string {
 	out := []string{question}
+	if protocolWhy(question) {
+		out = append(out, strings.Join(protocolFocus(question), " ")+" 用途 功能 目的 提供 支持 解决")
+	}
 	if virtualMemoryWhy(question) {
 		out = append(out, "虚拟内存 传统存储管理 一次性 驻留性 局部性")
 	}

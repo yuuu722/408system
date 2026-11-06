@@ -38,7 +38,7 @@ try {
     docker compose up -d --build
     if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check the service logs.' }
     docker compose ps
-    $expected = '2026.11.04.3'
+    $expected = '2026.11.06.1'
     $verified = $false
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         try {

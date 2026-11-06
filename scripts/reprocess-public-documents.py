@@ -60,8 +60,9 @@ def main():
         raise ValueError('必须使用公共库管理员账号')
     api.token = login['token']
     cap = api.request('GET', '/system/capabilities')
-    if cap.get('release') != '2026.11.04.3':
-        raise ValueError('服务端尚未部署2026.11.04.3，先运行start-kag.ps1重建服务')
+    compatible = {'2026.11.04.3', '2026.11.06.1'}
+    if cap.get('release') not in compatible:
+        raise ValueError('服务端不是本工具支持的解析版本，请先拉取源码并运行start-kag.ps1')
     bases = [b for b in api.request('GET', '/knowledge-bases') or [] if b.get('IsPublic') and
              (b['ID'] == args.kb_id if args.kb_id else b['Name'] == '408 系统公共知识库')]
     if len(bases) != 1:
@@ -81,7 +82,7 @@ def main():
         return
     path = Path(args.report)
     report = json.loads(path.read_text(encoding='utf-8')) if path.exists() else {'KnowledgeBaseID': kb, 'Release': cap['release'], 'Completed': []}
-    if report.get('KnowledgeBaseID') != kb or report.get('Release') != cap['release']:
+    if report.get('KnowledgeBaseID') != kb or report.get('Release') not in compatible:
         raise ValueError('报告属于其他库或解析版本，请用--report指定新报告')
     path.parent.mkdir(parents=True, exist_ok=True)
     def save(value):

@@ -17,6 +17,13 @@ func textbookIntentTerms(q string) ([]string, []string) {
 	if tcpReliabilityQuestion(q) {
 		return []string{"tcp"}, []string{"序号", "确认", "超时重传", "累计确认", "重传", "校验和"}
 	}
+	if protocolWhy(q) {
+		needs := []string{"用于", "用来", "目的", "功能", "提供", "支持", "解决", "要求", "建立", "配置", "协商"}
+		if sharesProtocol([]string{"PPP"}, q) {
+			needs = append(needs, "点到点", "点对点", "LCP", "NCP")
+		}
+		return protocolFocus(q), needs
+	}
 	return nil, nil
 }
 func (s RAGService) intentEvidence(ctx context.Context, uid string, kids []string, q string) []domain.Chunk {
@@ -86,6 +93,8 @@ func generationFailureLabel(code string) string {
 		return "引用原句未能与来源匹配"
 	case "missing_premise":
 		return "整理结果缺少必要前提"
+	case "missing_protocol_purpose":
+		return "整理结果没有解释协议用途，只提供了格式、字段或长度等信息"
 	case "insufficient_coverage":
 		return "整理结果遗漏了问题要求的关键方面"
 	case "support_review_unavailable":
@@ -103,7 +112,10 @@ func generationFailureLabel(code string) string {
 
 func repairAnswerGuidance(code, q string) string {
 	switch code {
-	case "insufficient_coverage":
+	case "insufficient_coverage", "missing_protocol_purpose":
+		if protocolWhy(q) {
+			return "解释所问协议的用途、功能或解决的问题，只用本轮事实。帧字段、MTU数值不是必须重复的原因；证据只有格式时明确说明用途依据不足，不编造内容。"
+		}
 		if virtualMemoryWhy(q) {
 			return "必须先解释事实中传统管理的一次性、驻留性或容量限制导致的困难，再说明局部性和按需装入如何缓解；不能只讲换页步骤。只写事实支持的内容。"
 		}

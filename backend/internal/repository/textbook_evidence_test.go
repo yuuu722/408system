@@ -67,4 +67,16 @@ func TestLiteralTextbookRecallFindsCauseAndRespectsScopeAndPurpose(t *testing.T)
 	}
 	_, e = p.SearchTextbookEvidence(ctx, a.ID, kb.ID, []string{"虚拟内存"}, []string{"一次性"}, 12)
 	require.Error(t, e)
+	t.Run("PPP purpose recall does not substitute MTU fields or another user's data", func(t *testing.T) {
+		purpose := "PPP用于点到点链路，支持多种网络层协议，并提供建立和配置链路的功能。"
+		book := add(a.ID, ka.ID, "textbook", "knowledge", purpose)
+		add(a.ID, ka.ID, "textbook", "knowledge", "PPP帧首部包含四个字段，信息部分长度受MTU限制。")
+		add(a.ID, ka.ID, "outline", "knowledge", purpose)
+		add(b.ID, kb.ID, "textbook", "knowledge", purpose)
+		rows, err := p.SearchTextbookEvidence(ctx, a.ID, ka.ID, []string{"PPP"}, []string{"用于", "提供", "支持", "功能"}, 12)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, book.ID, rows[0].DocumentID)
+	})
+
 }

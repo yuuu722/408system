@@ -24,7 +24,10 @@ func adequateCoverage(q, answer string, contents []string) bool {
 		return false
 	}
 
-	if !whyQuestion(q) {
+	if protocolWhy(q) {
+		return protocolPurpose(answer)
+	}
+	if !virtualMemoryWhy(q) {
 		return true
 	}
 	p, m := answerAspects(strings.Join(contents, "\n"))
@@ -33,7 +36,7 @@ func adequateCoverage(q, answer string, contents []string) bool {
 }
 
 func balanceWhyEvidence(q string, chunks []domain.Chunk, minScore float64) []domain.Chunk {
-	if !whyQuestion(q) || len(chunks) < 2 {
+	if !virtualMemoryWhy(q) || len(chunks) < 2 {
 		return chunks
 	}
 	p, m := answerAspects(chunks[0].Content)
@@ -53,4 +56,25 @@ func balanceWhyEvidence(q string, chunks []domain.Chunk, minScore float64) []dom
 		}
 	}
 	return chunks
+}
+
+// Purpose coverage is an intent hint, not a source-support proof. Semantic
+// review and exact quote/condition checks still run after this check.
+func protocolWhy(q string) bool { return whyQuestion(q) && len(protocolFocus(q)) > 0 }
+func protocolPurpose(text string) bool {
+	for _, sentence := range completeSourceSentences(text) {
+		purpose := false
+		for _, word := range []string{"用于", "用来", "目的", "解决", "提供", "支持", "适用", "满足", "便于", "作用", "功能", "为此", "封装", "协商", "身份认证"} {
+			purpose = purpose || strings.Contains(sentence, word)
+		}
+		// Format facts and MTU limits alone do not explain why the protocol is used.
+		detail := false
+		for _, word := range []string{"首部", "尾部", "字段", "帧格式", "帧的格式", "MTU", "最大传送单元"} {
+			detail = detail || strings.Contains(sentence, word)
+		}
+		if purpose && !detail {
+			return true
+		}
+	}
+	return false
 }

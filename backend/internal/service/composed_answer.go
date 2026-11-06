@@ -106,6 +106,9 @@ func (s RAGService) composedAnswerDetail(ctx context.Context, raw, question stri
 	}
 	if !adequateCoverage(question, strings.Join(paragraphs, "\n"), contents) {
 		s.warn("answer validation failed", "reason", "insufficient_coverage")
+		if protocolWhy(question) {
+			return "", nil, false, "missing_protocol_purpose"
+		}
 		return "", nil, false, "insufficient_coverage"
 	}
 	scopeLabels := make([]string, len(citations))

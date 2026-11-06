@@ -91,6 +91,9 @@ func focusedProtocolEvidence(q, content string, scope ...string) string {
 					continuation = continuation || strings.Contains(sentence, word)
 				}
 			}
+			if scoped && protocolWhy(q) && protocolPurpose(sentence) {
+				continuation = true
+			}
 			if anchored || active && continuation {
 				out = append(out, sentence)
 				active = true

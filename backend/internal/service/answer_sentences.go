@@ -126,7 +126,10 @@ func sentenceCandidates(question string, contents []string, scopes ...[]domain.C
 			if question == "" {
 				score = .2
 			}
-			if why {
+			if protocolWhy(question) && protocolPurpose(text) {
+				score += 1.8
+			}
+			if virtualMemoryWhy(question) {
 				for _, term := range []string{"不足", "无法运行", "不能运行", "不能全部", "局部性", "暂时不用", "并发度", "占据", "一次性", "驻留性", "全部装入", "物理内存", "长期占用", "浪费"} {
 					if strings.Contains(text, term) {
 						score += .8

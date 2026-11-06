@@ -43,7 +43,7 @@ type Server struct {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		write(w, 200, map[string]string{"status": "ok", "release": "2026.11.04.3"})
+		write(w, 200, map[string]string{"status": "ok", "release": "2026.11.06.1"})
 	})
 	mux.HandleFunc("POST /api/v1/admin/bootstrap", s.bootstrapAdmin)
 	mux.HandleFunc("POST /api/v1/auth/register", s.register)

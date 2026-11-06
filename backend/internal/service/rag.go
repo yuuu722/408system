@@ -441,6 +441,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 					citations = originalSources
 				} else {
 					answer = "本次未能生成通过教材依据与完整性核验的整理回答。检索到的原文来源保留在下方；需补充完整教材上下文后再回答。"
+					if protocolWhy(question) {
+						answer = "当前检索片段不足以解释所问协议的用途或引入原因。需要补充教材中关于该协议功能、应用场景或解决问题的原文；不会用帧字段、长度限制代替原因。"
+					}
 					if tcpReliabilityQuestion(question) {
 						answer = "当前检索片段不足以完整解释TCP的可靠传输机制。需要教材中关于TCP序号、确认和重传机制的完整讲解；不会用HDLC或无线链路的资料替代。"
 					}

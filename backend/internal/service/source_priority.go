@@ -30,13 +30,16 @@ func sourcePriority(c domain.Chunk) int {
 
 func questionFocusScore(question string, c domain.Chunk) float64 {
 	score := c.Score
+	if protocolWhy(question) && protocolPurpose(c.Content) {
+		score += 1.2
+	}
 	if virtualMemoryWhy(question) && virtualMemoryMotivation(c.Content) {
 		score += 1.2
 	}
 	if tcpReliabilityQuestion(question) && tcpMechanismCoverage(c.Content) {
 		score += 1
 	}
-	if strings.Contains(question, "为什么") || strings.Contains(question, "原因") {
+	if virtualMemoryWhy(question) {
 		for _, term := range []string{"不足", "无法运行", "不能全部", "局部性", "暂时不用", "驻留性", "并发度"} {
 			if strings.Contains(c.Content, term) {
 				score += .15
