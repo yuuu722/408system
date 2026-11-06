@@ -95,7 +95,7 @@ func (p *Postgres) RefreshQuestionCandidates(ctx context.Context, actor string, 
 	if status != "ready" || rid != d.ActiveRevisionID {
 		return &domain.RequestError{Status: 409, Message: "资料版本已变化或正在处理，请刷新后再整理"}
 	}
-	if e = saveDocumentStructureTx(ctx, tx, d.UserID, d.ID, parsed, assets); e != nil {
+	if e = saveDocumentStructureTx(ctx, tx, d.UserID, d.ID, parsed, assets, true); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)

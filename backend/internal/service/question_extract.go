@@ -7,10 +7,14 @@ import (
 	"strings"
 )
 
-var questionHead = regexp.MustCompile(`^\s*[（(]?(\d{1,4})[.．、)）]\s*(.+)$`)
-var optionMark = regexp.MustCompile(`(?:^|\s)([A-F])[.．、)）:：]\s*`)
-var inlineAnswer = regexp.MustCompile(`(?:参考答案|正确答案|答案)\s*[:：]?\s*([A-F])(?:\s|$|[.。，；;])`)
+var questionHead = regexp.MustCompile(`^\s*[（(]?\s*(\d{1,4})\s*[.．、)）]\s*(.*)$`)
+var optionMark = regexp.MustCompile(`(?m)(?:^|\s)([A-F])(?:[.．、)）:：]\s*|[ \t]+|[ \t]*$)`)
+var multipleInlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*[A-F](?:[、,，和及与 \t]*[A-F])+(?:\s|$|[.。，；;【)）])`)
+var multipleNumberedAnswer = regexp.MustCompile(`(?:^|\s)([0-9０-９]{1,4})\s*[.．、):：]\s*[A-FＡ-Ｆ](?:[、,，和及与 \t]*[A-FＡ-Ｆ])+(?:\s|$|[.。，；;【)）])`)
+var inlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*([A-F])(?:\s|$|[.。，；;【)）])`)
 var questionSection = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+[章节]|[0-9]+\.[0-9]+(?:\.[0-9]+)?)`)
+
+var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+[、.． ]*)?(?:参考)?答案(?:[与及和]?解析)?[:：]?$`)
 
 var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F])(?:\s|$|[，,；;])`)
 
@@ -35,15 +39,22 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			current = nil
 		}
 	}
-	attachPage := func(page TextPage) {
+	attachPage := func(page TextPage, from, to int) {
 		if current == nil {
 			return
 		}
-		if hasQuestionExtractionWarning(page.Warnings) {
+		if questionSpanWarning(page, from, to) {
 			current.issue = "页面存在解析异常，请查看原文（Incomplete extraction）"
 		}
 		for _, b := range page.Blocks {
 			if b.Image == "" {
+				continue
+			}
+			if b.End > b.Start {
+				if b.Start >= to || b.End <= from {
+					continue
+				}
+			} else if b.Start < from || b.Start > to {
 				continue
 			}
 			exists := false
@@ -59,13 +70,16 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		}
 	}
 	for _, page := range pages {
+		lineOffset := 0
 		// A continuation may contain only a figure or a failed OCR region.
 		if strings.TrimSpace(page.Text) == "" && !answerMode {
-			attachPage(page)
+			attachPage(page, 0, len([]rune(page.Text)))
 		}
 		for _, line := range strings.Split(page.Text, "\n") {
-			line = strings.TrimSpace(line)
-			line = strings.NewReplacer("Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(line)
+			from, to := lineOffset, lineOffset+len([]rune(line))
+			lineOffset = to + 1
+			line = strings.ReplaceAll(strings.TrimSpace(line), "　", " ")
+			line = strings.NewReplacer("０", "0", "１", "1", "２", "2", "３", "3", "４", "4", "５", "5", "６", "6", "７", "7", "８", "8", "９", "9", "Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(line)
 			if line == "" {
 				continue
 			}
@@ -76,7 +90,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 				continue
 			}
 
-			if line == "参考答案" || line == "答案与解析" || line == "答案" {
+			if answerHeading.MatchString(line) {
 				flush()
 				answerMode = true
 				continue
@@ -84,6 +98,12 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			if answerMode {
 				// A partial/failed answer page must not become a source of automatic grades.
 				if hasQuestionExtractionWarning(page.Warnings) {
+					continue
+				}
+				if multi := multipleNumberedAnswer.FindAllStringSubmatch(line, -1); len(multi) > 0 {
+					for _, m := range multi {
+						answers[key(section, canonicalAnswerNumber(m[1]))] = append(answers[key(section, canonicalAnswerNumber(m[1]))], -1, -1)
+					}
 					continue
 				}
 				for _, m := range answerEntry.FindAllStringSubmatch(line, -1) {
@@ -98,7 +118,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			} else if current != nil {
 				current.body += "\n" + line
 			}
-			attachPage(page)
+			attachPage(page, from, to)
 		}
 	}
 	flush()
@@ -116,10 +136,12 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		}
 		a := domain.Asset{Kind: "question", Title: fmt.Sprintf("%s · 第%s题", d.OriginalFilename, c.number), Payload: domain.AssetPayload{QuestionNumber: c.number, SectionKey: c.section, Answer: -1, AnswerOrigin: "ai_pending", Difficulty: 1, DocumentID: d.ID, Page: c.page, Source: fmt.Sprintf("%s，第%d页，第%s题", d.OriginalFilename, c.page, c.number), Images: c.images, Issue: c.issue, QuestionOrigin: "extracted"}}
 		body := c.body
-		if m := inlineAnswer.FindStringSubmatchIndex(body); m != nil {
+		if multipleInlineAnswer.MatchString(body) {
+			a.Payload.Issue = "原文含多个答案，当前仅支持单选计分"
+		} else if m := inlineAnswer.FindStringSubmatchIndex(body); m != nil {
 			a.Payload.Answer = int(body[m[2]] - 'A')
 			a.Payload.AnswerOrigin = "source"
-			a.Payload.Explanation = strings.TrimSpace(body[m[1]:])
+			a.Payload.Explanation = strings.TrimSpace(body[m[3]:])
 			body = body[:m[0]]
 			marks = optionMark.FindAllStringSubmatchIndex(body, -1)
 		} else if numberCount[key(c.section, c.number)] == 1 && len(answers[key(c.section, c.number)]) == 1 {
@@ -191,3 +213,31 @@ func hasQuestionExtractionWarning(warnings []string) bool {
 
 // CanUseQuestionPage permits pagination notices, never lost-content warnings.
 func CanUseQuestionPage(page TextPage) bool { return !hasQuestionExtractionWarning(page.Warnings) }
+
+// Recognition warnings with block coordinates apply only to overlapping
+// question lines. Unknown/structural page failures still block the whole page.
+func questionSpanWarning(page TextPage, from, to int) bool {
+	located := false
+	for _, b := range page.Blocks {
+		if b.Confidence != nil && b.End > b.Start {
+			located = true
+			break
+		}
+	}
+	warnings := []string{}
+	for _, w := range page.Warnings {
+		if located && strings.HasPrefix(w, "第") && strings.Contains(w, "行OCR置信度较低") {
+			continue
+		}
+		warnings = append(warnings, w)
+	}
+	if hasQuestionExtractionWarning(warnings) {
+		return true
+	}
+	for _, b := range page.Blocks {
+		if b.Confidence != nil && *b.Confidence < .8 && b.Start < to && b.End > from {
+			return true
+		}
+	}
+	return false
+}

@@ -427,4 +427,52 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		}
 	})
 
+	t.Run("split layout extracted review then publish makes a student practice", func(t *testing.T) {
+		doc, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, OriginalFilename: "分行选择题.txt", Filename: "split.txt", MimeType: "text/plain", StoragePath: "synthetic", ResourceType: "exercise", Status: "ready"})
+		require.NoError(t, err)
+		c := domain.DocumentCatalog{DocumentID: doc.ID, ResourceType: "exercise", SubjectCode: "os", Purpose: "questions", ReviewState: "confirmed"}
+		require.NoError(t, store.SaveCatalog(ctx, editor.ID, c))
+		parsed := domain.ParsedDocument{Pages: []domain.StructuredPage{{Number: 1, Text: "（１）\n虚拟内存的特点是什么？\nＡ\n按需装入\nＢ\n全部常驻\nＣ\n不使用外存\nＤ\n不支持调入\n答案：A\n解析：虚拟内存允许按需装入。"}}}
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, doc.ID, parsed, nil))
+		var organized struct {
+			Candidates int `json:"candidates"`
+		}
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/documents/"+doc.ID+"/organize", token, nil, 200), &organized))
+		require.Equal(t, 1, organized.Candidates)
+		candidates, err := store.DocumentQuestionAssets(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		require.Len(t, candidates, 1)
+		candidate := candidates[0]
+		require.Equal(t, "pending", candidate.Payload.ReviewStatus)
+		require.NotEqual(t, "ready", candidate.Status)
+		require.Equal(t, 0, candidate.Payload.Answer)
+		require.Empty(t, candidate.Payload.Issue)
+		var visible []domain.Asset
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/assets", stoken, nil, 200), &visible))
+		for _, a := range visible {
+			require.NotEqual(t, candidate.ID, a.ID)
+		}
+		candidate.Title = "人工核对的分行选择题"
+		require.NoError(t, json.Unmarshal(call("PUT", "/api/v1/exam408/assets/"+candidate.ID, token, candidate, 200), &candidate))
+		require.NoError(t, store.RefreshQuestionCandidates(ctx, editor.ID, doc, parsed, nil))
+		reviewed, err := store.Asset(ctx, editor.ID, candidate.ID)
+		require.NoError(t, err)
+		require.Equal(t, "人工核对的分行选择题", reviewed.Title)
+		candidate = reviewed
+		candidate.Payload.ReviewStatus = "published"
+		require.NoError(t, json.Unmarshal(call("PUT", "/api/v1/exam408/assets/"+candidate.ID, token, candidate, 200), &candidate))
+		require.Equal(t, "ready", candidate.Status)
+		var exam domain.Assessment
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments", stoken, map[string]string{"Kind": "practice", "AssetID": candidate.ID}, 200), &exam))
+		require.Len(t, exam.Questions, 1)
+		var result domain.AssessmentResult
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments/"+exam.ID+"/submit", stoken, map[string]any{"Answers": map[string]int{candidate.ID: 0}}, 200), &result))
+		require.Equal(t, 1, result.Counted)
+		require.Equal(t, 1, result.Correct)
+		require.NoError(t, store.RefreshQuestionCandidates(ctx, editor.ID, doc, parsed, nil))
+		retained, err := store.Asset(ctx, editor.ID, candidate.ID)
+		require.NoError(t, err)
+		require.Equal(t, "ready", retained.Status, "organize with zero extraction must not delete reviewed published questions")
+	})
+
 }

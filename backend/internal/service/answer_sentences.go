@@ -74,7 +74,7 @@ func completeSourceSentences(content string) []string {
 	out := []string{}
 	add := func(text string) {
 		text = sourceWhitespace(text)
-		if sourcequality.SuspectFormula(text) || len([]rune(text)) < 8 || len([]rune(text)) > 450 || !completeAnswerText(text) || danglingSentence(text) || strings.ContainsAny(text, "?？") {
+		if unsafeAttribution(text) || sourcequality.SuspectFormula(text) || len([]rune(text)) < 8 || len([]rune(text)) > 450 || !completeAnswerText(text) || danglingSentence(text) || strings.ContainsAny(text, "?？") {
 			return
 		}
 		out = append(out, text)

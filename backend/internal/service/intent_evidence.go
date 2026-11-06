@@ -74,6 +74,12 @@ func virtualMemoryMotivation(text string) bool {
 
 func generationFailureLabel(code string) string {
 	switch code {
+	case "virtual_memory_definition":
+		return "多次性、一次性或驻留性的定义发生反转"
+	case "subject_mismatch":
+		return "概念特征被错误地归给了其他对象"
+	case "suspect_formula":
+		return "回答存在疑似错误的数字或公式符号"
 	case "ambiguous_comparison":
 		return "比较对象不明确，需先补充双方名称"
 	case "invalid_comparison_structure", "incomplete_comparison":
@@ -121,6 +127,12 @@ func generationFailureLabel(code string) string {
 
 func repairAnswerGuidance(code, q string) string {
 	switch code {
+	case "virtual_memory_definition":
+		return "核对本轮事实的肯定否定和特征名称，不得把多次性解释成必须一次性全部装入，不得把驻留性与对换性混同。只改写原文支持的内容。"
+	case "subject_mismatch":
+		return "恢复事实中的原始主语和属性归属，不把存储管理方式的性质写成程序的性质。"
+	case "suspect_formula":
+		return "删除本轮事实无法核实的乱码数字或公式，不要猜改符号或变量。"
 	case "invalid_comparison_structure", "incomplete_comparison", "comparison_side_unsupported":
 		return "严格返回comparisons数组；每项给出dimension、left、right、left_facts、right_facts，分别说明双方具体情况并引用支持各自结论的事实。没有双方证据的维度不写。"
 	case "insufficient_coverage", "missing_protocol_purpose":

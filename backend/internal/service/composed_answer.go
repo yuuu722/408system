@@ -51,8 +51,8 @@ func (s RAGService) composedAnswerDetail(ctx context.Context, raw, question stri
 	total := 0
 	for _, claim := range data.Claims {
 		text := strings.TrimSpace(claim.Text)
-		if unsafeAttribution(text) {
-			return "", nil, false, "unsupported_claim"
+		if issue := attributionIssue(text); issue != "" {
+			return "", nil, false, issue
 		}
 		total += utf8.RuneCountInString(text)
 		if !completeAnswerText(text) || total > 1200 || len(claim.Evidence) == 0 || len(claim.Evidence) > 20 || (claim.Kind != "explanation" && claim.Kind != "derivation") {

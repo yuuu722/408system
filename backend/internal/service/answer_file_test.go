@@ -45,3 +45,14 @@ func TestQuestionOptionsAreNotAWorkedAnswer(t *testing.T) {
 	require.Len(t, entries, 1)
 	require.True(t, entries[0].Blocked)
 }
+
+func TestAnswerFileFullWidthNumbersAndWhitespaceKeepOriginalQuote(t *testing.T) {
+	pages := []TextPage{{Number: 8, Text: "参考答案\n１ Ａ\n２ Ｂ"}}
+	answers := ParseAnswerFile(pages)
+	require.Len(t, answers, 2)
+	require.Equal(t, "1", answers[0].Number)
+	require.Equal(t, 0, answers[0].Answer)
+	require.Equal(t, "１ Ａ", answers[0].Quote)
+	require.Equal(t, "2", answers[1].Number)
+	require.Equal(t, 1, answers[1].Answer)
+}
