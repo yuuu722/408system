@@ -48,6 +48,10 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 		s.reply(w, v, e)
 	})
 	register("POST /api/v1/exam408/assistant/stream", s.chatStream)
+	register("GET /api/v1/exam408/study-summary", func(w http.ResponseWriter, r *http.Request) {
+		v, e := s.Platform.StudySummary(r.Context(), uid(r))
+		s.reply(w, v, e)
+	})
 	register("GET /api/v1/exam408/profile", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.Profile(r.Context(), uid(r))
 		s.reply(w, v, e)
@@ -57,6 +61,8 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 		if !s.input(w, r, &in) {
 			return
 		}
+		in.DisplayName = strings.TrimSpace(in.DisplayName)
+		in.Bio = strings.TrimSpace(in.Bio)
 		if e := service.ValidateProfile(in); e != nil {
 			write(w, 400, map[string]string{"error": e.Error()})
 			return

@@ -46,6 +46,13 @@ func lexicalEvidenceScore(question, evidence string) float64 {
 		return 0
 	}
 	score := float64(matched) / float64(len(tokens))
+	if spec := comparisonTargets(question); spec != nil {
+		if mentions(evidence, spec.Left) && mentions(evidence, spec.Right) {
+			score = max(score, .9)
+		} else if mentions(evidence, spec.Left) || mentions(evidence, spec.Right) {
+			score = max(score, .55)
+		}
+	}
 	if tcpReliabilityQuestion(question) && sharesProtocol([]string{"TCP"}, evidence) {
 		if tcpMechanismCoverage(evidence) {
 			score = max(score, .9)

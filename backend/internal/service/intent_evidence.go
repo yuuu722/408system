@@ -11,6 +11,9 @@ func virtualMemoryWhy(q string) bool {
 	return whyQuestion(q) && (strings.Contains(q, "虚拟内存") || strings.Contains(q, "虚拟存储"))
 }
 func textbookIntentTerms(q string) ([]string, []string) {
+	if spec := comparisonTargets(q); spec != nil {
+		return []string{spec.Left, spec.Right}, []string{"比较", "区别", "调度", "资源", "地址空间", "开销", "共享", "通信", "基本单位"}
+	}
 	if virtualMemoryWhy(q) {
 		return []string{"虚拟内存", "虚拟存储"}, []string{"一次性", "驻留性", "全部装入", "无法运行", "内存不足", "局部性", "暂时不用", "浪费", "并发度"}
 	}
@@ -71,6 +74,12 @@ func virtualMemoryMotivation(text string) bool {
 
 func generationFailureLabel(code string) string {
 	switch code {
+	case "ambiguous_comparison":
+		return "比较对象不明确，需先补充双方名称"
+	case "invalid_comparison_structure", "incomplete_comparison":
+		return "比较结果未分别说明双方的具体差异"
+	case "comparison_side_unsupported":
+		return "比较一方的结论缺少该方的原文依据"
 	case "repair_request_failed":
 		return "模型曾返回文本，但整理重试请求失败"
 	case "no_complete_facts":
@@ -112,6 +121,8 @@ func generationFailureLabel(code string) string {
 
 func repairAnswerGuidance(code, q string) string {
 	switch code {
+	case "invalid_comparison_structure", "incomplete_comparison", "comparison_side_unsupported":
+		return "严格返回comparisons数组；每项给出dimension、left、right、left_facts、right_facts，分别说明双方具体情况并引用支持各自结论的事实。没有双方证据的维度不写。"
 	case "insufficient_coverage", "missing_protocol_purpose":
 		if protocolWhy(q) {
 			return "解释所问协议的用途、功能或解决的问题，只用本轮事实。帧字段、MTU数值不是必须重复的原因；证据只有格式时明确说明用途依据不足，不编造内容。"

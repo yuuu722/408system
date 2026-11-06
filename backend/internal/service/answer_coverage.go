@@ -24,6 +24,9 @@ func adequateCoverage(q, answer string, contents []string) bool {
 		return false
 	}
 
+	if spec := comparisonTargets(q); spec != nil {
+		return mentions(answer, spec.Left) && mentions(answer, spec.Right) && !vagueComparison(answer)
+	}
 	if protocolWhy(q) {
 		return protocolPurpose(answer)
 	}

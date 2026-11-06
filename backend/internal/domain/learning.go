@@ -27,6 +27,7 @@ type Asset struct {
 	Payload                          AssetPayload
 }
 type Profile struct {
+	DisplayName, Bio            string
 	GoalScore, DailyMinutes     int
 	ExamDate, Stage, Preference string
 }

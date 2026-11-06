@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 func ValidateAsset(a domain.Asset) error {
@@ -43,10 +45,24 @@ func ValidateAsset(a domain.Asset) error {
 	return nil
 }
 func ValidateProfile(p domain.Profile) error {
+	if utf8.RuneCountInString(p.DisplayName) > 32 || utf8.RuneCountInString(p.Bio) > 200 {
+		return fmt.Errorf("昵称最多32字，简介最多200字")
+	}
+	for _, r := range p.DisplayName {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("昵称含无效控制字符")
+		}
+	}
+	for _, r := range p.Bio {
+		if unicode.IsControl(r) && r != '\n' && r != '\t' {
+			return fmt.Errorf("个人信息含无效控制字符")
+		}
+	}
+
 	if p.GoalScore < 0 || p.GoalScore > 150 || p.DailyMinutes < 10 || p.DailyMinutes > 600 {
 		return fmt.Errorf("目标分数或每日时间超出范围（Invalid profile）")
 	}
-	if _, e := time.Parse("2006-01-02", p.ExamDate); e != nil {
+	if _, e := time.Parse("2006-01-02", p.ExamDate); p.ExamDate != "" && e != nil {
 		return fmt.Errorf("考试日期格式不正确（Invalid date）")
 	}
 	if p.Stage != "beginner" && p.Stage != "review" && p.Stage != "sprint" {

@@ -4,7 +4,8 @@ import { errorMessage } from './errors'
 import type { ChatResult,Citation } from './types'
 
 export interface Asset { IsPublic?:boolean; ID:string;Kind:'question'|'video'|'material';PointID:string;Title:string;Status:string;Revision:number;Payload:{ReviewStatus?:string;EstimatedMinutes?:number;DifficultyOrigin?:string;QuestionOrigin?:string;FamilyID?:string;ParentAssetID?:string;Evidence?:Citation[];AnswerOrigin?:string;Issue?:string;ExtractionKey?:string;Images?:string[];Stem:string;Options:string[];Answer:number;Explanation:string;Source:string;URL:string;DocumentID:string;Page:number;StartSeconds:number;EndSeconds:number;Difficulty:number} }
-export interface Profile { GoalScore:number;DailyMinutes:number;ExamDate:string;Stage:string;Preference:string }
+export interface Profile { DisplayName?:string;Bio?:string; GoalScore:number;DailyMinutes:number;ExamDate:string;Stage:string;Preference:string }
+export interface StudySummary {Assessments:number;Submitted:number;Unsubmitted:number;UncountedAttempts:number;ValidFamilies:number;CorrectFamilies:number;CoveredPoints:number;TotalPoints:number;Accuracy:number|null;Notice:string;Subjects:RadarSubject[];Recent:{ID:string;Kind:string;CreatedAt:string;SubmittedAt:string|null;Total:number;Counted:number;Correct:number}[]}
 export interface Result { Total:number;Correct:number;Counted?:number;Items:{AnswerOrigin?:string;Confirmation?:string;Counted?:boolean;ID:string;PointID:string;Selected:number;Answer:number;Correct:boolean;Explanation:string}[] }
 export interface Assessment { ID:string;Kind:string;Questions:Asset[];Result:Result|null;CreatedAt:string }
 export interface RadarSubject { ID:string;Name:string;Tested:number;Correct:number;CoveredPoints:number;TotalPoints:number;Accuracy:number|null }
@@ -16,6 +17,7 @@ export const foundation = {
  async assets():Promise<Asset[]> {const rows=(await api.get('/exam408/assets')).data;return Array.isArray(rows)?rows.map(normalizeAsset):[]},
  async saveAsset(a:Asset):Promise<Asset>{return normalizeAsset((await (a.ID?api.put(`/exam408/assets/${a.ID}`,a):api.post('/exam408/assets',a))).data)},
  removeAsset:(id:string)=>api.delete(`/exam408/assets/${id}`),
+ async studySummary():Promise<StudySummary>{return (await api.get('/exam408/study-summary')).data},
  async profile():Promise<Profile|null>{return (await api.get('/exam408/profile')).data},
  saveProfile:(p:Profile)=>api.put('/exam408/profile',p),
  async assessments():Promise<Assessment[]>{return (await api.get('/exam408/assessments')).data??[]},

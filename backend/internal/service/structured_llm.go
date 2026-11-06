@@ -35,7 +35,7 @@ func (p OpenAILLM) AnswerJSON(ctx context.Context, instruction, evidence string)
 	if strings.Contains(instruction, "知识图谱候选抽取器") {
 		body["max_tokens"] = 4096
 	}
-	if strings.Contains(instruction, factCompositionInstruction) {
+	if strings.Contains(instruction, factCompositionInstruction) || strings.Contains(instruction, comparisonCompositionInstruction) {
 		body["response_format"] = factResponseFormat(evidence)
 	}
 	client := p.Client

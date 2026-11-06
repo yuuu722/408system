@@ -27,12 +27,13 @@ type answerFact struct {
 	Premises []factPremise `json:"premises,omitempty"`
 }
 type factCatalog struct {
-	Facts     []answerFact   `json:"facts"`
-	Locations map[int]string `json:"locations"`
+	Facts      []answerFact    `json:"facts"`
+	Locations  map[int]string  `json:"locations"`
+	Comparison *comparisonSpec `json:"comparison,omitempty"`
 }
 
 func buildAnswerFacts(question string, contents []string, citations []domain.Citation, deps map[int][]int) factCatalog {
-	out := factCatalog{Facts: []answerFact{}, Locations: map[int]string{}}
+	out := factCatalog{Facts: []answerFact{}, Locations: map[int]string{}, Comparison: comparisonTargets(question)}
 	contextOnly := map[int]bool{}
 	for _, ids := range deps {
 		for _, id := range ids {
@@ -108,13 +109,27 @@ func (c factCatalog) JSON() string {
 		}
 		facts = append(facts, view)
 	}
-	raw, _ := json.Marshal(map[string]any{"facts": facts})
+	view := map[string]any{"facts": facts}
+	if c.Comparison != nil {
+		view["comparison"] = c.Comparison
+	}
+	raw, _ := json.Marshal(view)
 	return string(raw)
 }
 
 // The model emits references, never verbatim quotations. Exact source text and
 // mandatory premises are reconstructed exclusively from the server catalog.
 func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string, catalog factCatalog, contents []string, citations []domain.Citation, deps map[int][]int) (string, []domain.Citation, bool, string) {
+	var comparisonRows []comparisonRow
+	spec := comparisonTargets(question)
+	if spec != nil {
+		converted, rows, reason := expandComparison(raw, spec, catalog)
+		if reason != "" {
+			return "", nil, false, reason
+		}
+		raw = converted
+		comparisonRows = rows
+	}
 	var data struct {
 		Claims []struct {
 			Text     string          `json:"text"`
@@ -129,7 +144,11 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	if len(data.Claims) == 0 {
 		return "", nil, false, "model_abstained"
 	}
-	if len(data.Claims) > 3 {
+	maxClaims := 3
+	if spec != nil {
+		maxClaims = 5
+	}
+	if len(data.Claims) > maxClaims {
 		return "", nil, false, "excess_claims"
 	}
 	claims := []groundedClaim{}
@@ -188,10 +207,17 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	_ = json.Unmarshal([]byte(chosen.JSON()), &reviewData)
 	reviewData["question"] = question
 	reviewData["claims"] = reviewClaims
+	if spec != nil {
+		reviewData["comparison_objects"] = spec
+		reviewData["comparison_rows"] = comparisonRows
+	}
 	reviewPayload, _ := json.Marshal(reviewData)
 	text, sources, ok, why := s.composedAnswerDetail(ctx, string(expanded), question, contents, citations, deps, string(reviewPayload))
 	if !ok {
 		return "", nil, false, why
+	}
+	if spec != nil {
+		text = renderComparison(spec, comparisonRows)
 	}
 	return text, sources, true, ""
 }
@@ -200,9 +226,13 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 // Providers without JSON-schema support fall back to ordinary JSON mode.
 func factResponseFormat(evidence string) map[string]any {
 	var catalog struct {
-		Facts []json.RawMessage `json:"facts"`
+		Comparison *comparisonSpec   `json:"comparison"`
+		Facts      []json.RawMessage `json:"facts"`
 	}
 	_ = json.Unmarshal([]byte(evidence), &catalog)
+	if catalog.Comparison != nil {
+		return comparisonSchema()
+	}
 	ref := map[string]any{"type": "integer", "minimum": 1}
 	if len(catalog.Facts) > 0 {
 		ref["maximum"] = len(catalog.Facts)

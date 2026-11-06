@@ -115,6 +115,26 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 		}
 		call("PUT", "/api/v1/exam408/profile", token, domain.Profile{GoalScore: 100, DailyMinutes: 60, ExamDate: "2027-12-01", Stage: "beginner", Preference: "text"}, 200)
 	})
+
+	t.Run("personal center profile and empty evidence remain owner scoped", func(t *testing.T) {
+		profile := domain.Profile{DisplayName: " 408同学 ", Bio: "复习操作系统", GoalScore: 110, DailyMinutes: 90, Stage: "review", Preference: "mixed"}
+		call("PUT", "/api/v1/exam408/profile", token, profile, 200)
+		var saved domain.Profile
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/profile", token, nil, 200), &saved))
+		require.Equal(t, "408同学", saved.DisplayName)
+		require.Equal(t, "复习操作系统", saved.Bio)
+		require.Empty(t, saved.ExamDate)
+		require.JSONEq(t, "null", string(call("GET", "/api/v1/exam408/profile", otherToken, nil, 200)))
+		call("PUT", "/api/v1/exam408/profile", token, map[string]any{"UserID": other.ID}, 400)
+		profile.DisplayName = strings.Repeat("名", 33)
+		call("PUT", "/api/v1/exam408/profile", token, profile, 400)
+		call("GET", "/api/v1/exam408/study-summary", "", nil, 401)
+		var summary repository.StudySummary
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/study-summary", token, nil, 200), &summary))
+		require.Nil(t, summary.Accuracy)
+		require.Zero(t, summary.ValidFamilies)
+		require.Empty(t, summary.Recent)
+	})
 	var asset domain.Asset
 	t.Run("automatic availability snapshot and grade", func(t *testing.T) {
 		asset = domain.Asset{Kind: "question", PointID: points[0].ID, Title: "Synthetic question", Payload: domain.AssetPayload{Stem: "Which value is one?", Options: []string{"one", "two"}, Answer: 0, Explanation: "one means 1", Source: "Synthetic fixture", Difficulty: 1}}
@@ -147,6 +167,18 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 			tested += s.Tested
 		}
 		require.Equal(t, 1, tested)
+
+		var summary, otherSummary repository.StudySummary
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/study-summary", token, nil, 200), &summary))
+		require.Equal(t, 2, summary.Submitted)
+		require.Equal(t, 1, summary.ValidFamilies)
+		require.Equal(t, 1, summary.CoveredPoints)
+		require.NotNil(t, summary.Accuracy)
+		require.Len(t, summary.Recent, 2)
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/study-summary?user_id="+user.ID, otherToken, nil, 200), &otherSummary))
+		require.Zero(t, otherSummary.Submitted)
+		require.Nil(t, otherSummary.Accuracy)
+		require.Empty(t, otherSummary.Recent)
 		require.NoError(t, store.GenerateTasks(ctx, user.ID))
 		require.NoError(t, store.GenerateTasks(ctx, user.ID))
 		tasks, e := store.Tasks(ctx, user.ID)

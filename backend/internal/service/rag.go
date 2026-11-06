@@ -333,6 +333,11 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	modelFailure := ""
 	answer := "当前检索结果没有找到足以回答本题的讲解依据，依据不足，暂时无法回答。目录和未经解析的选择题选项不能作为结论依据。请确认所选知识库中已有相关教材或答案解析；未检索到不代表整个知识库不存在相关内容。"
 	canGenerate := len(citations) > 0
+	if questionIntent(question) == "比较分析" && comparisonTargets(question) == nil {
+		canGenerate = false
+		generation.FailureCode = "ambiguous_comparison"
+		answer = "请明确要比较的两个对象，例如“比较进程与线程的区别”。我会分别检索双方的教材依据，避免混入其他对象的比较。"
+	}
 	if _, model := s.LLM.(jsonAnswerer); model && len(catalog.Facts) == 0 && canGenerate {
 		canGenerate = false
 		generation.FailureCode = "no_complete_facts"
@@ -350,7 +355,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		// Buffer model selections until each complete passage is matched to source text.
 		// Provider output is never shown as an unchecked factual paraphrase.
 		if model, ok := s.LLM.(jsonAnswerer); ok {
-			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+factCompositionInstruction, modelEvidence)
+			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+compositionInstruction(question), modelEvidence)
 		} else if llm, ok := s.LLM.(domain.StreamingLLM); ok {
 			answer, err = llm.AnswerStream(ctx, question+composedInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
@@ -360,7 +365,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if errors.As(err, &incomplete) && incomplete.Code == "answer_incomplete" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
 				generation.Attempts++
-				answer, err = model.AnswerJSON(ctx, question+factCompositionInstruction+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", modelEvidence)
+				answer, err = model.AnswerJSON(ctx, question+compositionInstruction(question)+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", modelEvidence)
 			}
 		}
 		generation.ProviderReturned = err == nil
@@ -395,7 +400,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if !verified && modelFailure == "" && rejectReason != "invalid_review_format" && rejectReason != "support_review_unavailable" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
 				generation.Attempts++
-				repaired, e := model.AnswerJSON(ctx, question+factCompositionInstruction+"\n上次输出未通过核验（"+rejectReason+"）。"+repairAnswerGuidance(rejectReason, question), modelEvidence)
+				repaired, e := model.AnswerJSON(ctx, question+compositionInstruction(question)+"\n上次输出未通过核验（"+rejectReason+"）。"+repairAnswerGuidance(rejectReason, question), modelEvidence)
 				if e != nil {
 					generation.Stage = "generation"
 					generation.FailureCode = "repair_request_failed"
@@ -432,7 +437,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		} else {
 			if _, realModel := s.LLM.(jsonAnswerer); realModel {
 				fallback, originalSources, _ := sentenceAnswer("", question, sourceContents, citations, dependencies)
-				if len(originalSources) > 0 && adequateCoverage(question, fallback, sourceContents) {
+				if len(originalSources) > 0 && adequateCoverage(question, fallback, sourceContents) && comparisonTargets(question) == nil {
 					notice := "模型整理未通过核验"
 					if modelFailure != "" {
 						notice = "模型服务未完成整理"
@@ -441,6 +446,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 					citations = originalSources
 				} else {
 					answer = "本次未能生成通过教材依据与完整性核验的整理回答。检索到的原文来源保留在下方；需补充完整教材上下文后再回答。"
+					if comparisonTargets(question) != nil {
+						answer = "本次未形成双方逐项有原文依据的比较结果。下方教材来源可供核对；不能把一方定义、其他对象的比较或只有“存在区别”的句子当作完整答案。"
+					}
 					if protocolWhy(question) {
 						answer = "当前检索片段不足以解释所问协议的用途或引入原因。需要补充教材中关于该协议功能、应用场景或解决问题的原文；不会用帧字段、长度限制代替原因。"
 					}
@@ -587,7 +595,7 @@ func validAnswerCitations(answer string, count int) bool {
 
 // Intent is a transparent rule label, never a generated answer or corpus fact.
 func questionIntent(question string) string {
-	for _, word := range []string{"区别", "比较", "对比", "异同"} {
+	for _, word := range []string{"区别", "比较", "对比", "异同", "差异", "有什么不同", "有何不同"} {
 		if strings.Contains(question, word) {
 			return "比较分析"
 		}

@@ -30,6 +30,9 @@ func sourcePriority(c domain.Chunk) int {
 
 func questionFocusScore(question string, c domain.Chunk) float64 {
 	score := c.Score
+	if spec := comparisonTargets(question); spec != nil && mentions(c.Content, spec.Left) && mentions(c.Content, spec.Right) {
+		score += 1.2
+	}
 	if protocolWhy(question) && protocolPurpose(c.Content) {
 		score += 1.2
 	}

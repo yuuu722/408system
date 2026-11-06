@@ -227,3 +227,66 @@ func TestPPPWhyStillRejectsProviderReplyWhenSupportReviewFails(t *testing.T) {
 	require.Equal(t, "unsupported_claim", result.Generation.FailureCode)
 	require.NotContains(t, result.Answer, "通过重传纠正所有差错")
 }
+
+func TestComparisonChatUsesSeparateSidesAndDropsOtherComparisons(t *testing.T) {
+	ctx := context.Background()
+	st := testutil.NewStore()
+	kb, e := st.CreateKnowledgeBase(ctx, "u", "教材", "")
+	require.NoError(t, e)
+	text := "进程是资源分配和保护的基本单位。线程是处理机调度与执行的基本单位。每个进程通常具有独立的虚拟地址空间。同一进程的线程共享地址空间，各自有独立的栈。进程与程序有本质区别，进程是动态的而程序是静态的。自旋锁与信号量的区别在于是否阻塞进程。"
+	st.Docs["d"] = domain.Document{ID: "d", UserID: "u", KnowledgeBaseID: kb.ID, Status: "ready"}
+	st.Chunks = []domain.Chunk{{ID: "c", DocumentID: "d", UserID: "u", KnowledgeBaseID: kb.ID, Content: text, Embedding: []float32{1, 0}, Metadata: map[string]any{"resource_type": "textbook", "heading_path": "进程与线程的比较", "page": 21}}}
+	reviews := 0
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages       []struct{ Content string }
+			ResponseFormat map[string]any `json:"response_format"`
+		}
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		prompt := body.Messages[1].Content
+		value := `{"supported":true}`
+		if strings.Contains(prompt, `"supported"`) {
+			reviews++
+			require.Contains(t, prompt, "comparison_rows")
+		} else {
+			require.Contains(t, prompt, "left_facts")
+			require.NotContains(t, prompt, "自旋锁")
+			require.NotContains(t, prompt, "有本质区别")
+			pos := strings.LastIndex(prompt, `{"comparison":`)
+			require.GreaterOrEqual(t, pos, 0)
+			var facts struct {
+				Facts []struct {
+					ID   int
+					Text string
+				}
+			}
+			require.NoError(t, json.Unmarshal([]byte(prompt[pos:]), &facts))
+			find := func(term string) int {
+				for _, f := range facts.Facts {
+					if strings.Contains(f.Text, term) {
+						return f.ID
+					}
+				}
+				t.Errorf("missing %s", term)
+				return 0
+			}
+			rows := []map[string]any{
+				{"dimension": "基本作用", "left": "进程是资源分配和保护的基本单位。", "right": "线程是处理机调度与执行的基本单位。", "left_facts": []int{find("资源分配")}, "right_facts": []int{find("处理机调度")}},
+				{"dimension": "地址空间", "left": "每个进程通常具有独立的虚拟地址空间。", "right": "同一进程的线程共享地址空间，各自有独立的栈。", "left_facts": []int{find("每个进程")}, "right_facts": []int{find("同一进程")}},
+			}
+			raw, _ := json.Marshal(map[string]any{"comparisons": rows})
+			value = string(raw)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": value}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: service.OpenAILLM{BaseURL: model.URL, APIKey: "fixture"}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 3, MinScore: .35}
+	result, e := rag.Chat(ctx, "u", kb.ID, "", "比较进程与线程的区别")
+	require.NoError(t, e)
+	require.True(t, result.Generation.Verified, result.Generation.Notice)
+	require.Equal(t, 1, reviews)
+	require.Contains(t, result.Answer, "地址空间")
+	require.NotContains(t, result.Answer, "自旋锁")
+	require.NotEmpty(t, result.Sources)
+	require.Equal(t, 21, result.Sources[0].Page)
+}

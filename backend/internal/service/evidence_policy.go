@@ -12,6 +12,7 @@ var questionBoundary = regexp.MustCompile(`(?m)^\s*(?:\([0-9]+\)|（[0-9]+）|[0
 // questions, never asserted facts. Keep actual explanation sections for concept
 // questions; exercise-solving requests may still retrieve the complete exercise.
 func answerEvidence(question, content string, contextHint ...string) string {
+	content = comparisonEvidence(question, content)
 	if strings.ContainsRune(content, '�') {
 		return ""
 	}
@@ -60,7 +61,7 @@ func answerEvidence(question, content string, contextHint ...string) string {
 		if !related {
 			continue
 		}
-		for _, predicate := range []string{"是", "指", "用于", "用来", "使用", "利用", "通过", "由于", "因为", "因此", "使得", "能够", "可以", "提供", "避免", "解决", "实现", "允许", "需要", "保证", "基于", "负责", "不能", "并非", "称为", "必须", "要求", "导致", "造成", "具有", "无法", "不足", "占用", "受限", "超过"} {
+		for _, predicate := range []string{"是", "指", "用于", "用来", "使用", "利用", "通过", "由于", "因为", "因此", "使得", "能够", "可以", "提供", "避免", "解决", "实现", "允许", "需要", "保证", "基于", "负责", "不能", "并非", "称为", "必须", "要求", "导致", "造成", "具有", "无法", "不足", "占用", "受限", "超过", "共享", "分配", "拥有", "调度", "采用"} {
 			if strings.Contains(sentence, predicate) {
 				return strings.TrimSpace(content)
 			}
