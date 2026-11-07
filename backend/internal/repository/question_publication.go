@@ -41,13 +41,9 @@ func (p *Postgres) PublishVerifiedQuestions(ctx context.Context, uid string, qdo
 		if status != "ready" || revision != source.Document.ActiveRevisionID {
 			return 0, stale()
 		}
-		var raw []byte
-		if e = tx.QueryRow(ctx, `SELECT payload FROM document_parses WHERE document_id=$1 FOR SHARE`, id).Scan(&raw); e != nil {
-			return 0, e
-		}
-		var parsed domain.ParsedDocument
-		if e = json.Unmarshal(raw, &parsed); e != nil {
-			return 0, e
+		parsed, err := questionStructureTx(ctx, tx, id)
+		if err != nil {
+			return 0, err
 		}
 		if ParsedFingerprint(parsed) != ParsedFingerprint(source.Parsed) {
 			return 0, stale()

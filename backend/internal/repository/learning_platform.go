@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/jackc/pgx/v5"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"strings"
 	"time"
 )
 
@@ -54,7 +55,17 @@ func (p *Postgres) Assets(ctx context.Context, uid string) ([]domain.Asset, erro
 		}
 		out = append(out, a)
 	}
-	return out, rows.Err()
+	if e := rows.Err(); e != nil {
+		return nil, e
+	}
+	user, e := p.UserByID(ctx, uid)
+	if e != nil {
+		return nil, e
+	}
+	if user.Role != "admin" {
+		out = domain.CollapsePublicQuestionVariants(out)
+	}
+	return out, nil
 }
 func (p *Postgres) SaveAsset(ctx context.Context, uid string, a domain.Asset) (domain.Asset, error) {
 	if a.ID != "" {
@@ -65,6 +76,10 @@ func (p *Postgres) SaveAsset(ctx context.Context, uid string, a domain.Asset) (d
 		if old.IsPublic != a.IsPublic {
 			return a, domain.ErrForbidden
 		}
+		if strings.HasPrefix(old.Payload.FamilyID, domain.PublicQuestionFamilyPrefix) && (domain.QuestionContentFamily(a) != domain.QuestionContentFamily(old) || a.Payload.Answer != old.Payload.Answer) {
+			a.Payload.FamilyID = "manual:" + a.ID
+		}
+
 	}
 	if a.IsPublic {
 		u, err := p.UserByID(ctx, uid)
@@ -140,7 +155,7 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 	if len(assetIDs) > 0 {
 		assetID = assetIDs[0]
 	}
-	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND COALESCE(NULLIF(q->'Payload'->>'FamilyID',''),q->>'ID')=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY a.subject_id ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 12`, uid, point, kind, assetID)
+	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND `+canonicalSnapshotFamilySQL+`=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY a.subject_id ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 12`, uid, point, kind, assetID)
 	if err != nil {
 		return a, err
 	}
@@ -249,7 +264,7 @@ func (p *Postgres) SubmitAssessment(ctx context.Context, uid, aid string, answer
 	return result, tx.Commit(ctx)
 }
 func (p *Postgres) Radar(ctx context.Context, uid string) ([]domain.RadarSubject, error) {
-	rows, err := p.DB.Query(ctx, `WITH latest AS (SELECT DISTINCT ON(COALESCE(NULLIF(metadata->>'family_id',''),metadata->>'question_id')) subject_id,knowledge_point_id,event_type FROM exam408_learning_events WHERE user_id=$1 AND event_type IN ('quiz_correct','quiz_wrong') AND metadata ? 'question_id' ORDER BY COALESCE(NULLIF(metadata->>'family_id',''),metadata->>'question_id'),created_at DESC,metadata->>'assessment_id' DESC,metadata->>'question_id' DESC) SELECT s.id,s.name,(SELECT count(*) FROM exam408_knowledge_points WHERE subject_id=s.id),count(l.event_type),count(*) FILTER(WHERE l.event_type='quiz_correct'),count(DISTINCT l.knowledge_point_id) FROM exam408_subjects s LEFT JOIN latest l ON l.subject_id=s.id GROUP BY s.id ORDER BY s.sort_order`, uid)
+	rows, err := p.DB.Query(ctx, `WITH latest AS (SELECT DISTINCT ON(`+canonicalEventFamilySQL+`) subject_id,knowledge_point_id,event_type FROM exam408_learning_events WHERE user_id=$1 AND event_type IN ('quiz_correct','quiz_wrong') AND metadata ? 'question_id' AND NOT EXISTS(SELECT 1 FROM learning_assets invalid WHERE invalid.id::text=metadata->>'question_id' AND invalid.payload->>'ReviewStatus'='source_conflict') ORDER BY `+canonicalEventFamilySQL+`,created_at DESC,metadata->>'assessment_id' DESC,metadata->>'question_id' DESC) SELECT s.id,s.name,(SELECT count(*) FROM exam408_knowledge_points WHERE subject_id=s.id),count(l.event_type),count(*) FILTER(WHERE l.event_type='quiz_correct'),count(DISTINCT l.knowledge_point_id) FROM exam408_subjects s LEFT JOIN latest l ON l.subject_id=s.id GROUP BY s.id ORDER BY s.sort_order`, uid)
 	if err != nil {
 		return nil, err
 	}

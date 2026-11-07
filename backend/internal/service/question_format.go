@@ -88,3 +88,30 @@ func questionStemCue(text string) bool {
 	}
 	return false
 }
+
+// Recover a missing separator only when the previous explicit topic uniquely
+// fixes the prefix. This changes section identity, never formula/body digits.
+func questionHeadingContext(line, previous string) (scope string, answer bool, ok bool) {
+	scope, answer, ok = questionHeading(line)
+	if !ok || (!answer && !strings.Contains(line, "本节习题") && !strings.Contains(line, "本节练习")) {
+		return
+	}
+	parts := strings.Split(previous, ".")
+	if len(parts) < 2 {
+		return
+	}
+	parent := strings.Join(parts[:2], ".")
+	prefix := strings.ReplaceAll(parent, ".", "")
+	rawHeading := questionSection.FindString(questionLine(line))
+	rawParts := strings.Split(rawHeading, ".")
+	// Only the observed missing first separator (12.8 under topic 1.2).
+	// A legitimate 3.12 or 3.12.5 must never be collapsed to topic 3.1.
+	if len(rawParts) != 2 || rawParts[0] != prefix {
+		return
+	}
+	digits := regexp.MustCompile(`^[0-9]+$`)
+	if digits.MatchString(prefix) && digits.MatchString(rawParts[1]) {
+		scope = parent
+	}
+	return
+}

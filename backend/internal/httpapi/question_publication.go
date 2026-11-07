@@ -26,7 +26,7 @@ func (s *Server) publishVerifiedQuestions(w http.ResponseWriter, r *http.Request
 		s.fail(w, domain.ErrForbidden)
 		return
 	}
-	parsed, e := s.Platform.DocumentStructure(r.Context(), uid(r), d.ID)
+	parsed, e := s.Platform.QuestionStructure(r.Context(), uid(r), d.ID)
 	if e != nil {
 		s.fail(w, e)
 		return
@@ -55,6 +55,10 @@ func (s *Server) publishVerifiedQuestions(w http.ResponseWriter, r *http.Request
 	skipped := []map[string]string{}
 candidateLoop:
 	for _, a := range rows {
+		if a.Payload.ReviewStatus == "source_conflict" {
+			skipped = append(skipped, map[string]string{"AssetID": a.ID, "Reason": "同题来源冲突，保留待修复，不自动重发"})
+			continue
+		}
 		if a.Payload.ReviewStatus == "published" {
 			continue
 		}
@@ -105,7 +109,7 @@ candidateLoop:
 					answerMatches[sourceID] = map[string]service.FileAnswer{}
 					ad, err := s.Store.Document(r.Context(), uid(r), sourceID)
 					if err == nil && ad.KnowledgeBaseID == d.KnowledgeBaseID && ad.Status == "ready" {
-						ap, err := s.Platform.DocumentStructure(r.Context(), uid(r), ad.ID)
+						ap, err := s.Platform.QuestionStructure(r.Context(), uid(r), ad.ID)
 						if err == nil {
 							sources[sourceID] = repository.QuestionSourceSnapshot{Document: ad, Parsed: ap}
 							entries := service.ParseDocumentAnswers(ad.OriginalFilename, ap.Pages)

@@ -113,7 +113,7 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 				}
 				continue
 			}
-			if h, _, ok := questionHeading(line); ok {
+			if h, _, ok := questionHeadingContext(line, section); ok {
 				flush()
 				section = h
 				continue

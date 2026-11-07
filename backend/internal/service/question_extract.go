@@ -91,7 +91,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			if line == "" || questionBoilerplate(line) || runningQuestionHeader(line, section) {
 				continue
 			}
-			if heading, isAnswer, ok := questionHeading(line); ok {
+			if heading, isAnswer, ok := questionHeadingContext(line, section); ok {
 				flush()
 				section = heading
 				setAnswerLine()

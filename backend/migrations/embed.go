@@ -80,6 +80,9 @@ var graphSubjectConsensus string
 //go:embed 000024_graph_quality_replay.up.sql
 var graphQualityReplay string
 
+//go:embed 000025_question_views.up.sql
+var questionViews string
+
 type migration struct {
 	version int
 	name    string
@@ -111,6 +114,7 @@ var all = []migration{
 	{version: 22, name: "directory_graph", sql: directoryGraph},
 	{version: 23, name: "graph_subject_consensus", sql: graphSubjectConsensus},
 	{version: 24, name: "graph_quality_replay", sql: graphQualityReplay},
+	{version: 25, name: "question_views", sql: questionViews},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

@@ -162,7 +162,7 @@ func (s *Server) catalogRoutes(mux *http.ServeMux) {
 			s.reply(w, map[string]any{"catalog": c, "candidates": 0}, nil)
 			return
 		}
-		parsed, e := s.Platform.DocumentStructure(r.Context(), uid(r), id)
+		parsed, e := s.Platform.QuestionStructure(r.Context(), uid(r), id)
 		if e != nil {
 			s.fail(w, e)
 			return

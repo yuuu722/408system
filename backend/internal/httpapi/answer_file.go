@@ -42,12 +42,12 @@ func (s *Server) answerFile(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, &domain.RequestError{Status: 409, Message: "请等待两份资料处理就绪后配对"})
 		return
 	}
-	qp, e := s.Platform.DocumentStructure(r.Context(), uid(r), q.ID)
+	qp, e := s.Platform.QuestionStructure(r.Context(), uid(r), q.ID)
 	if e != nil {
 		s.fail(w, e)
 		return
 	}
-	ap, e := s.Platform.DocumentStructure(r.Context(), uid(r), a.ID)
+	ap, e := s.Platform.QuestionStructure(r.Context(), uid(r), a.ID)
 	if e != nil {
 		s.fail(w, e)
 		return

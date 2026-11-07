@@ -77,6 +77,8 @@ class BatchTests(unittest.TestCase):
                 self.calls.append(route)
                 if route.endswith('/catalog'): return {}
                 if route.endswith('/organize'): return {'candidates': 2}
+                if route.endswith('/repair-question-layout'): return {'Attempted':0,'Remaining':0}
+                if route.endswith('/deduplicate-questions'): return {}
                 if route.endswith('/resolve-answers'): return {'Resolved': 1}
                 if route.endswith('/publish-verified'):
                     self.rounds+=1
@@ -91,6 +93,32 @@ class BatchTests(unittest.TestCase):
             self.assertLess(api.calls.index('/documents/q/resolve-answers'),api.calls.index('/documents/q/publish-verified'))
             self.assertFalse(any('assets/' in x for x in api.calls), 'never force client-supplied ready flags')
 
+    def test_layout_batches_precede_extraction_and_resume_without_full_reprocess(self):
+        class API:
+            def __init__(self): self.calls=[]; self.repairs=0
+            def request(self,method,route,body=None):
+                self.calls.append(route)
+                if route.endswith('/repair-question-layout'):
+                    self.repairs+=1
+                    return {'Attempted':2,'Repaired':2,'Remaining':1 if self.repairs==1 else 0}
+                if route.endswith('/organize'): return {'candidates':1}
+                if route.endswith('/resolve-answers'): return {'Resolved':0}
+                if route.endswith('/publish-verified'): return {'Published':0}
+                if route.endswith('/deduplicate-questions'): return {'UniqueGroups':1}
+                if route.endswith('/question-inventory'):
+                    return [{'ID':x,'Kind':'question','IsPublic':True,'Status':'ready','Payload':{'DocumentID':'q','FamilyID':'same'}} for x in ['a','b']]
+                if route.endswith('/question-diagnostics'): return {'Samples':[]}
+                raise AssertionError(route)
+        with tempfile.TemporaryDirectory() as tmp:
+            api=API();result=m.execute(api,'kb',[Q],{},[],True,Path(tmp),auto_publish=True)
+            self.assertEqual(api.repairs,2)
+            self.assertEqual(result['LayoutRepair'][0]['Repaired'],4)
+            self.assertEqual(result['Summary']['Available'],2)
+            self.assertEqual(result['Summary']['UniqueAvailable'],1)
+            self.assertLess(api.calls.index('/documents/q/repair-question-layout'),api.calls.index('/documents/q/organize'))
+            self.assertLess(api.calls.index('/documents/q/publish-verified'),api.calls.index('/knowledge-bases/kb/deduplicate-questions'))
+            self.assertFalse(any('/reprocess' in x or '/upload' in x for x in api.calls))
+
     def test_auto_detection_does_not_skip_other_books_or_combined_solutions(self):
         docs = [dict(Q, ID='other', OriginalFilename='2026操作系统.pdf', ResourceType='other'),
                 dict(A, ID='combined', OriginalFilename='2009-2023 真题与解析打印版408.pdf'),
@@ -103,6 +131,8 @@ class BatchTests(unittest.TestCase):
                     self.organized.append(route)
                     return {'candidates':1}
                 if route.endswith('/catalog'): raise AssertionError('must not blindly change purpose before detection')
+                if route.endswith('/repair-question-layout'): return {'Attempted':0,'Remaining':0}
+                if route.endswith('/deduplicate-questions'): return {}
                 if route.endswith('/resolve-answers'): return {'Resolved':0}
                 if route.endswith('/publish-verified'): return {'Published':0}
                 if route.endswith('/question-inventory'): return []

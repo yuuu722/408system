@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/local/exam408-assistant/backend/internal/domain"
@@ -95,7 +96,22 @@ func (p *Postgres) RefreshQuestionCandidates(ctx context.Context, actor string, 
 	if status != "ready" || rid != d.ActiveRevisionID {
 		return &domain.RequestError{Status: 409, Message: "资料版本已变化或正在处理，请刷新后再整理"}
 	}
-	if e = saveDocumentStructureTx(ctx, tx, d.UserID, d.ID, parsed, assets, true); e != nil {
+	current, e := questionStructureTx(ctx, tx, d.ID)
+	if e != nil {
+		return e
+	}
+	if ParsedFingerprint(current) != ParsedFingerprint(parsed) {
+		return &domain.RequestError{Status: 409, Message: "题库解析视图已变化，请重新整理"}
+	}
+	var baseRaw []byte
+	if e = tx.QueryRow(ctx, `SELECT payload FROM document_parses WHERE document_id=$1`, d.ID).Scan(&baseRaw); e != nil {
+		return e
+	}
+	var original domain.ParsedDocument
+	if e = json.Unmarshal(baseRaw, &original); e != nil {
+		return e
+	}
+	if e = saveDocumentStructureTx(ctx, tx, d.UserID, d.ID, original, assets, true); e != nil {
 		return e
 	}
 	return tx.Commit(ctx)

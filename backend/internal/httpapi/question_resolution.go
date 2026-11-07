@@ -24,7 +24,7 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		s.fail(w, domain.ErrForbidden)
 		return
 	}
-	parsed, e := s.Platform.DocumentStructure(r.Context(), uid(r), d.ID)
+	parsed, e := s.Platform.QuestionStructure(r.Context(), uid(r), d.ID)
 	if e != nil {
 		s.fail(w, e)
 		return
@@ -63,7 +63,7 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		if ad.ResourceType != "solution" && !strings.Contains(name, "答案") && !strings.Contains(name, "解答") && !strings.Contains(name, "解析") && !strings.Contains(name, "详解") && !service.MaybeCompanionStudyBook(d.OriginalFilename, parsed.Pages, name) {
 			continue
 		}
-		ap, err := s.Platform.DocumentStructure(r.Context(), uid(r), ad.ID)
+		ap, err := s.Platform.QuestionStructure(r.Context(), uid(r), ad.ID)
 		if err != nil {
 			continue
 		}

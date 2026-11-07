@@ -545,6 +545,95 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.Contains(t, rows[0].Payload.Explanation, "局部性原理")
 	})
 
+	t.Run("question layout view preserves original parse and rejects stale input", func(t *testing.T) {
+		doc, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "view.txt", OriginalFilename: "题库视图.txt", ResourceType: "exercise", Purpose: "questions", Status: "ready"})
+		require.NoError(t, err)
+		base := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: "原始保存的错序文本"}}}
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, doc.ID, base, nil))
+		replacement := service.TextPage{Number: 1, Text: "1. 虚拟内存的特点是什么？\nA. 按需装入 B. 全部常驻\n答案：A\n解析：利用局部性原理可以按需分多次调入程序。"}
+		view := repository.QuestionView{RevisionID: doc.ActiveRevisionID, BaseFingerprint: repository.ParsedFingerprint(base), SourceHash: "synthetic-source", ParserVersion: repository.QuestionViewVersion, Pages: []service.TextPage{replacement}, Attempted: []int{1}}
+		require.NoError(t, store.SaveQuestionView(ctx, editor.ID, doc, base, view))
+		original, err := store.DocumentStructure(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		require.Equal(t, base, original)
+		derived, err := store.QuestionStructure(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		require.Equal(t, replacement.Text, derived.Pages[0].Text)
+		var organized struct{ Candidates int }
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/documents/"+doc.ID+"/organize", token, nil, 200), &organized))
+		require.Equal(t, 1, organized.Candidates)
+		original, err = store.DocumentStructure(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		require.Equal(t, base, original, "organizing a view must not overwrite RAG source parse")
+		view.SourceHash = "different-file"
+		require.Error(t, store.SaveQuestionView(ctx, editor.ID, doc, base, view))
+		view.SourceHash = "synthetic-source"
+		view.BaseFingerprint = "outdated"
+		require.Error(t, store.SaveQuestionView(ctx, editor.ID, doc, base, view))
+		call("POST", "/api/v1/documents/"+doc.ID+"/repair-question-layout", stoken, nil, 403)
+	})
+
+	t.Run("public variants deduplicate for students while retaining records and source links", func(t *testing.T) {
+		text := "1. 虚拟内存按需调入的依据是什么？\nA. 程序执行的局部性 B. 必须全部常驻内存\n答案：A\n解析：程序执行具有时间与空间局部性，因而可以按需调入。"
+		ids := []string{}
+		for _, name := range []string{"同题横版.txt", "同题留白版.txt"} {
+			doc, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: name, OriginalFilename: name, ResourceType: "exercise", Purpose: "questions", Status: "ready"})
+			require.NoError(t, err)
+			parsed := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: text}}}
+			require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, doc.ID, parsed, service.ExtractQuestions(doc, parsed.Pages, points)))
+			var result struct{ Published int }
+			require.NoError(t, json.Unmarshal(call("POST", "/api/v1/documents/"+doc.ID+"/publish-verified", token, nil, 200), &result))
+			require.Equal(t, 1, result.Published)
+			rows, err := store.DocumentQuestionAssets(ctx, editor.ID, doc.ID)
+			require.NoError(t, err)
+			ids = append(ids, rows[0].ID)
+		}
+		// Historical attempts use the old document-specific family IDs.
+		for _, id := range ids {
+			var attempt domain.Assessment
+			require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments", stoken, map[string]any{"Kind": "practice", "AssetID": id}, 200), &attempt))
+			call("POST", "/api/v1/exam408/assessments/"+attempt.ID+"/submit", stoken, map[string]any{"Answers": map[string]int{id: 0}}, 200)
+		}
+		before, err := store.StudySummary(ctx, student.ID)
+		require.NoError(t, err)
+		route := "/api/v1/knowledge-bases/" + kb.ID + "/deduplicate-questions"
+		call("POST", route, stoken, nil, 403)
+		var report repository.QuestionDedupeReport
+		require.NoError(t, json.Unmarshal(call("POST", route, token, nil, 200), &report))
+		require.GreaterOrEqual(t, report.DuplicateRecords, 1)
+		first, err := store.Asset(ctx, editor.ID, ids[0])
+		require.NoError(t, err)
+		second, err := store.Asset(ctx, editor.ID, ids[1])
+		require.NoError(t, err)
+		require.Equal(t, first.Payload.FamilyID, second.Payload.FamilyID)
+		require.Contains(t, first.Payload.FamilyID, domain.PublicQuestionFamilyPrefix)
+		var students []domain.Asset
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/assets", stoken, nil, 200), &students))
+		found := 0
+		for _, a := range students {
+			if a.Payload.FamilyID == first.Payload.FamilyID {
+				found++
+				require.Len(t, a.Payload.VariantSources, 1)
+			}
+		}
+		require.Equal(t, 1, found)
+		var n int
+		require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE id::text=ANY($1::text[])`, ids).Scan(&n))
+		require.Equal(t, 2, n)
+		require.NoError(t, json.Unmarshal(call("POST", route, token, nil, 200), &report))
+		require.Zero(t, report.Changed, "repeat dedup must be idempotent")
+		after, err := store.StudySummary(ctx, student.ID)
+		require.NoError(t, err)
+		require.Equal(t, before.ValidFamilies-1, after.ValidFamilies)
+		require.Equal(t, before.Submitted, after.Submitted, "raw attempts must remain unchanged")
+		_, err = store.DB.Exec(ctx, `UPDATE learning_assets SET payload=jsonb_set(payload,'{FamilyID}','"manual:later-retag"') WHERE id=$1`, ids[0])
+		require.NoError(t, err)
+		stable, err := store.StudySummary(ctx, student.ID)
+		require.NoError(t, err)
+		require.Equal(t, after.ValidFamilies, stable.ValidFamilies, "legacy family aliases must survive a later retag")
+
+	})
+
 	t.Run("directory links include ancestors without claiming textbook evidence", func(t *testing.T) {
 		var child domain.KnowledgePoint
 		for _, point := range points {

@@ -151,7 +151,7 @@ func ParseDocumentAnswers(name string, pages []TextPage) []FileAnswer {
 			if runningQuestionHeader(line, scope) {
 				continue
 			}
-			if heading, answer, ok := questionHeading(line); ok {
+			if heading, answer, ok := questionHeadingContext(line, scope); ok {
 				scope = heading
 				mode = answer
 				if answer {

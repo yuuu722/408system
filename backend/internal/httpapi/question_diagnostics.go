@@ -27,7 +27,7 @@ func (s *Server) questionDiagnostics(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, domain.ErrForbidden)
 		return
 	}
-	parsed, e := s.Platform.DocumentStructure(r.Context(), uid(r), d.ID)
+	parsed, e := s.Platform.QuestionStructure(r.Context(), uid(r), d.ID)
 	if e != nil {
 		s.fail(w, e)
 		return

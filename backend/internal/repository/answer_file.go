@@ -36,13 +36,9 @@ func (p *Postgres) ApplyAnswerFile(ctx context.Context, uid string, qdoc, adoc d
 		}
 	}
 	for _, check := range []struct{ id, hash string }{{qdoc.ID, qhash}, {adoc.ID, ahash}} {
-		var raw []byte
-		if e = tx.QueryRow(ctx, `SELECT payload FROM document_parses WHERE document_id=$1`, check.id).Scan(&raw); e != nil {
-			return 0, e
-		}
-		var parsed domain.ParsedDocument
-		if e = json.Unmarshal(raw, &parsed); e != nil {
-			return 0, e
+		parsed, err := questionStructureTx(ctx, tx, check.id)
+		if err != nil {
+			return 0, err
 		}
 		if ParsedFingerprint(parsed) != check.hash {
 			return 0, &domain.RequestError{Status: 409, Message: "解析结果已变化，请重新预览"}

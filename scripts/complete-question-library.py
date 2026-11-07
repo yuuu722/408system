@@ -94,7 +94,7 @@ def audit(assets, docs):
                      'Number': p.get('QuestionNumber', ''), 'Section': p.get('SectionKey', ''),
                      'Page': p.get('Page', 0), 'Complete': not gaps,
                      'Status': a.get('Status', ''), 'ReviewStatus': p.get('ReviewStatus', ''),
-                     'Missing': '；'.join(gaps), 'ExtractionIssue': p.get('Issue', '')})
+                     'Missing': '；'.join(gaps), 'ExtractionIssue': p.get('Issue', ''), 'FamilyID': p.get('FamilyID', '')})
     return rows
 
 
@@ -184,7 +184,7 @@ def csv_report(fields, rows):
 def save_report(folder, report):
     write_report_file(folder / 'report.json', json.dumps(report, ensure_ascii=False, indent=2), 'utf-8')
     fields = ['AssetID', 'DocumentID', 'Filename', 'Number', 'Section', 'Page',
-              'Complete', 'Status', 'ReviewStatus', 'Missing', 'ExtractionIssue']
+              'Complete', 'Status', 'ReviewStatus', 'Missing', 'ExtractionIssue', 'FamilyID']
     write_report_file(folder / 'questions.csv', csv_report(fields, report.get('Questions', [])), 'utf-8-sig')
     doc_fields = ['DocumentID', 'Filename', 'Status', 'Action', 'QuestionCount', 'Published', 'NeedsReview', 'Error']
     write_report_file(folder / 'documents.csv', csv_report(doc_fields, report.get('Documents', [])), 'utf-8-sig')
@@ -226,6 +226,35 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
               'ManualReviewFiles': unresolved, 'Questions': [], 'AuditCompleted': False,
               'Notice': '完整仅表示结构字段齐备；自动发布另须服务端重建题干选项与原文资料答案解析，不编造内容。', 'AutoPublish': auto_publish}
     save_report(folder, report)
+    if auto_publish and apply:
+        report['LayoutRepair'] = []
+        for d in docs:
+            if d['ID'] not in selected or d.get('Status') != 'ready':
+                continue
+            item = {'DocumentID': d['ID'], 'Filename': d['OriginalFilename'], 'Repaired': 0, 'Attempted': 0, 'Failed': []}
+            report['LayoutRepair'].append(item)
+            try:
+                for _ in range(2000):
+                    print(f"版面检查：{d['OriginalFilename']} · 已检查 {item['Attempted']} 页（必要时局部OCR）", flush=True)
+                    result = api.request('POST', f"/documents/{d['ID']}/repair-question-layout", {})
+                    item['Repaired'] += result.get('Repaired', 0)
+                    item['Attempted'] += result.get('Attempted', 0)
+                    item['Failed'].extend(result.get('Failed') or [])
+                    if result.get('CachedFailed'):
+                        item['CachedFailed'] = result['CachedFailed']
+                    if result.get('Skipped'):
+                        item['Skipped'] = result['Skipped']
+                    save_report(folder, report)
+                    if not result.get('Remaining'):
+                        break
+                    if not result.get('Attempted'):
+                        raise RuntimeError('版面恢复没有进展，停止本文件以避免重复循环')
+                else:
+                    raise RuntimeError('达到版面批次上限')
+            except RuntimeError as exc:
+                item['Error'] = str(exc)
+            print(f"{d['OriginalFilename']}：原PDF版面恢复 {item['Repaired']} 页，未恢复 {len(item['Failed'])} 页", flush=True)
+            save_report(folder, report)
     for d in docs:
         item = {'DocumentID': d['ID'], 'Filename': d['OriginalFilename'],
                 'Status': d.get('Status'), 'Action': '保留知识库用途'}
@@ -306,6 +335,9 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
             except RuntimeError as exc:
                 item['Error'] = str(exc)
             save_report(folder, report)
+    if auto_publish and apply:
+        report['Deduplication'] = api.request('POST', f'/knowledge-bases/{kb}/deduplicate-questions', {})
+        save_report(folder, report)
     try:
         inventory = api.request('GET', f'/knowledge-bases/{kb}/question-inventory') or []
         excluded_docs = {d['ID']: d for d in docs if auto_publish and syllabus_document(d)}
@@ -328,7 +360,8 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
                          'Incomplete': sum(not r['Complete'] for r in rows),
                          'Available': sum(r['Status'] == 'ready' for r in rows),
                          'AutoPublished': sum(x.get('Published', 0) for x in report['Documents']),
-                         'ExcludedSyllabusRecords': len(report['ExcludedNonQuestionRecords'])}
+                         'ExcludedSyllabusRecords': len(report['ExcludedNonQuestionRecords']),
+                         'UniqueAvailable': len({r['FamilyID'] or r['AssetID'] for r in rows if r['Status']=='ready'})}
     save_report(folder, report)
     if auto_publish:
         actual, errors = collect_diagnostics(api, kb, docs, folder, report['Summary'])
@@ -339,7 +372,7 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
 
 
 def main():
-    parser = argparse.ArgumentParser(description='本机已上传公共资料：复用解析抽题、配对答案、逐题检查；不重传或重跑OCR')
+    parser = argparse.ArgumentParser(description='本机已上传公共资料：复用解析抽题、配对答案、逐题检查；不重传；仅必要页局部恢复版面/OCR')
     parser.add_argument('--api', default='http://127.0.0.1:8080/api/v1')
     parser.add_argument('--kb-id')
     parser.add_argument('--pairs', help='人工确认的文件/章节配对CSV')
@@ -364,7 +397,7 @@ def main():
         raise ValueError('后端尚不支持完整性保护，请先更新并重建启动 backend、worker')
     if args.diagnostics_only and not caps.get('question_autodetect_enabled'):
         raise ValueError('后端尚不支持保存文本诊断，请先更新启动服务')
-    if args.auto_publish and not (caps.get('question_auto_publish_enabled') and caps.get('question_autodetect_enabled') and caps.get('question_saved_format_enabled')):
+    if args.auto_publish and not (caps.get('question_auto_publish_enabled') and caps.get('question_autodetect_enabled') and caps.get('question_saved_format_enabled') and caps.get('question_layout_repair_enabled')):
         raise ValueError('后端尚不支持原文校验自动发布，请先重建 backend、worker')
     bases = api.request('GET', '/knowledge-bases') or []
     bases = [b for b in bases if b.get('IsPublic') and

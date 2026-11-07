@@ -130,3 +130,16 @@ func TestObservedOptionCaseDuplicationAndCommaLabels(t *testing.T) {
 		require.Equal(t, "第四项", a[0].Payload.Options[3])
 	}
 }
+
+func TestObservedMissingSectionSeparatorNeedsExplicitPriorTopic(t *testing.T) {
+	scope, answer, ok := questionHeadingContext("12.8 答案与解析", "1.2")
+	require.True(t, ok)
+	require.True(t, answer)
+	require.Equal(t, "1.2", scope)
+	scope, _, _ = questionHeadingContext("12.8 答案与解析", "")
+	require.Equal(t, "12.8", scope)
+	scope, _, _ = questionHeadingContext("3.12 答案与解析", "3.1")
+	require.Equal(t, "3.12", scope)
+	scope, _, _ = questionHeadingContext("3.12.5 答案与解析", "3.1")
+	require.Equal(t, "3.12", scope)
+}

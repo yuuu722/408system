@@ -11,6 +11,7 @@ type AssetPayload struct {
 	DifficultyOrigin                           string
 	EstimatedMinutes                           int
 	Evidence                                   []Citation
+	VariantSources                             []Citation
 	RevisionID, FamilyID, QuestionOrigin       string
 	AnswerOrigin, Issue, ExtractionKey         string
 	Images                                     []string
