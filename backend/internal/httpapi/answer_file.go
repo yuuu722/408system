@@ -15,7 +15,7 @@ import (
 func (s *Server) answerFile(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		AnswerDocumentID, QuestionSection, AnswerSection, Fingerprint string
-		Apply                                                         bool
+		Apply, OnlyIncomplete                                         bool
 	}
 	if !s.input(w, r, &in) {
 		return
@@ -97,12 +97,21 @@ func (s *Server) answerFile(w http.ResponseWriter, r *http.Request) {
 	sort.Slice(questions, func(i, j int) bool { return questions[i].ID < questions[j].ID })
 	sort.Strings(qsections)
 	sort.Strings(asections)
-	snapshot, _ := json.Marshal([]any{q.ActiveRevisionID, a.ActiveRevisionID, qp, ap, questions, in.QuestionSection, in.AnswerSection})
+	snapshot, _ := json.Marshal([]any{q.ActiveRevisionID, a.ActiveRevisionID, qp, ap, questions, in.QuestionSection, in.AnswerSection, in.OnlyIncomplete})
 	hash := sha256.Sum256(snapshot)
 	fingerprint := hex.EncodeToString(hash[:])
 	updates := []domain.Asset{}
 	preview := []map[string]any{}
+	skipped := []map[string]any{}
 	for _, p := range proposals {
+		if in.OnlyIncomplete && domain.KeepSourceAnswer(p.Asset, p.Answer.Answer) {
+			reason := "已有资料答案和解析，保留原记录"
+			if p.Answer.Answer >= 0 && p.Answer.Answer != p.Asset.Payload.Answer {
+				reason = "与已有可靠答案冲突，请人工核对"
+			}
+			skipped = append(skipped, map[string]any{"AssetID": p.Asset.ID, "Reason": reason})
+			continue
+		}
 		if len(updates) >= 200 {
 			break
 		}
@@ -134,5 +143,5 @@ func (s *Server) answerFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	s.reply(w, map[string]any{"Fingerprint": fingerprint, "QuestionSections": qsections, "AnswerSections": asections, "Matches": preview, "Applied": applied, "QuestionCount": len(questions), "AnswerCount": len(entries), "Notice": "仅配对章节与题号唯一的记录，原文存在不等于已核实属于该题；请核对文件、版本和预览后关联。已发布题目不覆盖，歧义项保留人工处理，关联后仍待审核；每批最多200题，已关联且内容未变的不重复更新。"}, nil)
+	s.reply(w, map[string]any{"Fingerprint": fingerprint, "QuestionSections": qsections, "AnswerSections": asections, "Matches": preview, "Skipped": skipped, "Applied": applied, "QuestionCount": len(questions), "AnswerCount": len(entries), "Notice": "仅配对章节与题号唯一的记录，原文存在不等于已核实属于该题；请核对文件、版本和预览后关联。已发布题目不覆盖，歧义项保留人工处理，关联后仍待审核；每批最多200题，已关联且内容未变的不重复更新。"}, nil)
 }

@@ -346,6 +346,9 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		input["Fingerprint"] = "outdated"
 		call("POST", route, token, input, 409)
 		input["Fingerprint"] = preview.Fingerprint
+		input["OnlyIncomplete"] = true
+		call("POST", route, token, input, 409) // cannot change batch mode after preview
+		input["OnlyIncomplete"] = false
 		var result struct{ Applied int }
 		require.NoError(t, json.Unmarshal(call("POST", route, token, input, 200), &result))
 		require.Equal(t, 1, result.Applied)
@@ -357,6 +360,39 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.Equal(t, a.ID, linked.Payload.Evidence[0].DocumentID)
 		require.Equal(t, 3, linked.Payload.Evidence[0].Page)
 		call("POST", route, token, input, 409)
+		// Batch mode must not overwrite a reliable but conflicting answer.
+		_, e = store.DB.Exec(ctx, `UPDATE learning_assets SET payload=jsonb_set(jsonb_set(payload,'{Answer}','0'),'{Explanation}','"1.A"') WHERE id=$1`, linked.ID)
+		require.NoError(t, e)
+		input = map[string]any{"AnswerDocumentID": a.ID, "OnlyIncomplete": true}
+		var protected struct {
+			Matches []any
+			Skipped []struct{ Reason string }
+		}
+		require.NoError(t, json.Unmarshal(call("POST", route, token, input, 200), &protected))
+		require.Empty(t, protected.Matches)
+		require.Len(t, protected.Skipped, 1)
+		require.Contains(t, protected.Skipped[0].Reason, "冲突")
+		// Inventory excludes image bytes/evidence and is restricted to admins.
+		_, e = store.DB.Exec(ctx, `UPDATE learning_assets SET payload=jsonb_set(payload,'{Images}','["PRIVATE_IMAGE_BYTES"]') WHERE id=$1`, linked.ID)
+		require.NoError(t, e)
+		inventoryRoute := "/api/v1/knowledge-bases/" + kb.ID + "/question-inventory"
+		call("GET", inventoryRoute, stoken, nil, 403)
+		rawInventory := call("GET", inventoryRoute, token, nil, 200)
+		require.NotContains(t, string(rawInventory), "PRIVATE_IMAGE_BYTES")
+		var inventory []domain.Asset
+		require.NoError(t, json.Unmarshal(rawInventory, &inventory))
+		found := false
+		for _, row := range inventory {
+			if row.ID == linked.ID {
+				found = true
+				require.Equal(t, []string{"present"}, row.Payload.Images)
+				require.Empty(t, row.Payload.Evidence)
+			}
+		}
+		require.True(t, found)
+		var personalID string
+		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM knowledge_bases WHERE user_id=$1 AND NOT is_public LIMIT 1`, student.ID).Scan(&personalID))
+		call("GET", "/api/v1/knowledge-bases/"+personalID+"/question-inventory", token, nil, 404)
 	})
 	t.Run("directory links include ancestors without claiming textbook evidence", func(t *testing.T) {
 		var child domain.KnowledgePoint

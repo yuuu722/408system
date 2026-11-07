@@ -14,6 +14,10 @@ import (
 
 func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	s.personalRoutes(mux)
+	mux.Handle("GET /api/v1/knowledge-bases/{id}/question-inventory", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		v, e := s.Platform.PublicQuestionInventory(r.Context(), uid(r), r.PathValue("id"))
+		s.reply(w, v, e)
+	})))
 	mux.Handle("PATCH /api/v1/knowledge-bases/{id}", s.auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Name, Description string }
 		if !s.input(w, r, &in) {
