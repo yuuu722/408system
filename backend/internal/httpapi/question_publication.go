@@ -53,11 +53,18 @@ func (s *Server) publishVerifiedQuestions(w http.ResponseWriter, r *http.Request
 	answerMatches := map[string]map[string]service.FileAnswer{}
 	updates := []domain.Asset{}
 	skipped := []map[string]string{}
+candidateLoop:
 	for _, a := range rows {
 		if a.Payload.ReviewStatus == "published" {
 			continue
 		}
 		reject := func(reason string) { skipped = append(skipped, map[string]string{"AssetID": a.ID, "Reason": reason}) }
+		for _, old := range rows {
+			if old.Payload.ReviewStatus == "published" && service.SameQuestionSourceAnchor(old, a) {
+				reject("该原文题已发布，保留现有题目，避免重排后重复发布")
+				continue candidateLoop
+			}
+		}
 		f, ok := fresh[a.Payload.ExtractionKey]
 		if !ok || a.Payload.ExtractionKey == "" || a.Payload.Stem != f.Payload.Stem || !reflect.DeepEqual(a.Payload.Options, f.Payload.Options) {
 			reject("当前原文不能重建该题，保留为未修复记录")
@@ -101,8 +108,8 @@ func (s *Server) publishVerifiedQuestions(w http.ResponseWriter, r *http.Request
 						ap, err := s.Platform.DocumentStructure(r.Context(), uid(r), ad.ID)
 						if err == nil {
 							sources[sourceID] = repository.QuestionSourceSnapshot{Document: ad, Parsed: ap}
-							entries := service.ParseAnswerFile(ap.Pages)
-							if service.SameQuestionBook(d.OriginalFilename, ad.OriginalFilename) {
+							entries := service.ParseDocumentAnswers(ad.OriginalFilename, ap.Pages)
+							if service.SameQuestionBook(d.OriginalFilename, ad.OriginalFilename) || service.CompanionStudyBooks(d.OriginalFilename, parsed.Pages, ad.OriginalFilename, ap.Pages) {
 								for _, pair := range service.MatchAnswerFile(rows, entries, "", "") {
 									answerMatches[sourceID][pair.Asset.ID] = pair.Answer
 								}

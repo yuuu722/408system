@@ -364,7 +364,7 @@ def main():
         raise ValueError('后端尚不支持完整性保护，请先更新并重建启动 backend、worker')
     if args.diagnostics_only and not caps.get('question_autodetect_enabled'):
         raise ValueError('后端尚不支持保存文本诊断，请先更新启动服务')
-    if args.auto_publish and not (caps.get('question_auto_publish_enabled') and caps.get('question_autodetect_enabled')):
+    if args.auto_publish and not (caps.get('question_auto_publish_enabled') and caps.get('question_autodetect_enabled') and caps.get('question_saved_format_enabled')):
         raise ValueError('后端尚不支持原文校验自动发布，请先重建 backend、worker')
     bases = api.request('GET', '/knowledge-bases') or []
     bases = [b for b in bases if b.get('IsPublic') and

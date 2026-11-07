@@ -511,6 +511,40 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		call("GET", "/api/v1/documents/"+privateID+"/question-diagnostics", token, nil, 404)
 	})
 
+	t.Run("saved workbook reference links same edition original book despite different filenames", func(t *testing.T) {
+		q, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "workbook.txt", OriginalFilename: "【横版】26王道操作系统选择题做题本.pdf", ResourceType: "exercise", Purpose: "questions", Status: "ready"})
+		require.NoError(t, err)
+		qp := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: "第 1 章基础\n1.1 基础概念（答案见原书 P6）\n01. 虚拟内存的特点是什么？\nA. 按需装入 B. 全部常驻"}}}
+		extracted := service.ExtractQuestions(q, qp.Pages, points)
+		require.Len(t, extracted, 1)
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, q.ID, qp, extracted))
+		makeSource := func(filename, year, answer string) domain.Document {
+			d, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: filename, OriginalFilename: filename, ResourceType: "other", Purpose: "knowledge", Status: "ready"})
+			require.NoError(t, err)
+			ap := domain.ParsedDocument{Pages: []service.TextPage{{Number: 2, Text: year + " 年操作系统考研复习指导 / 王道论坛组编"}, {Number: 3, Text: "1.1.4 本节习题精选\n01. 虚拟内存的特点是什么？\nA. 按需装入 B. 全部常驻\n1.1.5 答案与解析\n1. " + answer + "\n解析：虚拟内存利用局部性原理，允许按需分多次调入程序。"}}}
+			require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, d.ID, ap, nil))
+			return d
+		}
+		source := makeSource("2026操作系统.pdf", "2026", "A")
+		copySource := makeSource("【PDF】2026操作系统.pdf", "2026", "A")
+		makeSource("2027操作系统.pdf", "2027", "B")
+		route := "/api/v1/documents/" + q.ID
+		var result struct{ Resolved, Ambiguous int }
+		require.NoError(t, json.Unmarshal(call("POST", route+"/resolve-answers", token, nil, 200), &result))
+		require.Equal(t, 1, result.Resolved)
+		require.Zero(t, result.Ambiguous, "identical copies must not block reliable pairing")
+		var publication struct{ Published int }
+		require.NoError(t, json.Unmarshal(call("POST", route+"/publish-verified", token, nil, 200), &publication))
+		require.Equal(t, 1, publication.Published)
+		rows, err := store.DocumentQuestionAssets(ctx, editor.ID, q.ID)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, "ready", rows[0].Status)
+		require.Equal(t, 0, rows[0].Payload.Answer)
+		require.Contains(t, []string{source.ID, copySource.ID}, rows[0].Payload.Evidence[0].DocumentID)
+		require.Contains(t, rows[0].Payload.Explanation, "局部性原理")
+	})
+
 	t.Run("directory links include ancestors without claiming textbook evidence", func(t *testing.T) {
 		var child domain.KnowledgePoint
 		for _, point := range points {

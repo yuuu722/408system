@@ -3,15 +3,16 @@ package service
 import (
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"regexp"
 	"strings"
 )
 
 var questionHead = regexp.MustCompile(`^\s*[（(]?\s*(\d{1,4})\s*[.．、)）]\s*(.*)$`)
-var optionMark = regexp.MustCompile(`(?m)(?:^|\s)[（(]?([A-F])(?:[.．、)）:：]\s*|[ \t]+|[ \t]*$)`)
-var multipleInlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*[A-F](?:[、,，和及与 \t]*[A-F])+(?:\s|$|[.。，；;【)）])`)
+var optionMark = regexp.MustCompile(`(?m)(?:^|\s)[（(]?([Aa][Aa]?|[Bb][Bb]?|[Cc][Cc]?|[Dd][Dd]?|[Ee][Ee]?|[Ff][Ff]?)(?:[.．、，,)）:：]\s*|[ \t]+|[ \t]*$)`)
+var multipleInlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:人参考答案|参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*[A-F](?:[、,，和及与 \t]*[A-F])+(?:\s|$|[.。，；;【)）])`)
 var multipleNumberedAnswer = regexp.MustCompile(`(?:^|\s)([0-9０-９]{1,4})\s*[.．、):：]\s*[A-FＡ-Ｆ](?:[、,，和及与 \t]*[A-FＡ-Ｆ])+(?:\s|$|[.。，；;【)）])`)
-var inlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*([A-F])(?:\s|$|[.。，；;【)）])`)
+var inlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:人参考答案|参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*([A-F])(?:\s|$|[.。，；;【)）])`)
 var questionSection = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+[章节]|[0-9]+\.[0-9]+(?:\.[0-9]+)?)`)
 
 var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+[、.． ]*)?(?:(?:参考)?答案(?:[与及和]?解析)?|习题(?:参考)?解答|习题答案与解析|试题解析|答案详解)[:：]?$`)
@@ -20,6 +21,7 @@ var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F
 
 // Deliberately bounded to numbered single-choice questions. It never invents missing options or source answers.
 func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.KnowledgePoint) []domain.Asset {
+	pages = questionReadingPages(pages)
 	type candidate struct {
 		number, body, section string
 		page                  int
@@ -84,16 +86,16 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			setAnswerLine := func() { filteredLines[len(filteredLines)-1] = originalLine }
 			from, to := lineOffset, lineOffset+len([]rune(line))
 			lineOffset = to + 1
-			line = strings.ReplaceAll(strings.TrimSpace(line), "　", " ")
-			line = strings.NewReplacer("０", "0", "１", "1", "２", "2", "３", "3", "４", "4", "５", "5", "６", "6", "７", "7", "８", "8", "９", "9", "Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(line)
-			if line == "" {
+			line = questionLine(line)
+
+			if line == "" || questionBoilerplate(line) || runningQuestionHeader(line, section) {
 				continue
 			}
-			if heading := questionSection.FindString(line); heading != "" && len([]rune(line)) < 80 && !strings.ContainsAny(line, "。！？?") {
+			if heading, isAnswer, ok := questionHeading(line); ok {
 				flush()
 				section = heading
 				setAnswerLine()
-				answerMode = strings.Contains(line, "答案") || strings.Contains(line, "解析")
+				answerMode = isAnswer
 				continue
 			}
 
@@ -116,14 +118,14 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 					continue
 				}
 				for _, m := range answerEntry.FindAllStringSubmatch(line, -1) {
-					answers[key(section, m[1])] = append(answers[key(section, m[1])], int(m[2][0]-'A'))
-					answerPages[key(section, m[1])] = page.Number
+					answers[key(section, canonicalAnswerNumber(m[1]))] = append(answers[key(section, canonicalAnswerNumber(m[1]))], int(m[2][0]-'A'))
+					answerPages[key(section, canonicalAnswerNumber(m[1]))] = page.Number
 				}
 				continue
 			}
 			if m := questionHead.FindStringSubmatch(line); m != nil {
 				flush()
-				current = &candidate{number: m[1], body: m[2], page: page.Number, section: section}
+				current = &candidate{number: canonicalAnswerNumber(m[1]), body: m[2], page: page.Number, section: section}
 			} else if current != nil {
 				current.body += "\n" + line
 			}
@@ -140,7 +142,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 	out := []domain.Asset{}
 	seenContent := map[string]bool{}
 	for _, c := range candidates {
-		marks := optionMark.FindAllStringSubmatchIndex(c.body, -1)
+		marks := questionAllOptionMarks(c.body)
 		// Numbered prose alone is not a choice question; validate the complete option sequence below.
 		if len(marks) < 2 {
 			continue
@@ -169,7 +171,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 					end = marks[j+1][0]
 				}
 				a.Payload.Options = append(a.Payload.Options, strings.TrimSpace(body[m[1]:end]))
-				if body[m[2]] != byte('A'+j) {
+				if optionLetter(body, m) != byte('A'+j) {
 					a.Payload.Issue = "选项序号不连续（Incomplete options）"
 				}
 			}
@@ -191,6 +193,9 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 				best = score
 				a.PointID = p.ID
 			}
+		}
+		if sourcequality.SuspectFormula(body) {
+			a.Payload.Issue = "公式或字符疑似OCR错误，保留原页，不自动猜改"
 		}
 		// Only actual choice questions become assets; numbered prose, variable
 		// names and fragments with empty stems/options are not quiz candidates.
@@ -257,16 +262,16 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 // Pick a contiguous A,B,... option sequence. An A variable in the question
 // stem or a lone B in numbered textbook prose is not an option list.
 func questionOptionMarks(body string) [][]int {
-	all := optionMark.FindAllStringSubmatchIndex(body, -1)
+	all := questionAllOptionMarks(body)
 	for i, m := range all {
-		if body[m[2]] != 'A' || strings.TrimSpace(body[:m[0]]) == "" {
+		if optionLetter(body, m) != 'A' || strings.TrimSpace(body[:m[0]]) == "" {
 			continue
 		}
 		// Bare inline letters need an actual question cue. In prose, "A 与 B"
 		// denotes variables; line-start labels and punctuated A. remain valid.
 		prefix := body[:m[2]]
 		lineStart := strings.TrimSpace(prefix[strings.LastIndex(prefix, "\n")+1:]) == ""
-		punctuated := strings.ContainsAny(body[m[3]:m[1]], ".．、)）:：")
+		punctuated := strings.ContainsAny(body[m[3]:m[1]], ".．、，,)）:：")
 		cue := strings.ContainsAny(body[:m[0]], "?？")
 		for _, term := range []string{"下列", "正确", "错误", "选择", "以下", "( )", "（ ）", "()", "（）"} {
 			cue = cue || strings.Contains(body[:m[0]], term)
@@ -277,7 +282,7 @@ func questionOptionMarks(body string) [][]int {
 
 		selected := [][]int{m}
 		for _, n := range all[i+1:] {
-			if body[n[2]] != byte('A'+len(selected)) {
+			if optionLetter(body, n) != byte('A'+len(selected)) {
 				break
 			}
 			selected = append(selected, n)
@@ -335,4 +340,23 @@ func questionSpanWarning(page TextPage, from, to int) bool {
 		}
 	}
 	return false
+}
+
+func optionLetter(body string, m []int) byte {
+	c := body[m[2]]
+	if c >= 'a' && c <= 'f' {
+		c = c - 'a' + 'A'
+	}
+	return c
+}
+func questionAllOptionMarks(body string) [][]int {
+	out := [][]int{}
+	for _, m := range optionMark.FindAllStringSubmatchIndex(body, -1) {
+		c := body[m[2]]
+		if c >= 'a' && c <= 'f' && !strings.ContainsAny(body[m[3]:m[1]], ".．、，,)）:：") {
+			continue
+		}
+		out = append(out, m)
+	}
+	return out
 }

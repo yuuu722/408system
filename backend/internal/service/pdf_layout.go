@@ -94,6 +94,9 @@ func decodePDFLayout(data []byte, number int) (TextPage, error) {
 			page.Blocks = append(page.Blocks, domain.DocumentBlock{ID: fmt.Sprintf("pdf-break-%d", len(page.Blocks)), Kind: "paragraph_break"})
 		}
 	}
+	if repaired, ok := repairQuestionReadingPage(page); ok {
+		return repaired, nil
+	}
 	CanonicalPage(&page)
 	return page, nil
 }
@@ -176,6 +179,9 @@ func decodeOCRTSV(data []byte, number int) (TextPage, error) {
 		if c < .8 {
 			page.Warnings = append(page.Warnings, fmt.Sprintf("第%d页第%d行OCR置信度较低，请核对原页数字与公式。", number, i+1))
 		}
+	}
+	if repaired, ok := repairQuestionReadingPage(page); ok {
+		return repaired, nil
 	}
 	CanonicalPage(&page)
 	return page, nil

@@ -49,3 +49,9 @@ func consolidateAnswerEntries(entries []FileAnswer) []FileAnswer {
 	}
 	return out
 }
+
+// Byte-identical content apart from whitespace can be cited from either copy.
+// Different grade letters, operators, numbers or explanation text stay ambiguous.
+func EquivalentFileAnswers(a, b FileAnswer) bool {
+	return !a.Blocked && !b.Blocked && a.Answer == b.Answer && questionIdentityText(AnswerFileText(a)) == questionIdentityText(AnswerFileText(b))
+}

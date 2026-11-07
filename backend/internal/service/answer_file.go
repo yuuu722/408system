@@ -2,7 +2,9 @@ package service
 
 import (
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/sourcequality"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -22,11 +24,12 @@ var answerParagraph = regexp.MustCompile(`^\s*[（(]?\s*([0-9０-９]{1,4})(?:\s
 var tableAnswerNumbers = regexp.MustCompile(`[0-9０-９]{1,4}`)
 var tableAnswerLetters = regexp.MustCompile(`[A-FＡ-Ｆ]`)
 
-var answerLetter = regexp.MustCompile(`^(?:[（(【]?\s*(?:答案|参考答案|正确答案|解答)\s*[】）)]?\s*(?:[:：]|为|是)?\s*)?[（(]?([A-FＡ-Ｆ])(?:[.。．、)）【\s]|$)`)
+var answerLetter = regexp.MustCompile(`^(?:[（(【]?\s*(?:答案|人参考答案|参考答案|正确答案|解答)\s*[】）)]?\s*(?:[:：]|为|是)?\s*)?[（(]?([A-FＡ-Ｆ])(?:[.。．、)）【\s]|$)`)
 
 // Parses explicit source answers, retaining page and chapter. Options and bare
 // question numbers are not answers. Non-letter worked solutions stay ungraded.
 func ParseAnswerFile(pages []TextPage) []FileAnswer {
+	pages = questionReadingPages(pages)
 	out := []FileAnswer{}
 	section := ""
 	var current *FileAnswer
@@ -40,21 +43,50 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 			if current.Answer < 0 && choiceOption.MatchString(current.Quote) && !strings.Contains(current.Quote, "解析") && !strings.Contains(current.Quote, "解答") {
 				current.Blocked = true
 			}
+			if sourcequality.SuspectFormula(AnswerFileText(*current)) {
+				current.Blocked = true
+			}
 			out = append(out, *current)
 			current = nil
 		}
 	}
-	for _, page := range pages {
+	appendLine := func(page TextPage, line string, from, to int) {
+		if current == nil {
+			return
+		}
+		if len([]rune(AnswerFileText(*current)))+len([]rune(line)) > 2400 {
+			current.Blocked = true
+			return
+		}
+		current.Blocked = current.Blocked || questionSpanWarning(page, from, to)
+		if current.Page != page.Number {
+			if len(current.Extra) > 0 && current.Extra[len(current.Extra)-1].Page == page.Number {
+				current.Extra[len(current.Extra)-1].Quote += "\n" + line
+			} else if len(current.Extra) < 3 {
+				current.Extra = append(current.Extra, AnswerPassage{Page: page.Number, Quote: line})
+			} else {
+				current.Blocked = true
+			}
+		} else {
+			current.Quote += "\n" + line
+		}
+	}
+	for pageIndex, page := range pages {
 		tableHead := ""
 		tableNumbers := []string{}
 		tableStart := 0
 		lineOffset := 0
-		for _, line := range strings.Split(page.Text, "\n") {
+		pageLines := strings.Split(page.Text, "\n")
+		probeLines := append([]string(nil), pageLines...)
+		if pageIndex+1 < len(pages) {
+			probeLines = append(probeLines, strings.Split(pages[pageIndex+1].Text, "\n")...)
+		}
+		for lineIndex, line := range pageLines {
 			from, to := lineOffset, lineOffset+len([]rune(line))
 			lineOffset = to + 1
 			originalLine := line
 			line = strings.TrimSpace(line)
-			if line == "" {
+			if line == "" || questionBoilerplate(line) || runningQuestionHeader(line, section) {
 				continue
 			}
 			if tableHead != "" {
@@ -81,11 +113,12 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 				}
 				continue
 			}
-			if h := questionSection.FindString(line); h != "" && len([]rune(line)) < 80 && !strings.ContainsAny(line, "。！？?") {
+			if h, _, ok := questionHeading(line); ok {
 				flush()
 				section = h
 				continue
 			}
+
 			if answerHeading.MatchString(line) {
 				flush()
 				continue
@@ -108,38 +141,54 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 				continue
 			}
 			if m := answerParagraph.FindStringSubmatch(line); m != nil {
-				flush()
 				answer := -1
 				body := strings.NewReplacer("Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(m[2])
 				if multipleInlineAnswer.MatchString(body) {
+					flush()
 					current = &FileAnswer{Number: canonicalAnswerNumber(m[1]), Section: section, Answer: -1, Page: page.Number, Quote: line, Blocked: true}
 					continue
 				}
 				if a := answerLetter.FindStringSubmatch(body); a != nil {
 					answer = int(a[1][0] - 'A')
 				}
+				// Numbered calculation rows/substeps belong to the current
+				// explanation, not to new answer keys for questions 1,2,3...
+				labelled := hasWorkedAnswerLabel(body)
+				if current != nil && answer >= 0 && !labelled && strings.ContainsAny(body, "+*/|#=") && len(strings.Fields(body)) >= 3 {
+					han := 0
+					for _, r := range body {
+						if r >= '\u4e00' && r <= '\u9fff' {
+							han++
+						}
+					}
+					if han < 4 {
+						appendLine(page, line, from, to)
+						continue
+					}
+				}
+				question := questionStemCue(body)
+				if !question {
+					probe := body
+					for j := lineIndex + 1; j < len(probeLines) && j < lineIndex+20; j++ {
+						next := questionLine(probeLines[j])
+						if answerParagraph.MatchString(next) || isolatedQuestionNumber.MatchString(next) || inlineAnswer.MatchString(next) || hasWorkedAnswerLabel(next) {
+							break
+						}
+						probe += "\n" + next
+					}
+					question = len(questionOptionMarks(questionLine(probe))) >= 2
+				}
+				if answer < 0 && !labelled && !question {
+					appendLine(page, line, from, to)
+					continue
+				}
+				flush()
 				if answer < 0 && ((len([]rune(body)) < 8 && !hasWorkedAnswerLabel(body)) || (choiceOption.MatchString(body) && !inlineAnswer.MatchString(body))) {
 					continue
 				}
 				current = &FileAnswer{Number: canonicalAnswerNumber(m[1]), Section: section, Answer: answer, Page: page.Number, Quote: line, Blocked: questionSpanWarning(page, from, to)}
 			} else if current != nil {
-				if len([]rune(AnswerFileText(*current)))+len([]rune(line)) > 2400 {
-					current.Blocked = true
-					continue
-				}
-				current.Blocked = current.Blocked || questionSpanWarning(page, from, to)
-				if current.Page != page.Number {
-					if len(current.Extra) > 0 && current.Extra[len(current.Extra)-1].Page == page.Number {
-						current.Extra[len(current.Extra)-1].Quote += "\n" + line
-					} else if len(current.Extra) < 3 {
-						current.Extra = append(current.Extra, AnswerPassage{Page: page.Number, Quote: line})
-					} else {
-						current.Blocked = true
-					}
-				} else {
-					current.Quote += "\n" + line
-				}
-
+				appendLine(page, line, from, to)
 			}
 		}
 	}
@@ -205,10 +254,9 @@ func AnswerFileText(a FileAnswer) string {
 }
 
 func canonicalAnswerNumber(number string) string {
-	return strings.Map(func(r rune) rune {
-		if r >= '０' && r <= '９' {
-			return '0' + r - '０'
-		}
-		return r
-	}, number)
+	number = fullwidthQuestionText.Replace(number)
+	if n, e := strconv.Atoi(number); e == nil && n > 0 {
+		return strconv.Itoa(n)
+	}
+	return number
 }

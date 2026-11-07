@@ -78,7 +78,7 @@ func (s *Server) answerFile(w http.ResponseWriter, r *http.Request) {
 			questions = append(questions, x)
 		}
 	}
-	entries := service.ParseAnswerFile(ap.Pages)
+	entries := service.ParseDocumentAnswers(a.OriginalFilename, ap.Pages)
 	proposals := service.MatchAnswerFile(questions, entries, in.QuestionSection, in.AnswerSection)
 	qsections, asections := []string{}, []string{}
 	qs, as := map[string]bool{}, map[string]bool{}

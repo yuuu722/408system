@@ -38,7 +38,7 @@ func (s *Server) questionDiagnostics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	candidates := service.ExtractQuestions(d, parsed.Pages, points)
-	entries := service.ParseAnswerFile(parsed.Pages)
+	entries := service.ParseDocumentAnswers(d.OriginalFilename, parsed.Pages)
 	warnings := map[string]int{}
 	issues := map[string]int{}
 	for _, p := range parsed.Pages {
@@ -110,8 +110,21 @@ func (s *Server) questionDiagnostics(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	answers := []map[string]any{}
+	grades := 0
+	ordered := []service.FileAnswer{}
 	for _, a := range entries {
+		if a.Answer >= 0 && !a.Blocked {
+			grades++
+			ordered = append(ordered, a)
+		}
+	}
+	for _, a := range entries {
+		if a.Answer < 0 || a.Blocked {
+			ordered = append(ordered, a)
+		}
+	}
+	answers := []map[string]any{}
+	for _, a := range ordered {
 		if len(answers) >= 5 {
 			break
 		}
@@ -121,5 +134,5 @@ func (s *Server) questionDiagnostics(w http.ResponseWriter, r *http.Request) {
 		}
 		answers = append(answers, map[string]any{"Number": a.Number, "Section": a.Section, "Answer": a.Answer, "Blocked": a.Blocked, "Page": a.Page, "Excerpt": string(q)})
 	}
-	s.reply(w, map[string]any{"DocumentID": d.ID, "Filename": d.OriginalFilename, "Pages": len(parsed.Pages), "FreshCandidates": len(candidates), "AnswerEntries": len(entries), "WarningCounts": warnings, "IssueCounts": issues, "Samples": samples, "AnswerSamples": answers, "Notice": "保存的解析文本样本，不等于PDF页面图片或完整文档；仅用于排查抽取格式、OCR及答案定位。"}, nil)
+	s.reply(w, map[string]any{"DocumentID": d.ID, "Filename": d.OriginalFilename, "Pages": len(parsed.Pages), "FreshCandidates": len(candidates), "AnswerEntries": grades, "AllParsedEntries": len(entries), "BookEvidence": service.StudyBookEvidence(d.OriginalFilename, parsed.Pages), "LayoutStats": service.QuestionReadingOrderStats(parsed.Pages), "WarningCounts": warnings, "IssueCounts": issues, "Samples": samples, "AnswerSamples": answers, "Notice": "保存的解析文本样本，不等于PDF页面图片或完整文档；仅用于排查抽取格式、OCR及答案定位。"}, nil)
 }

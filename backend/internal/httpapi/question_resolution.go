@@ -60,14 +60,27 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 			continue
 		}
 		name := ad.OriginalFilename
-		if ad.ResourceType != "solution" && !strings.Contains(name, "答案") && !strings.Contains(name, "解答") && !strings.Contains(name, "解析") && !strings.Contains(name, "详解") {
+		if ad.ResourceType != "solution" && !strings.Contains(name, "答案") && !strings.Contains(name, "解答") && !strings.Contains(name, "解析") && !strings.Contains(name, "详解") && !service.MaybeCompanionStudyBook(d.OriginalFilename, parsed.Pages, name) {
 			continue
 		}
 		ap, err := s.Platform.DocumentStructure(r.Context(), uid(r), ad.ID)
 		if err != nil {
 			continue
 		}
-		proposals := service.MatchQuestionContent(need, service.ParseAnswerFile(ap.Pages))
+		entries := service.ParseDocumentAnswers(ad.OriginalFilename, ap.Pages)
+		proposals := service.MatchQuestionContent(need, entries)
+		if service.SameQuestionBook(d.OriginalFilename, ad.OriginalFilename) || service.CompanionStudyBooks(d.OriginalFilename, parsed.Pages, ad.OriginalFilename, ap.Pages) {
+			numbered := service.MatchAnswerFile(need, entries, "", "")
+			existing := map[string]bool{}
+			for _, p := range proposals {
+				existing[p.Asset.ID] = true
+			}
+			for _, p := range numbered {
+				if !existing[p.Asset.ID] {
+					proposals = append(proposals, p)
+				}
+			}
+		}
 		if len(proposals) == 0 {
 			continue
 		}
@@ -88,11 +101,18 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 	proofs := map[string]match{}
 	ambiguous := 0
 	for _, choices := range matches {
-		if len(choices) != 1 {
+		m := choices[0]
+		conflict := false
+		for _, other := range choices[1:] {
+			if !service.EquivalentFileAnswers(m.proposal.Answer, other.proposal.Answer) {
+				conflict = true
+				break
+			}
+		}
+		if conflict {
 			ambiguous++
 			continue
 		}
-		m := choices[0]
 		updated := repository.LinkSourceAnswer(m.proposal.Asset, m.source, m.proposal.Answer.Page, m.proposal.Answer.Answer, service.AnswerFileText(m.proposal.Answer))
 		if updated.PointID == "" {
 			updated.PointID = service.MatchQuestionPoint(updated.Payload.Stem+"\n"+updated.Payload.Explanation, points)
