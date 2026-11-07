@@ -14,6 +14,7 @@ import (
 
 func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	s.personalRoutes(mux)
+	mux.Handle("GET /api/v1/documents/{id}/question-diagnostics", s.requireAdmin(http.HandlerFunc(s.questionDiagnostics)))
 	mux.Handle("POST /api/v1/documents/{id}/resolve-answers", s.requireAdmin(http.HandlerFunc(s.resolveQuestionAnswers)))
 	mux.Handle("POST /api/v1/documents/{id}/publish-verified", s.requireAdmin(http.HandlerFunc(s.publishVerifiedQuestions)))
 	mux.Handle("GET /api/v1/knowledge-bases/{id}/question-inventory", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

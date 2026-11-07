@@ -82,6 +82,7 @@ class BatchTests(unittest.TestCase):
                     self.rounds+=1
                     return {'Published':1 if self.rounds==1 else 0,'Skipped':[]}
                 if route.endswith('/question-inventory'): return []
+                if route.endswith('/question-diagnostics'): return {'DocumentID': 'q', 'Samples': []}
                 raise AssertionError(route)
         with tempfile.TemporaryDirectory() as tmp:
             api=API()
@@ -89,6 +90,44 @@ class BatchTests(unittest.TestCase):
             self.assertEqual(report['Summary']['AutoPublished'],1)
             self.assertLess(api.calls.index('/documents/q/resolve-answers'),api.calls.index('/documents/q/publish-verified'))
             self.assertFalse(any('assets/' in x for x in api.calls), 'never force client-supplied ready flags')
+
+    def test_auto_detection_does_not_skip_other_books_or_combined_solutions(self):
+        docs = [dict(Q, ID='other', OriginalFilename='2026操作系统.pdf', ResourceType='other'),
+                dict(A, ID='combined', OriginalFilename='2009-2023 真题与解析打印版408.pdf'),
+                dict(Q, ID='outline', OriginalFilename='2024年408考研大纲.pdf', ResourceType='other')]
+        class API:
+            def __init__(self): self.organized=[]
+            def request(self,method,route,body=None):
+                if route.endswith('/organize'):
+                    assert body['AutoDetect'] is True
+                    self.organized.append(route)
+                    return {'candidates':1}
+                if route.endswith('/catalog'): raise AssertionError('must not blindly change purpose before detection')
+                if route.endswith('/resolve-answers'): return {'Resolved':0}
+                if route.endswith('/publish-verified'): return {'Published':0}
+                if route.endswith('/question-inventory'): return []
+                if route.endswith('/question-diagnostics'): return {'Samples':[]}
+                raise AssertionError(route)
+        with tempfile.TemporaryDirectory() as tmp:
+            api=API()
+            result=m.execute(api,'kb',docs,{},[],True,Path(tmp),auto_publish=True)
+            self.assertEqual(set(api.organized),{'/documents/other/organize','/documents/combined/organize'})
+            self.assertIn('考试大纲',result['Documents'][2]['Action'])
+            self.assertTrue((Path(tmp)/'diagnostics.json').exists())
+
+    def test_diagnostics_only_is_read_only_and_excludes_syllabus(self):
+        class API:
+            def request(self,method,route,body=None):
+                assert method=='GET' and route.endswith('/question-diagnostics')
+                assert 'outline' not in route
+                return {'Samples':[{'Text':'保存的原文样本'}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            folder=Path(tmp)
+            (folder/'report.json').write_text('previous report')
+            path,errors=m.collect_diagnostics(API(),'kb',[Q,dict(Q,ID='outline',OriginalFilename='2024年408大纲.pdf')],folder)
+            self.assertEqual(errors,0)
+            self.assertEqual((folder/'report.json').read_text(),'previous report')
+            self.assertEqual(len(json.loads(path.read_text())['Documents']),1)
 
     def test_manual_mapping_rejects_foreign_and_duplicate_ids(self):
         with tempfile.TemporaryDirectory() as tmp:

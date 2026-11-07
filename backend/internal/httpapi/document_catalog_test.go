@@ -473,6 +473,44 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.Equal(t, 0, rows[0].Payload.Answer)
 	})
 
+	t.Run("auto detect includes knowledge-only other books and leaves non-question documents unchanged", func(t *testing.T) {
+		makeDoc := func(filename, text string) domain.Document {
+			d, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: filename, OriginalFilename: filename, ResourceType: "other", Purpose: "knowledge", Status: "ready"})
+			require.NoError(t, err)
+			require.NoError(t, store.SaveCatalog(ctx, editor.ID, domain.DocumentCatalog{DocumentID: d.ID, ResourceType: "other", SubjectCode: "os", Purpose: "knowledge", ReviewState: "pending"}))
+			parsed := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: text}}}
+			require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, d.ID, parsed, nil))
+			return d
+		}
+		doc := makeDoc("2026操作系统.pdf", "1. 虚拟内存的特点是什么？\nA. 按需调入 B. 全部常驻\n答案：A\n解析：程序可以按需分多次调入内存，而不必全部驻留。")
+		var result struct {
+			Candidates int
+			Catalog    domain.DocumentCatalog
+		}
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/documents/"+doc.ID+"/organize", token, map[string]any{"AutoDetect": true}, 200), &result))
+		require.Equal(t, 1, result.Candidates)
+		require.Equal(t, "both", result.Catalog.Purpose)
+		require.Equal(t, "other", result.Catalog.ResourceType)
+		require.Equal(t, "os", result.Catalog.SubjectCode)
+		note := makeDoc("只有知识讲解.pdf", "本节说明虚拟内存的基本概念，没有编号选择题。")
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/documents/"+note.ID+"/organize", token, map[string]any{"AutoDetect": true}, 200), &result))
+		require.Zero(t, result.Candidates)
+		require.Equal(t, "knowledge", result.Catalog.Purpose)
+		route := "/api/v1/documents/" + doc.ID + "/question-diagnostics"
+		call("GET", route, stoken, nil, 403)
+		var diagnostic struct {
+			FreshCandidates, AnswerEntries int
+			Samples                        []struct{ Text string }
+		}
+		require.NoError(t, json.Unmarshal(call("GET", route, token, nil, 200), &diagnostic))
+		require.Equal(t, 1, diagnostic.FreshCandidates)
+		require.NotEmpty(t, diagnostic.Samples)
+		require.Contains(t, diagnostic.Samples[0].Text, "虚拟内存")
+		var privateID string
+		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM documents WHERE user_id=$1 AND knowledge_base_id IN (SELECT id FROM knowledge_bases WHERE NOT is_public) LIMIT 1`, student.ID).Scan(&privateID))
+		call("GET", "/api/v1/documents/"+privateID+"/question-diagnostics", token, nil, 404)
+	})
+
 	t.Run("directory links include ancestors without claiming textbook evidence", func(t *testing.T) {
 		var child domain.KnowledgePoint
 		for _, point := range points {
