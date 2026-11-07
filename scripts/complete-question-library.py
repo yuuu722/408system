@@ -5,12 +5,16 @@ Completeness is a structural check, never a proof of answer correctness.
 import argparse
 import csv
 import getpass
+import io
+import os
 import importlib.util
 import json
 import re
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
+import uuid
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location('answer_pair', Path(__file__).with_name('pair-answer-files.py'))
@@ -128,31 +132,60 @@ def mappings(path, docs):
     return result
 
 
+# Reuse the alternate path on later checkpoints instead of making hundreds of files.
+REPORT_PATHS = {}
+
+
+def write_report_file(path, text, encoding):
+    target = REPORT_PATHS.get(path, path)
+    tmp = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode='w', encoding=encoding, newline='',
+                                         dir=path.parent, prefix=path.name + '.',
+                                         suffix='.tmp', delete=False) as f:
+            tmp = Path(f.name)
+            f.write(text)
+        try:
+            tmp.replace(target)
+        except PermissionError:
+            # Windows denies replacing a CSV open in Excel/WPS. Never truncate it.
+            target = path.with_name(f'{path.stem}-latest-{uuid.uuid4().hex[:12]}{path.suffix}')
+            tmp.replace(target)
+            print(f'报告文件被占用或禁止替换，已另存：{target.resolve()}；原文件不是最新结果。', flush=True)
+        REPORT_PATHS[path] = target
+        return target
+    except OSError as exc:
+        raise RuntimeError(f'无法保存报告：{path.resolve()}（{type(exc).__name__}）；'
+                           '已完成的数据处理保留。请关闭报告文件，或用 --report-dir 指定可写的新目录后重跑。') from None
+    finally:
+        if tmp is not None:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def csv_report(fields, rows):
+    buffer = io.StringIO(newline='')
+    writer = csv.DictWriter(buffer, fieldnames=fields)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: ("'" + str(v) if str(v).lstrip().startswith(('=', '+', '-', '@')) else v)
+                         for k in fields for v in [row.get(k, '')]})
+    return buffer.getvalue()
+
+
 def save_report(folder, report):
-    folder.mkdir(parents=True, exist_ok=True)
-    tmp = folder / 'report.json.tmp'
-    tmp.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding='utf-8')
-    tmp.replace(folder / 'report.json')
+    write_report_file(folder / 'report.json', json.dumps(report, ensure_ascii=False, indent=2), 'utf-8')
     fields = ['AssetID', 'DocumentID', 'Filename', 'Number', 'Section', 'Page',
               'Complete', 'Status', 'ReviewStatus', 'Missing']
-    tmp = folder / 'questions.csv.tmp'
-    with tmp.open('w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        for row in report.get('Questions', []):
-            writer.writerow({k: ("'" + str(v) if str(v).lstrip().startswith(('=', '+', '-', '@'))
-                                 else v) for k, v in row.items()})
-    tmp.replace(folder / 'questions.csv')
+    write_report_file(folder / 'questions.csv', csv_report(fields, report.get('Questions', [])), 'utf-8-sig')
     doc_fields = ['DocumentID', 'Filename', 'Status', 'Action', 'QuestionCount', 'NeedsReview', 'Error']
-    with (folder / 'documents.csv').open('w', encoding='utf-8-sig', newline='') as f:
-        writer = csv.DictWriter(f, fieldnames=doc_fields)
-        writer.writeheader()
-        for row in report.get('Documents', []):
-            writer.writerow({k: ("'" + str(v) if str(v).lstrip().startswith(('=', '+', '-', '@')) else v)
-                             for k in doc_fields for v in [row.get(k, '')]})
+    write_report_file(folder / 'documents.csv', csv_report(doc_fields, report.get('Documents', [])), 'utf-8-sig')
     template = folder / 'pairs-template.csv'
-    if not template.exists():
-        template.write_text('QuestionDocumentID,AnswerDocumentID,QuestionSection,AnswerSection\n', encoding='utf-8-sig')
+    if not template.exists() and template not in REPORT_PATHS:
+        write_report_file(template, 'QuestionDocumentID,AnswerDocumentID,QuestionSection,AnswerSection\n', 'utf-8-sig')
 
 
 def execute(api, kb, docs, catalogs, manual, apply, folder):
@@ -268,7 +301,9 @@ def main():
     folder = Path(args.report_dir)
     report = execute(api, kb, docs, catalogs, manual, args.apply, folder)
     print(('已处理' if args.apply else '仅预览') + '；' + json.dumps(report['Summary'], ensure_ascii=False))
-    print(f'逐题缺项：{folder.resolve() / "questions.csv"}；逐文件结果：report.json')
+    for name in ['questions.csv', 'documents.csv', 'report.json']:
+        path = folder / name
+        print(f'{name} 最新结果：{REPORT_PATHS.get(path, path).resolve()}')
     print('缺失题目、答案、解析或歧义项见报告；完整候选仍需核对并发布后才进入学生练习。')
     if any(x.get('Error') for x in report['Documents'] + report['Pairs']):
         raise SystemExit(1)

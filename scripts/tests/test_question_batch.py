@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('question_batch', Path(__file__).parents[1] / 'complete-question-library.py')
 m = importlib.util.module_from_spec(spec)
@@ -92,5 +93,32 @@ class BatchTests(unittest.TestCase):
                 self.assertTrue(next(csv.DictReader(f))['Filename'].startswith("'="))
             self.assertFalse((folder/'report.json.tmp').exists())
             self.assertIn('Questions',json.loads((folder/'report.json').read_text()))
+
+    def test_locked_reports_are_saved_elsewhere_and_reused(self):
+        original_replace = Path.replace
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            for name in ['questions.csv', 'documents.csv', 'report.json']:
+                (folder / name).write_text('locked original', encoding='utf-8')
+            def locked_replace(source, target):
+                if Path(target).name in {'questions.csv', 'documents.csv', 'report.json'}:
+                    raise PermissionError('simulated Windows file lock')
+                return original_replace(source, target)
+            with patch.object(Path, 'replace', locked_replace):
+                m.save_report(folder, {'Questions': [], 'Documents': [], 'checkpoint': 1})
+                first = dict(m.REPORT_PATHS)
+                m.save_report(folder, {'Questions': [], 'Documents': [], 'checkpoint': 2})
+            for name in ['questions.csv', 'documents.csv', 'report.json']:
+                self.assertEqual((folder/name).read_text(), 'locked original')
+                self.assertEqual(m.REPORT_PATHS[folder/name], first[folder/name])
+                self.assertTrue(first[folder/name].exists())
+            self.assertEqual(json.loads(first[folder/'report.json'].read_text())['checkpoint'], 2)
+            self.assertFalse(list(folder.glob('*.tmp')))
+
+    def test_unwritable_report_directory_has_actionable_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(m.tempfile, 'NamedTemporaryFile', side_effect=PermissionError('denied')):
+                with self.assertRaisesRegex(RuntimeError, '--report-dir'):
+                    m.save_report(Path(tmp), {})
 
 if __name__ == '__main__': unittest.main()
