@@ -35,8 +35,10 @@ func TestOriginalPageLayoutRecoveryUsesStoredFileAndPreservesFormula(t *testing.
 }
 func TestOnlyDetachedNumbersWithoutBoxesNeedOriginalLayoutRead(t *testing.T) {
 	pages := []TextPage{{Number: 1, Text: "01.\n02.\nQuestion bodies separated from their column"}, {Number: 2, Text: "1. A normal question?\nA. First B. Second"}, {Number: 3, Segment: 1, Text: "01.\n02."}}
-	require.Equal(t, []int{1}, MissingQuestionLayoutPages(pages))
+	require.Equal(t, []int{1, 3}, MissingQuestionLayoutPages(pages))
 	pages[0].Blocks = []domain.DocumentBlock{{Box: []float64{0, 0, 1, 1}}}
+	require.Equal(t, []int{3}, MissingQuestionLayoutPages(pages))
+	pages = append(pages, TextPage{Number: 3, Segment: 2, Text: "same physical page continued"})
 	require.Empty(t, MissingQuestionLayoutPages(pages))
 }
 

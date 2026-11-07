@@ -75,6 +75,12 @@ func (s *Server) repairQuestionLayout(w http.ResponseWriter, r *http.Request) {
 			view.Failed = append(view.Failed, failure)
 			continue
 		}
+		for _, original := range base.Pages {
+			if original.Number == n {
+				p.Segment = original.Segment
+				break
+			}
+		}
 		view.Pages = append(view.Pages, p)
 		repaired++
 	}

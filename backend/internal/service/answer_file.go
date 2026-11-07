@@ -133,7 +133,10 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 			// Compact answer tables: each entry is cited separately, no explanation
 			// from a neighboring answer is silently attached.
 			entries := compactAnswers.FindAllStringSubmatch(line, -1)
-			if len(entries) > 1 {
+			residue := compactAnswers.ReplaceAllString(line, "")
+			residue = strings.NewReplacer("参考答案", "", "答案", "").Replace(residue)
+			compactOnly := strings.Trim(residue, " \t|,，;；:：[]【】()（）.。") == ""
+			if len(entries) > 1 && compactOnly {
 				flush()
 				for _, e := range entries {
 					out = append(out, FileAnswer{Number: canonicalAnswerNumber(e[1]), Section: section, Answer: strings.Index("ABCDEF", strings.NewReplacer("Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(e[2])), Page: page.Number, Quote: strings.TrimSpace(e[0]), Blocked: questionSpanWarning(page, from, to)})

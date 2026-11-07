@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var diagnosticAnswerHeading = regexp.MustCompile(`(?m)^\s*(?:(?:第\s*[一二三四五六七八九十0-9]+\s*套|模拟卷[一二三四五六七八九十0-9]+|卷\s*[AB])[^\n]{0,20})?(?:参考答案(?:[与及和](?:解析|要点))?|答案与解析|答案解析|参考解答|答案与参考要点|答案与参考解析)\s*[:：]?\s*$`)
+
 var diagnosticChoiceMark = regexp.MustCompile(`(?m)(?:^|\s)[（(]?[AＡ](?:[.．、)）:：]|[ \t]*$)`)
 
 // A bounded diagnostic of already stored public parses, never a reparse or an
@@ -79,12 +81,21 @@ func (s *Server) questionDiagnostics(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-	for i, p := range parsed.Pages {
-		if strings.Contains(p.Text, "答案") || strings.Contains(p.Text, "解析") || strings.Contains(p.Text, "解答") {
-			add(i, "首次出现答案或解析的保存文本")
+	for i := len(parsed.Pages) - 1; i >= 0; i-- {
+		if diagnosticAnswerHeading.MatchString(parsed.Pages[i].Text) {
+			add(i, "末尾明确答案区标题样本")
 			break
 		}
 	}
+	// The cover's “see answers at the end” is not an answer section.
+	// Always expose the final nonempty page before generic middle samples.
+	for i := len(parsed.Pages) - 1; i >= 0; i-- {
+		if strings.TrimSpace(parsed.Pages[i].Text) != "" {
+			add(i, "文档末尾非空页（核对答案实际格式）")
+			break
+		}
+	}
+
 	for i, p := range parsed.Pages {
 		if len(p.Warnings) > 0 {
 			add(i, "解析警告样本")

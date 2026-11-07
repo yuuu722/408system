@@ -85,8 +85,12 @@ func RecoverQuestionPageLayout(ctx context.Context, path string, page int) (Text
 func MissingQuestionLayoutPages(pages []TextPage) []int {
 	out := []int{}
 	seen := map[int]bool{}
+	counts := map[int]int{}
 	for _, p := range pages {
-		if p.Number < 1 || p.Segment != 0 || seen[p.Number] {
+		counts[p.Number]++
+	}
+	for _, p := range pages {
+		if p.Number < 1 || counts[p.Number] != 1 || seen[p.Number] {
 			continue
 		}
 		n := 0

@@ -394,6 +394,28 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM knowledge_bases WHERE user_id=$1 AND NOT is_public LIMIT 1`, student.ID).Scan(&personalID))
 		call("GET", "/api/v1/knowledge-bases/"+personalID+"/question-inventory", token, nil, 404)
 	})
+	t.Run("mock paper repeated question one publishes with its own suite answer", func(t *testing.T) {
+		doc, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "suites.txt", OriginalFilename: "三套模拟卷.txt", ResourceType: "past_exam", Purpose: "questions", Status: "ready"})
+		require.NoError(t, err)
+		parsed := domain.ParsedDocument{Pages: []service.TextPage{{Number: 2, Segment: 1, Text: "第 1 套：模拟卷一\n1. 虚拟内存采用什么方式？\nA. 按需装入 B. 全部常驻"}, {Number: 3, Segment: 2, Text: "第 2 套：模拟卷二\n1. 虚拟内存允许什么行为？\nA. 全部常驻 B. 按需调入"}, {Number: 4, Segment: 3, Text: "模拟卷一 参考答案与要点\n1. A\n解析：虚拟内存利用局部性原理，允许程序分多次调入内存运行。\n模拟卷二 参考答案与要点\n1. B\n解析：虚拟内存只需将当前运行的程序和数据按需调入内存。"}}}
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, doc.ID, parsed, service.ExtractQuestions(doc, parsed.Pages, points)))
+		var result struct{ Published int }
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/documents/"+doc.ID+"/publish-verified", token, nil, 200), &result))
+		require.Equal(t, 2, result.Published)
+		rows, err := store.DocumentQuestionAssets(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		require.Len(t, rows, 2)
+		for _, a := range rows {
+			require.Equal(t, "ready", a.Status)
+			if a.Payload.SectionKey == "试卷:1" {
+				require.Equal(t, 0, a.Payload.Answer)
+			} else {
+				require.Equal(t, "试卷:2", a.Payload.SectionKey)
+				require.Equal(t, 1, a.Payload.Answer)
+			}
+		}
+	})
+
 	t.Run("automatic publication uses same-book source explanation and never approves gaps", func(t *testing.T) {
 		doc, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "auto.txt", OriginalFilename: "自动整理习题.txt", ResourceType: "exercise", Purpose: "questions", Status: "ready"})
 		require.NoError(t, err)

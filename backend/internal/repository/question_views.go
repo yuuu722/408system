@@ -8,7 +8,7 @@ import (
 	"github.com/local/exam408-assistant/backend/internal/domain"
 )
 
-const QuestionViewVersion = "question-layout-v1"
+const QuestionViewVersion = "question-layout-v2"
 
 type QuestionView struct {
 	RevisionID, BaseFingerprint, SourceHash, ParserVersion string

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"regexp"
 	"strings"
@@ -10,6 +11,9 @@ var spacedChapter = regexp.MustCompile(`^第\s*([一二三四五六七八九十�
 var questionFooter = regexp.MustCompile(`^[·•—\-\s]*(?:第\s*[0-9]+\s*页(?:[，, ]*共\s*[0-9]+\s*页|\s*[（(]共\s*[0-9]+\s*页[）)])?|[0-9]+\s*页)[·•—\-\s]*$`)
 var trailingBookReference = regexp.MustCompile(`[（(]?答案\s*见\s*(?:原书|教材|课本|本书).*$`)
 var explicitAnswerSection = regexp.MustCompile(`^(?:(?:参考)?答案(?:与|及|和)?解析|(?:参考)?答案|习题解答|答案详解|试题解析|解析)[:：]?(?:[·.。…\s]*[0-9]+)?$`)
+var explicitPaperScope = regexp.MustCompile(`^(?:第\s*([一二三四五六七八九十0-9]+)\s*套|模拟卷\s*([一二三四五六七八九十0-9]+)|卷\s*([ABab]))(?:[：:、 \t]|$|参考|答案|解析)`)
+var ipv4Heading = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+`)
+
 var fullwidthQuestionText = strings.NewReplacer("０", "0", "１", "1", "２", "2", "３", "3", "４", "4", "５", "5", "６", "6", "７", "7", "８", "8", "９", "9", "Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F", "　", " ")
 
 func questionLine(line string) string { return strings.TrimSpace(fullwidthQuestionText.Replace(line)) }
@@ -19,6 +23,25 @@ func questionLine(line string) string { return strings.TrimSpace(fullwidthQuesti
 func questionHeading(line string) (scope string, answer bool, ok bool) {
 	line = questionLine(line)
 	if len([]rune(line)) >= 80 || strings.ContainsAny(line, "。！？?") {
+		return
+	}
+	if m := explicitPaperScope.FindStringSubmatch(line); m != nil {
+		token := m[1]
+		if token == "" {
+			token = m[2]
+		}
+		if token == "" {
+			token = strings.ToUpper(m[3])
+		}
+		for i, v := range []string{"一", "二", "三", "四", "五", "六", "七", "八", "九", "十"} {
+			if token == v {
+				token = fmt.Sprint(i + 1)
+				break
+			}
+		}
+		return "试卷:" + token, strings.Contains(line, "答案") || strings.Contains(line, "解析"), true
+	}
+	if ipv4Heading.MatchString(line) {
 		return
 	}
 	if m := spacedChapter.FindStringSubmatchIndex(line); m != nil {

@@ -15,7 +15,7 @@ var multipleNumberedAnswer = regexp.MustCompile(`(?:^|\s)([0-9０-９]{1,4})\s*[
 var inlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:人参考答案|参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*([A-F])(?:\s|$|[.。，；;【)）])`)
 var questionSection = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+[章节]|[0-9]+\.[0-9]+(?:\.[0-9]+)?)`)
 
-var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+[、.． ]*)?(?:(?:参考)?答案(?:[与及和]?解析)?|习题(?:参考)?解答|习题答案与解析|试题解析|答案详解)[:：]?$`)
+var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+[、.． ]*)?(?:答案与参考要点|答案与参考解析|单项选择题参考答案|(?:参考)?答案(?:[与及和]?解析)?|习题(?:参考)?解答|习题答案与解析|试题解析|答案详解)[:：]?$`)
 
 var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F])(?:\s|$|[，,；;])`)
 
