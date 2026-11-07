@@ -10,7 +10,7 @@ var workedEquation = regexp.MustCompile(`[0-9].*[=＝].*[0-9]`)
 var explanationWords = regexp.MustCompile(`[A-Za-z]{2,}`)
 
 // HasQuestionExplanation checks for substantive text, not semantic correctness.
-// A compact answer list is not an explanation. Human source review is still needed.
+// A compact answer list is not an explanation. Source verification is a separate publication step.
 func HasQuestionExplanation(text string) bool {
 	text = strings.TrimSpace(text)
 	for _, marker := range []string{"【解析】", "解析：", "解析:"} {

@@ -8,13 +8,13 @@ import (
 )
 
 var questionHead = regexp.MustCompile(`^\s*[（(]?\s*(\d{1,4})\s*[.．、)）]\s*(.*)$`)
-var optionMark = regexp.MustCompile(`(?m)(?:^|\s)([A-F])(?:[.．、)）:：]\s*|[ \t]+|[ \t]*$)`)
+var optionMark = regexp.MustCompile(`(?m)(?:^|\s)[（(]?([A-F])(?:[.．、)）:：]\s*|[ \t]+|[ \t]*$)`)
 var multipleInlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*[A-F](?:[、,，和及与 \t]*[A-F])+(?:\s|$|[.。，；;【)）])`)
 var multipleNumberedAnswer = regexp.MustCompile(`(?:^|\s)([0-9０-９]{1,4})\s*[.．、):：]\s*[A-FＡ-Ｆ](?:[、,，和及与 \t]*[A-FＡ-Ｆ])+(?:\s|$|[.。，；;【)）])`)
 var inlineAnswer = regexp.MustCompile(`(?:[【（(]\s*)?(?:参考答案|正确答案|答案)[】）)]?\s*(?:[:：]|为|是)?\s*[（(]?\s*([A-F])(?:\s|$|[.。，；;【)）])`)
 var questionSection = regexp.MustCompile(`^(第[一二三四五六七八九十百0-9]+[章节]|[0-9]+\.[0-9]+(?:\.[0-9]+)?)`)
 
-var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+[、.． ]*)?(?:参考)?答案(?:[与及和]?解析)?[:：]?$`)
+var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+[、.． ]*)?(?:(?:参考)?答案(?:[与及和]?解析)?|习题(?:参考)?解答|习题答案与解析|试题解析|答案详解)[:：]?$`)
 
 var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F])(?:\s|$|[，,；;])`)
 
@@ -33,6 +33,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 	key := func(scope, number string) string { return scope + "#" + number }
 	answers := map[string][]int{}
 	answerPages := map[string]int{}
+	answerTextPages := []TextPage{}
 	flush := func() {
 		if current != nil {
 			candidates = append(candidates, *current)
@@ -70,12 +71,17 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		}
 	}
 	for _, page := range pages {
+		filtered := page
+		filteredLines := []string{}
 		lineOffset := 0
 		// A continuation may contain only a figure or a failed OCR region.
 		if strings.TrimSpace(page.Text) == "" && !answerMode {
 			attachPage(page, 0, len([]rune(page.Text)))
 		}
 		for _, line := range strings.Split(page.Text, "\n") {
+			originalLine := line
+			filteredLines = append(filteredLines, strings.Repeat(" ", len([]rune(line))))
+			setAnswerLine := func() { filteredLines[len(filteredLines)-1] = originalLine }
 			from, to := lineOffset, lineOffset+len([]rune(line))
 			lineOffset = to + 1
 			line = strings.ReplaceAll(strings.TrimSpace(line), "　", " ")
@@ -86,6 +92,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			if heading := questionSection.FindString(line); heading != "" && len([]rune(line)) < 80 && !strings.ContainsAny(line, "。！？?") {
 				flush()
 				section = heading
+				setAnswerLine()
 				answerMode = strings.Contains(line, "答案") || strings.Contains(line, "解析")
 				continue
 			}
@@ -93,9 +100,11 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			if answerHeading.MatchString(line) {
 				flush()
 				answerMode = true
+				setAnswerLine()
 				continue
 			}
 			if answerMode {
+				setAnswerLine()
 				// A partial/failed answer page must not become a source of automatic grades.
 				if hasQuestionExtractionWarning(page.Warnings) {
 					continue
@@ -120,6 +129,8 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			}
 			attachPage(page, from, to)
 		}
+		filtered.Text = strings.Join(filteredLines, "\n")
+		answerTextPages = append(answerTextPages, filtered)
 	}
 	flush()
 	numberCount := map[string]int{}
@@ -130,8 +141,8 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 	seenContent := map[string]bool{}
 	for _, c := range candidates {
 		marks := optionMark.FindAllStringSubmatchIndex(c.body, -1)
-		// Numbered prose in textbooks is not a question; retain suspicious question-like incomplete items only.
-		if len(marks) == 0 {
+		// Numbered prose alone is not a choice question; validate the complete option sequence below.
+		if len(marks) < 2 {
 			continue
 		}
 		a := domain.Asset{Kind: "question", Title: fmt.Sprintf("%s · 第%s题", d.OriginalFilename, c.number), Payload: domain.AssetPayload{QuestionNumber: c.number, SectionKey: c.section, Answer: -1, AnswerOrigin: "ai_pending", Difficulty: 1, DocumentID: d.ID, Page: c.page, Source: fmt.Sprintf("%s，第%d页，第%s题", d.OriginalFilename, c.page, c.number), Images: c.images, Issue: c.issue, QuestionOrigin: "extracted"}}
@@ -143,12 +154,13 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			a.Payload.AnswerOrigin = "source"
 			a.Payload.Explanation = strings.TrimSpace(body[m[3]:])
 			body = body[:m[0]]
-			marks = optionMark.FindAllStringSubmatchIndex(body, -1)
+			marks = questionOptionMarks(body)
 		} else if numberCount[key(c.section, c.number)] == 1 && len(answers[key(c.section, c.number)]) == 1 {
 			a.Payload.Answer = answers[key(c.section, c.number)][0]
 			a.Payload.AnswerOrigin = "source"
 			a.Payload.Source += fmt.Sprintf("；答案第%d页", answerPages[key(c.section, c.number)])
 		}
+		marks = questionOptionMarks(body)
 		if len(marks) > 0 {
 			a.Payload.Stem = strings.TrimSpace(body[:marks[0][0]])
 			for j, m := range marks {
@@ -180,6 +192,20 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 				a.PointID = p.ID
 			}
 		}
+		// Only actual choice questions become assets; numbered prose, variable
+		// names and fragments with empty stems/options are not quiz candidates.
+		if strings.TrimSpace(a.Payload.Stem) == "" || len(a.Payload.Options) < 2 {
+			continue
+		}
+		empty := false
+		for _, option := range a.Payload.Options {
+			if strings.TrimSpace(option) == "" {
+				empty = true
+			}
+		}
+		if empty {
+			continue
+		}
 		domain.PrepareAsset(&a)
 		a.Payload.DifficultyOrigin = "unknown"
 		identity := digest(a.Payload.Stem + "\n" + strings.Join(a.Payload.Options, "\n") + "\n" + strings.Join(a.Payload.Images, "\n"))
@@ -191,7 +217,76 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		a.Payload.FamilyID = d.ID + ":" + identity
 		out = append(out, a)
 	}
+	// Answers at the back of the same book carry their worked explanation,
+	// not just a grade letter. Repeated chapter+number identities remain blocked.
+	entries := ParseAnswerFile(answerTextPages)
+	for _, pair := range MatchAnswerFile(out, entries, "", "") {
+		for i := range out {
+			a := &out[i]
+			if a.Payload.ExtractionKey != pair.Asset.Payload.ExtractionKey {
+				continue
+			}
+			if pair.Answer.Answer < 0 || pair.Answer.Answer >= len(a.Payload.Options) {
+				continue
+			}
+			if a.Payload.AnswerOrigin == "source" && a.Payload.Answer != pair.Answer.Answer {
+				a.Payload.Issue = "同文件答案冲突"
+				a.Status = "unavailable"
+				continue
+			}
+			a.Payload.Answer = pair.Answer.Answer
+			a.Payload.AnswerOrigin = "source"
+			a.Payload.Explanation = AnswerFileText(pair.Answer)
+			if a.PointID == "" {
+				a.PointID = MatchQuestionPoint(a.Payload.Stem+"\n"+a.Payload.Explanation, points)
+				if a.PointID != "" && strings.HasPrefix(a.Payload.Issue, "未匹配知识点") {
+					a.Payload.Issue = ""
+				}
+			}
+			a.Payload.Source += fmt.Sprintf("；同文件解析第%d页", pair.Answer.Page)
+			a.Payload.Evidence = []domain.Citation{{DocumentID: d.ID, DocumentTitle: d.OriginalFilename, RevisionID: d.ActiveRevisionID, Page: pair.Answer.Page, Excerpt: pair.Answer.Quote, LocationQuality: "page"}}
+			for _, extra := range pair.Answer.Extra {
+				a.Payload.Evidence = append(a.Payload.Evidence, domain.Citation{DocumentID: d.ID, DocumentTitle: d.OriginalFilename, RevisionID: d.ActiveRevisionID, Page: extra.Page, Excerpt: extra.Quote, LocationQuality: "page"})
+			}
+			domain.PrepareAsset(a)
+		}
+	}
 	return out
+}
+
+// Pick a contiguous A,B,... option sequence. An A variable in the question
+// stem or a lone B in numbered textbook prose is not an option list.
+func questionOptionMarks(body string) [][]int {
+	all := optionMark.FindAllStringSubmatchIndex(body, -1)
+	for i, m := range all {
+		if body[m[2]] != 'A' || strings.TrimSpace(body[:m[0]]) == "" {
+			continue
+		}
+		// Bare inline letters need an actual question cue. In prose, "A 与 B"
+		// denotes variables; line-start labels and punctuated A. remain valid.
+		prefix := body[:m[2]]
+		lineStart := strings.TrimSpace(prefix[strings.LastIndex(prefix, "\n")+1:]) == ""
+		punctuated := strings.ContainsAny(body[m[3]:m[1]], ".．、)）:：")
+		cue := strings.ContainsAny(body[:m[0]], "?？")
+		for _, term := range []string{"下列", "正确", "错误", "选择", "以下", "( )", "（ ）", "()", "（）"} {
+			cue = cue || strings.Contains(body[:m[0]], term)
+		}
+		if !lineStart && !punctuated && !cue {
+			continue
+		}
+
+		selected := [][]int{m}
+		for _, n := range all[i+1:] {
+			if body[n[2]] != byte('A'+len(selected)) {
+				break
+			}
+			selected = append(selected, n)
+		}
+		if len(selected) >= 2 && len(selected) == len(all)-i {
+			return selected
+		}
+	}
+	return nil
 }
 
 // Pagination notices describe Word rendering, not lost question content.

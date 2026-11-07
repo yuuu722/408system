@@ -394,6 +394,85 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.NoError(t, store.DB.QueryRow(ctx, `SELECT id FROM knowledge_bases WHERE user_id=$1 AND NOT is_public LIMIT 1`, student.ID).Scan(&personalID))
 		call("GET", "/api/v1/knowledge-bases/"+personalID+"/question-inventory", token, nil, 404)
 	})
+	t.Run("automatic publication uses same-book source explanation and never approves gaps", func(t *testing.T) {
+		doc, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "auto.txt", OriginalFilename: "自动整理习题.txt", ResourceType: "exercise", Purpose: "questions", Status: "ready"})
+		require.NoError(t, err)
+		parsed := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: "第一章 内存管理\n1. 虚拟内存的特点是什么？\nA. 按需装入 B. 全部常驻\n2. 虚拟内存采用哪种方式？\nA. 一次性 B. 按需装入\n参考答案与解析\n1. A【解析】虚拟内存利用局部性原理，允许程序分多次调入内存运行。\n2. B"}}}
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, doc.ID, parsed, service.ExtractQuestions(doc, parsed.Pages, points)))
+		route := "/api/v1/documents/" + doc.ID + "/publish-verified"
+		call("POST", route, stoken, nil, 403)
+		var result struct {
+			Published int
+			Skipped   []any
+		}
+		require.NoError(t, json.Unmarshal(call("POST", route, token, nil, 200), &result))
+		require.Equal(t, 1, result.Published)
+		require.Len(t, result.Skipped, 1)
+		require.NoError(t, json.Unmarshal(call("POST", route, token, nil, 200), &result))
+		require.Zero(t, result.Published, "rerun cannot republish or increment existing approved questions")
+		rows, err := store.DocumentQuestionAssets(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		require.Len(t, rows, 2)
+		for _, a := range rows {
+			if a.Payload.QuestionNumber == "1" {
+				require.Equal(t, "ready", a.Status)
+			} else {
+				require.NotEqual(t, "ready", a.Status)
+			}
+		}
+		// A forged explanation which merely has enough words does not pass source verification.
+		_, err = store.DB.Exec(ctx, `UPDATE learning_assets SET payload=jsonb_set(payload,'{Explanation}','"这是一段没有原文依据的伪造完整解析，不应发布。"') WHERE document_id=$1 AND payload->>'QuestionNumber'='2'`, doc.ID)
+		require.NoError(t, err)
+		require.NoError(t, json.Unmarshal(call("POST", route, token, nil, 200), &result))
+		require.Zero(t, result.Published)
+		// Source changes between validation and commit must abort publication.
+		var pending domain.Asset
+		rows, err = store.DocumentQuestionAssets(ctx, editor.ID, doc.ID)
+		require.NoError(t, err)
+		for _, a := range rows {
+			if a.Payload.QuestionNumber == "2" {
+				pending = a
+			}
+		}
+		pending.Payload.ReviewStatus = "published"
+		pending.Payload.Issue = ""
+		changed := parsed
+		changed.Pages = append([]service.TextPage(nil), parsed.Pages...)
+		changed.Pages[0].Text += "\n来源变化"
+		rawChanged, _ := json.Marshal(changed)
+		_, err = store.DB.Exec(ctx, `UPDATE document_parses SET payload=$2 WHERE document_id=$1`, doc.ID, rawChanged)
+		require.NoError(t, err)
+		_, err = store.PublishVerifiedQuestions(ctx, editor.ID, doc, []domain.Asset{pending}, map[string]repository.QuestionSourceSnapshot{doc.ID: {Document: doc, Parsed: parsed}})
+		require.Error(t, err)
+	})
+
+	t.Run("different answer filename and number resolve by complete content then automatically publish", func(t *testing.T) {
+		q, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "contentq.txt", OriginalFilename: "独立题册.txt", ResourceType: "exercise", Purpose: "questions", Status: "ready"})
+		require.NoError(t, err)
+		source, err := store.CreateDocument(ctx, domain.Document{UserID: editor.ID, KnowledgeBaseID: kb.ID, Filename: "contenta.txt", OriginalFilename: "另一个书名的习题详解.txt", ResourceType: "solution", Purpose: "knowledge", Status: "ready"})
+		require.NoError(t, err)
+		body := "下列关于虚拟内存管理的叙述中，正确的是\nA. 允许按需调入内存 B. 所有程序必须全部常驻内存"
+		qp := domain.ParsedDocument{Pages: []service.TextPage{{Number: 1, Text: "1. " + body}}}
+		ap := domain.ParsedDocument{Pages: []service.TextPage{{Number: 5, Text: "87. " + body + "\n【答案】A\n【解析】虚拟内存利用局部性原理，允许程序分多次调入内存执行。"}}}
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, q.ID, qp, service.ExtractQuestions(q, qp.Pages, points)))
+		require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, source.ID, ap, nil))
+		route := "/api/v1/documents/" + q.ID
+		call("POST", route+"/resolve-answers", stoken, nil, 403)
+		var resolved struct{ Resolved int }
+		require.NoError(t, json.Unmarshal(call("POST", route+"/resolve-answers", token, nil, 200), &resolved))
+		require.Equal(t, 1, resolved.Resolved)
+		var publication struct{ Published int }
+		require.NoError(t, json.Unmarshal(call("POST", route+"/publish-verified", token, nil, 200), &publication))
+		require.Equal(t, 1, publication.Published)
+		rows, err := store.DocumentQuestionAssets(ctx, editor.ID, q.ID)
+		require.NoError(t, err)
+		require.Len(t, rows, 1)
+		require.Equal(t, "ready", rows[0].Status)
+		require.Equal(t, source.ID, rows[0].Payload.Evidence[0].DocumentID)
+		require.Equal(t, 5, rows[0].Payload.Evidence[0].Page)
+		require.Equal(t, 0, rows[0].Payload.Answer)
+	})
+
 	t.Run("directory links include ancestors without claiming textbook evidence", func(t *testing.T) {
 		var child domain.KnowledgePoint
 		for _, point := range points {

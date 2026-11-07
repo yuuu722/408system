@@ -48,7 +48,19 @@ func saveDocumentStructureTx(ctx context.Context, tx pgx.Tx, uid, did string, pa
 		a.Payload.ReviewStatus = "pending"
 		domain.PrepareAsset(&a)
 		payload, _ := json.Marshal(a.Payload)
-		if _, e := tx.Exec(ctx, `INSERT INTO learning_assets(id,user_id,kind,point_id,title,status,payload,document_id,is_public) VALUES($1,$2,'question',NULLIF($3,'')::uuid,$4,$5,$6,$7,(SELECT kb.is_public FROM documents d JOIN knowledge_bases kb ON kb.id=d.knowledge_base_id WHERE d.id=$7)) ON CONFLICT(id) DO UPDATE SET point_id=EXCLUDED.point_id,title=EXCLUDED.title,status=EXCLUDED.status,payload=EXCLUDED.payload,revision=learning_assets.revision+1,updated_at=now() WHERE COALESCE(learning_assets.payload->>'ReviewStatus','')<>'published'`+updateGuard, a.ID, uid, a.PointID, a.Title, a.Status, payload, did); e != nil {
+		assetUpdateGuard := updateGuard
+		// A previous self-file answer link is derived data, not a manual edit.
+		// Allow a more complete current parse to replace it only when its
+		// reliable answer agrees. External links and published/user work stay protected.
+		if updateGuard != "" && a.Payload.AnswerOrigin == "source" && domain.HasQuestionExplanation(a.Payload.Explanation) {
+			assetUpdateGuard = " AND (NOT " + protected + ` OR (
+              COALESCE(learning_assets.payload->>'ReviewStatus','')<>'published'
+              AND COALESCE(learning_assets.payload->>'DifficultyOrigin','')<>'user'
+              AND learning_assets.payload->'Evidence'->0->>'DocumentID'=$7::text
+              AND NOT EXISTS(SELECT 1 FROM jsonb_array_elements(learning_assets.payload->'Evidence') e WHERE e->>'DocumentID' IS DISTINCT FROM $7::text)
+              AND (COALESCE(learning_assets.payload->>'AnswerOrigin','')<>'source' OR learning_assets.payload->>'Answer'=EXCLUDED.payload->>'Answer')))`
+		}
+		if _, e := tx.Exec(ctx, `INSERT INTO learning_assets(id,user_id,kind,point_id,title,status,payload,document_id,is_public) VALUES($1,$2,'question',NULLIF($3,'')::uuid,$4,$5,$6,$7,(SELECT kb.is_public FROM documents d JOIN knowledge_bases kb ON kb.id=d.knowledge_base_id WHERE d.id=$7)) ON CONFLICT(id) DO UPDATE SET point_id=EXCLUDED.point_id,title=EXCLUDED.title,status=EXCLUDED.status,payload=EXCLUDED.payload,revision=learning_assets.revision+1,updated_at=now() WHERE COALESCE(learning_assets.payload->>'ReviewStatus','')<>'published'`+assetUpdateGuard, a.ID, uid, a.PointID, a.Title, a.Status, payload, did); e != nil {
 			return e
 		}
 	}

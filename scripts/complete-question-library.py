@@ -181,22 +181,24 @@ def save_report(folder, report):
     fields = ['AssetID', 'DocumentID', 'Filename', 'Number', 'Section', 'Page',
               'Complete', 'Status', 'ReviewStatus', 'Missing']
     write_report_file(folder / 'questions.csv', csv_report(fields, report.get('Questions', [])), 'utf-8-sig')
-    doc_fields = ['DocumentID', 'Filename', 'Status', 'Action', 'QuestionCount', 'NeedsReview', 'Error']
+    doc_fields = ['DocumentID', 'Filename', 'Status', 'Action', 'QuestionCount', 'Published', 'NeedsReview', 'Error']
     write_report_file(folder / 'documents.csv', csv_report(doc_fields, report.get('Documents', [])), 'utf-8-sig')
     template = folder / 'pairs-template.csv'
     if not template.exists() and template not in REPORT_PATHS:
         write_report_file(template, 'QuestionDocumentID,AnswerDocumentID,QuestionSection,AnswerSection\n', 'utf-8-sig')
 
 
-def execute(api, kb, docs, catalogs, manual, apply, folder):
+def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
     by_id = {d['ID']: d for d in docs}
     pairs, unresolved = pairer.choose_pairs(docs, catalogs)
     explicit = {q['ID'] for q, _, _, _ in manual}
     plans = [(q, a, '', '') for q, a in pairs if q['ID'] not in explicit] + manual
     selected = {d['ID'] for d in docs if question_document(d, catalogs)} | {q['ID'] for q, _, _, _ in plans}
+    if auto_publish:
+        selected |= {d['ID'] for d in docs if catalogs.get(d['ID'], {}).get('ResourceType', d.get('ResourceType')) == 'textbook'}
     report = {'KnowledgeBaseID': kb, 'Apply': apply, 'Documents': [], 'Pairs': [],
               'ManualReviewFiles': unresolved, 'Questions': [], 'AuditCompleted': False,
-              'Notice': '完整仅表示结构字段齐备，不代表已核实答案正确；不自动发布、不编造解析。'}
+              'Notice': '完整仅表示结构字段齐备；自动发布另须服务端重建题干选项与原文资料答案解析，不编造内容。', 'AutoPublish': auto_publish}
     save_report(folder, report)
     for d in docs:
         item = {'DocumentID': d['ID'], 'Filename': d['OriginalFilename'],
@@ -250,6 +252,30 @@ def execute(api, kb, docs, catalogs, manual, apply, folder):
         except RuntimeError as exc:
             item['Error'] = str(exc)
         save_report(folder, report)
+    # The server reconstructs the question and revalidates answer evidence;
+    # client field completeness alone is never enough to publish.
+    if auto_publish and apply:
+        for item in report['Documents']:
+            if item['DocumentID'] not in selected or item.get('Status') != 'ready' or item.get('Error'):
+                continue
+            item['Published'] = 0
+            try:
+                item['ContentResolution'] = api.request('POST', f"/documents/{item['DocumentID']}/resolve-answers", {})
+                save_report(folder, report)
+                for _ in range(100):
+                    result = api.request('POST', f"/documents/{item['DocumentID']}/publish-verified", {})
+                    item['PublicationSkipped'] = result.get('Skipped') or []
+                    count = result.get('Published', 0)
+                    item['Published'] += count
+                    save_report(folder, report)
+                    if not count:
+                        break
+                else:
+                    raise RuntimeError('达到自动发布批次上限，请检查报告')
+                print(f"{item['Filename']}：自动校验发布 {item['Published']} 题", flush=True)
+            except RuntimeError as exc:
+                item['Error'] = str(exc)
+            save_report(folder, report)
     try:
         rows = audit(api.request('GET', f'/knowledge-bases/{kb}/question-inventory') or [], by_id)
     except RuntimeError as exc:
@@ -266,7 +292,9 @@ def execute(api, kb, docs, catalogs, manual, apply, folder):
         if item['DocumentID'] in selected and not item['QuestionCount']:
             item['NeedsReview'] = '未产生候选题：核对题型、用途或现有解析，不代表文件没有题目'
     report['Summary'] = {'TotalCandidates': len(rows), 'StructurallyComplete': sum(r['Complete'] for r in rows),
-                         'Incomplete': sum(not r['Complete'] for r in rows)}
+                         'Incomplete': sum(not r['Complete'] for r in rows),
+                         'Available': sum(r['Status'] == 'ready' for r in rows),
+                         'AutoPublished': sum(x.get('Published', 0) for x in report['Documents'])}
     save_report(folder, report)
     return report
 
@@ -277,8 +305,11 @@ def main():
     parser.add_argument('--kb-id')
     parser.add_argument('--pairs', help='人工确认的文件/章节配对CSV')
     parser.add_argument('--apply', action='store_true')
+    parser.add_argument('--auto-publish', action='store_true', help='自动发布服务端原文校验通过且包含资料答案解析的完整题，无需逐题确认')
     parser.add_argument('--report-dir', default='.cache/question-batch')
     args = parser.parse_args()
+    if args.auto_publish and not args.apply:
+        parser.error('--auto-publish 必须同时指定 --apply')
     api = API(args.api)
     login = api.request('POST', '/auth/login', {'Login': input('管理员邮箱或用户名：').strip(),
                                               'Password': getpass.getpass('管理员密码（不显示）：')})
@@ -289,6 +320,8 @@ def main():
     caps = api.request('GET', '/system/capabilities') or {}
     if not caps.get('question_batch_enabled'):
         raise ValueError('后端尚不支持完整性保护，请先更新并重建启动 backend、worker')
+    if args.auto_publish and not caps.get('question_auto_publish_enabled'):
+        raise ValueError('后端尚不支持原文校验自动发布，请先重建 backend、worker')
     bases = api.request('GET', '/knowledge-bases') or []
     bases = [b for b in bases if b.get('IsPublic') and
              (b['ID'] == args.kb_id if args.kb_id else b['Name'] == '408 系统公共知识库')]
@@ -299,12 +332,13 @@ def main():
     catalogs = {c['DocumentID']: c for c in api.request('GET', f'/knowledge-bases/{kb}/catalog') or []}
     manual = mappings(args.pairs, {d['ID']: d for d in docs})
     folder = Path(args.report_dir)
-    report = execute(api, kb, docs, catalogs, manual, args.apply, folder)
+    report = execute(api, kb, docs, catalogs, manual, args.apply, folder, args.auto_publish)
     print(('已处理' if args.apply else '仅预览') + '；' + json.dumps(report['Summary'], ensure_ascii=False))
     for name in ['questions.csv', 'documents.csv', 'report.json']:
         path = folder / name
         print(f'{name} 最新结果：{REPORT_PATHS.get(path, path).resolve()}')
-    print('缺失题目、答案、解析或歧义项见报告；完整候选仍需核对并发布后才进入学生练习。')
+    print('原文校验通过且完整的题目已自动发布。其余保留为未修复记录，具体原因见报告。' if args.auto_publish
+          else '缺失题目、答案、解析或歧义项见报告；可使用 --auto-publish 自动校验发布完整题目。')
     if any(x.get('Error') for x in report['Documents'] + report['Pairs']):
         raise SystemExit(1)
 

@@ -19,7 +19,10 @@ type FileAnswer struct {
 
 var compactAnswers = regexp.MustCompile(`([0-9０-９]{1,4})(?:\s*[.．、):：]\s*|\s+)([A-FＡ-Ｆ])(?:[.。．、)）]|$|\s)`)
 var answerParagraph = regexp.MustCompile(`^\s*[（(]?\s*([0-9０-９]{1,4})(?:\s*[.．、)）:：]\s*|\s+)(.+)$`)
-var answerLetter = regexp.MustCompile(`^(?:[（(【]?\s*(?:答案|参考答案|正确答案|解答)\s*[】）)]?\s*(?:[:：]|为|是)?\s*)?([A-FＡ-Ｆ])(?:[.。．、)）\s]|$)`)
+var tableAnswerNumbers = regexp.MustCompile(`[0-9０-９]{1,4}`)
+var tableAnswerLetters = regexp.MustCompile(`[A-FＡ-Ｆ]`)
+
+var answerLetter = regexp.MustCompile(`^(?:[（(【]?\s*(?:答案|参考答案|正确答案|解答)\s*[】）)]?\s*(?:[:：]|为|是)?\s*)?[（(]?([A-FＡ-Ｆ])(?:[.。．、)）【\s]|$)`)
 
 // Parses explicit source answers, retaining page and chapter. Options and bare
 // question numbers are not answers. Non-letter worked solutions stay ungraded.
@@ -29,6 +32,11 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 	var current *FileAnswer
 	flush := func() {
 		if current != nil {
+			if current.Answer < 0 && !multipleInlineAnswer.MatchString(AnswerFileText(*current)) {
+				if m := inlineAnswer.FindStringSubmatch(AnswerFileText(*current)); m != nil {
+					current.Answer = int(m[1][0] - 'A')
+				}
+			}
 			if current.Answer < 0 && choiceOption.MatchString(current.Quote) && !strings.Contains(current.Quote, "解析") && !strings.Contains(current.Quote, "解答") {
 				current.Blocked = true
 			}
@@ -37,12 +45,40 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 		}
 	}
 	for _, page := range pages {
+		tableHead := ""
+		tableNumbers := []string{}
+		tableStart := 0
 		lineOffset := 0
 		for _, line := range strings.Split(page.Text, "\n") {
 			from, to := lineOffset, lineOffset+len([]rune(line))
 			lineOffset = to + 1
+			originalLine := line
 			line = strings.TrimSpace(line)
 			if line == "" {
+				continue
+			}
+			if tableHead != "" {
+				letters := tableAnswerLetters.FindAllString(line, -1)
+				if strings.HasPrefix(strings.Trim(line, "| "), "答案") && len(letters) == len(tableNumbers) {
+					flush()
+					for i, n := range tableNumbers {
+						letter := strings.NewReplacer("Ａ", "A", "Ｂ", "B", "Ｃ", "C", "Ｄ", "D", "Ｅ", "E", "Ｆ", "F").Replace(letters[i])
+						out = append(out, FileAnswer{Number: canonicalAnswerNumber(n), Section: section, Answer: int(letter[0] - 'A'), Page: page.Number, Quote: tableHead + "\n" + originalLine, Blocked: questionSpanWarning(page, tableStart, to)})
+					}
+					tableHead = ""
+					tableNumbers = nil
+					continue
+				}
+				tableHead = ""
+				tableNumbers = nil
+			}
+			if strings.HasPrefix(strings.Trim(line, "| "), "题号") {
+				flush()
+				tableNumbers = tableAnswerNumbers.FindAllString(line, -1)
+				if len(tableNumbers) > 0 {
+					tableHead = originalLine
+					tableStart = from
+				}
 				continue
 			}
 			if h := questionSection.FindString(line); h != "" && len([]rune(line)) < 80 && !strings.ContainsAny(line, "。！？?") {
@@ -82,7 +118,7 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 				if a := answerLetter.FindStringSubmatch(body); a != nil {
 					answer = int(a[1][0] - 'A')
 				}
-				if answer < 0 && (len([]rune(body)) < 8 || choiceOption.MatchString(body) || strings.ContainsAny(body, "?？")) {
+				if answer < 0 && ((len([]rune(body)) < 8 && !hasWorkedAnswerLabel(body)) || (choiceOption.MatchString(body) && !inlineAnswer.MatchString(body))) {
 					continue
 				}
 				current = &FileAnswer{Number: canonicalAnswerNumber(m[1]), Section: section, Answer: answer, Page: page.Number, Quote: line, Blocked: questionSpanWarning(page, from, to)}
@@ -108,7 +144,7 @@ func ParseAnswerFile(pages []TextPage) []FileAnswer {
 		}
 	}
 	flush()
-	return out
+	return consolidateAnswerEntries(out)
 }
 
 type AnswerFileProposal struct {

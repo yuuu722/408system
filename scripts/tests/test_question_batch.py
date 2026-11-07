@@ -70,6 +70,26 @@ class BatchTests(unittest.TestCase):
             self.assertFalse(result['Apply'])
             self.assertEqual(result['Documents'][0]['Action'],'计划复用解析抽题')
 
+    def test_auto_publish_uses_server_source_verification_after_resolution(self):
+        class API:
+            def __init__(self): self.calls=[]; self.rounds=0
+            def request(self,method,route,body=None):
+                self.calls.append(route)
+                if route.endswith('/catalog'): return {}
+                if route.endswith('/organize'): return {'candidates': 2}
+                if route.endswith('/resolve-answers'): return {'Resolved': 1}
+                if route.endswith('/publish-verified'):
+                    self.rounds+=1
+                    return {'Published':1 if self.rounds==1 else 0,'Skipped':[]}
+                if route.endswith('/question-inventory'): return []
+                raise AssertionError(route)
+        with tempfile.TemporaryDirectory() as tmp:
+            api=API()
+            report=m.execute(api,'kb',[Q],{},[],True,Path(tmp),auto_publish=True)
+            self.assertEqual(report['Summary']['AutoPublished'],1)
+            self.assertLess(api.calls.index('/documents/q/resolve-answers'),api.calls.index('/documents/q/publish-verified'))
+            self.assertFalse(any('assets/' in x for x in api.calls), 'never force client-supplied ready flags')
+
     def test_manual_mapping_rejects_foreign_and_duplicate_ids(self):
         with tempfile.TemporaryDirectory() as tmp:
             p=Path(tmp)/'pairs.csv'
