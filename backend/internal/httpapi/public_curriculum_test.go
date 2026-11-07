@@ -163,7 +163,17 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	}
 	var exam domain.Assessment
 	require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments", token, map[string]string{"Kind": "diagnostic"}, 200), &exam))
-	require.Len(t, exam.Questions, 12)
+	require.GreaterOrEqual(t, len(exam.Questions), 12)
+	require.LessOrEqual(t, len(exam.Questions), 48)
+	coveredSubjects := map[string]bool{}
+	for _, q := range exam.Questions {
+		for _, p := range points {
+			if p.ID == q.PointID {
+				coveredSubjects[p.SubjectID] = true
+			}
+		}
+	}
+	require.Len(t, coveredSubjects, 4)
 	selected := map[string]int{}
 	for _, q := range exam.Questions {
 		require.Equal(t, -1, q.Payload.Answer)
@@ -172,7 +182,7 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	}
 	var result domain.AssessmentResult
 	require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments/"+exam.ID+"/submit", token, map[string]any{"Answers": selected}, 200), &result))
-	require.Equal(t, 12, result.Correct)
+	require.Equal(t, len(exam.Questions), result.Correct)
 	call("PUT", "/api/v1/exam408/profile", token, domain.Profile{GoalScore: 110, DailyMinutes: 60, ExamDate: "2027-12-01", Stage: "beginner", Preference: "text"}, 200)
 	call("POST", "/api/v1/exam408/tasks/generate", token, nil, 200)
 	tasks, e := store.Tasks(ctx, student.ID)

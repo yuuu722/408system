@@ -6,6 +6,9 @@ import (
 )
 
 type GraphNode struct {
+	Importance                                float64 `json:",omitempty"`
+	ExamYears, CorpusYears                    int     `json:",omitempty"`
+	ImportanceBasis                           string  `json:",omitempty"`
 	ID, Name, EntityType, Description         string
 	KnowledgePointID                          string
 	SubjectCode                               string

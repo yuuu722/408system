@@ -92,7 +92,7 @@ func (s *Server) adminRoutes(mux *http.ServeMux) {
 		if s.Config.DemoMode {
 			mode = "demo"
 		}
-		write(w, 200, map[string]any{"release": "2026.11.07.6", "question_batch_enabled": true, "question_auto_publish_enabled": true, "question_autodetect_enabled": true, "question_saved_format_enabled": true, "question_layout_repair_enabled": true, "graph_extraction_enabled": os.Getenv("GRAPH_EXTRACTION_ENABLED") == "true", "graph_backend": s.Config.GraphBackend, "assistant_mode": s.Config.AssistantMode, "max_upload_bytes": max, "index_mode": mode, "personal_kb_enabled": s.Config.PersonalKBEnabled, "native_ocr": service.NativeOCRAvailable()})
+		write(w, 200, map[string]any{"release": "2026.11.07.7", "question_batch_enabled": true, "question_auto_publish_enabled": true, "question_autodetect_enabled": true, "question_saved_format_enabled": true, "question_layout_repair_enabled": true, "learning_coach_enabled": true, "graph_extraction_enabled": os.Getenv("GRAPH_EXTRACTION_ENABLED") == "true", "graph_backend": s.Config.GraphBackend, "assistant_mode": s.Config.AssistantMode, "max_upload_bytes": max, "index_mode": mode, "personal_kb_enabled": s.Config.PersonalKBEnabled, "native_ocr": service.NativeOCRAvailable()})
 	})))
 
 	save := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

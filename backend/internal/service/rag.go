@@ -355,17 +355,17 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		// Buffer model selections until each complete passage is matched to source text.
 		// Provider output is never shown as an unchecked factual paraphrase.
 		if model, ok := s.LLM.(jsonAnswerer); ok {
-			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+compositionInstruction(question), modelEvidence)
+			answer, err = model.AnswerJSON(ctx, contextualQuestion(question, history)+compositionInstruction(question)+TeachingInstruction(ctx), modelEvidence)
 		} else if llm, ok := s.LLM.(domain.StreamingLLM); ok {
-			answer, err = llm.AnswerStream(ctx, question+composedInstruction, evidence.String(), history, func(string) error { return ctx.Err() })
+			answer, err = llm.AnswerStream(ctx, question+composedInstruction+TeachingInstruction(ctx), evidence.String(), history, func(string) error { return ctx.Err() })
 		} else {
-			answer, err = s.LLM.Answer(ctx, question+composedInstruction, evidence.String())
+			answer, err = s.LLM.Answer(ctx, question+composedInstruction+TeachingInstruction(ctx), evidence.String())
 		}
 		var incomplete *PublicError
 		if errors.As(err, &incomplete) && incomplete.Code == "answer_incomplete" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
 				generation.Attempts++
-				answer, err = model.AnswerJSON(ctx, question+compositionInstruction(question)+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", modelEvidence)
+				answer, err = model.AnswerJSON(ctx, question+compositionInstruction(question)+TeachingInstruction(ctx)+"\n请缩短输出，先完整回答关键原因和机制，不要在半句处结束。", modelEvidence)
 			}
 		}
 		generation.ProviderReturned = err == nil
@@ -400,7 +400,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		if !verified && modelFailure == "" && rejectReason != "invalid_review_format" && rejectReason != "support_review_unavailable" {
 			if model, ok := s.LLM.(jsonAnswerer); ok {
 				generation.Attempts++
-				repaired, e := model.AnswerJSON(ctx, question+compositionInstruction(question)+"\n上次输出未通过核验（"+rejectReason+"）。"+repairAnswerGuidance(rejectReason, question), modelEvidence)
+				repaired, e := model.AnswerJSON(ctx, question+compositionInstruction(question)+TeachingInstruction(ctx)+"\n上次输出未通过核验（"+rejectReason+"）。"+repairAnswerGuidance(rejectReason, question), modelEvidence)
 				if e != nil {
 					generation.Stage = "generation"
 					generation.FailureCode = "repair_request_failed"

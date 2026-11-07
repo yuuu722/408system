@@ -155,7 +155,11 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 	if len(assetIDs) > 0 {
 		assetID = assetIDs[0]
 	}
-	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND `+canonicalSnapshotFamilySQL+`=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY a.subject_id ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 12`, uid, point, kind, assetID)
+	if kind == "diagnostic" {
+		point = ""
+		assetID = ""
+	}
+	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND ($3<>'diagnostic' OR a.payload->>'AnswerOrigin'='source') AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND `+canonicalSnapshotFamilySQL+`=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY CASE WHEN $3='diagnostic' THEN a.point_id ELSE a.subject_id END ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 2000`, uid, point, kind, assetID)
 	if err != nil {
 		return a, err
 	}
@@ -171,6 +175,21 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 	rows.Close()
 	if err != nil {
 		return a, err
+	}
+	if kind == "diagnostic" {
+		overview, e := p.LearningOverview(ctx, uid)
+		if e != nil {
+			return a, e
+		}
+		subjects := map[string]string{}
+		priority := map[string]float64{}
+		for _, k := range overview.Points {
+			subjects[k.ID] = k.SubjectID
+			priority[k.ID] = k.Importance
+		}
+		a.Questions = domain.DiagnosticSelection(a.Questions, subjects, priority, 48)
+	} else if len(a.Questions) > 12 {
+		a.Questions = a.Questions[:12]
 	}
 	if len(a.Questions) == 0 {
 		return a, fmt.Errorf("暂无符合条件的可用题目；复测需要未作答的新题（No available questions）")
@@ -284,7 +303,7 @@ func (p *Postgres) Radar(ctx context.Context, uid string) ([]domain.RadarSubject
 	return out, rows.Err()
 }
 func (p *Postgres) Tasks(ctx context.Context, uid string) ([]domain.StudyTask, error) {
-	rows, err := p.DB.Query(ctx, `SELECT t.id,t.asset_id,a.title,a.kind,a.point_id,t.reason,a.payload,t.completed_at,COALESCE(dp.plan_date::text,''),t.estimated_minutes,t.duration_source FROM study_tasks t JOIN learning_assets a ON a.id=t.asset_id LEFT JOIN daily_plans dp ON dp.id=t.plan_id WHERE t.user_id=$1 AND (a.user_id=$1 OR a.is_public=true) AND a.status='ready' AND (t.plan_id IS NULL OR dp.plan_date=$2::date) ORDER BY t.priority DESC,t.created_at LIMIT 100`, uid, planDate())
+	rows, err := p.DB.Query(ctx, `SELECT t.id,t.asset_id,a.title,a.kind,a.point_id,t.reason,a.payload,t.completed_at,COALESCE(dp.plan_date::text,''),t.estimated_minutes,t.duration_source FROM study_tasks t JOIN learning_assets a ON a.id=t.asset_id LEFT JOIN daily_plans dp ON dp.id=t.plan_id WHERE t.user_id=$1 AND NOT t.superseded AND (a.user_id=$1 OR a.is_public=true) AND a.status='ready' AND (t.plan_id IS NULL OR dp.plan_date=$2::date) ORDER BY t.priority DESC,t.created_at LIMIT 100`, uid, planDate())
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +331,7 @@ func (p *Postgres) Tasks(ctx context.Context, uid string) ([]domain.StudyTask, e
 	return out, rows.Err()
 }
 func (p *Postgres) CompleteTask(ctx context.Context, uid, tid string) error {
-	tag, err := p.DB.Exec(ctx, `UPDATE study_tasks SET completed_at=COALESCE(completed_at,now()) WHERE id=$1 AND user_id=$2`, tid, uid)
+	tag, err := p.DB.Exec(ctx, `UPDATE study_tasks SET completed_at=COALESCE(completed_at,now()) WHERE id=$1 AND user_id=$2 AND NOT superseded`, tid, uid)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

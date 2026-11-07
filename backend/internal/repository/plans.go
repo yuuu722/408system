@@ -3,7 +3,9 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"sort"
 	"time"
 )
 
@@ -11,7 +13,7 @@ func planDate() string {
 	return time.Now().In(time.FixedZone("Asia/Shanghai", 8*3600)).Format("2006-01-02")
 }
 func (p *Postgres) DailyPlan(ctx context.Context, uid string) (domain.DailyPlan, error) {
-	out := domain.DailyPlan{Date: planDate(), Strategy: "408-rules-v1", BudgetMinutes: 60}
+	out := domain.DailyPlan{Date: planDate(), Strategy: "408-learning-v2", BudgetMinutes: 60}
 	profile, e := p.Profile(ctx, uid)
 	if e != nil {
 		return out, e
@@ -49,8 +51,13 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	}
 	var pid string
 	var budget int
-	e = tx.QueryRow(ctx, `INSERT INTO daily_plans(user_id,plan_date,budget_minutes) VALUES($1,$2,$3) ON CONFLICT(user_id,plan_date) DO UPDATE SET strategy=daily_plans.strategy RETURNING id,budget_minutes`, uid, planDate(), profile.DailyMinutes).Scan(&pid, &budget)
+	e = tx.QueryRow(ctx, `INSERT INTO daily_plans(user_id,plan_date,budget_minutes) VALUES($1,$2,$3) ON CONFLICT(user_id,plan_date) DO UPDATE SET strategy='408-learning-v2',budget_minutes=GREATEST(EXCLUDED.budget_minutes,COALESCE((SELECT sum(t.estimated_minutes) FROM study_tasks t WHERE t.plan_id=daily_plans.id AND t.completed_at IS NOT NULL),0)) RETURNING id,budget_minutes`, uid, planDate(), profile.DailyMinutes).Scan(&pid, &budget)
 	if e != nil {
+		return e
+	}
+	// Re-rank unfinished work after new evidence; preserve completed work and
+	// existing task IDs when the same resource is selected again.
+	if _, e = tx.Exec(ctx, `UPDATE study_tasks SET superseded=true,plan_id=NULL WHERE user_id=$1 AND plan_id=$2 AND completed_at IS NULL`, uid, pid); e != nil {
 		return e
 	}
 	var allocated int
@@ -80,6 +87,24 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	if e != nil {
 		return e
 	}
+	aliases := map[string]string{}
+	aliasRows, e := tx.Query(ctx, `SELECT legacy_family_id,canonical_family_id FROM question_family_aliases`)
+	if e != nil {
+		return e
+	}
+	for aliasRows.Next() {
+		var from, to string
+		if e = aliasRows.Scan(&from, &to); e != nil {
+			aliasRows.Close()
+			return e
+		}
+		aliases[from] = to
+	}
+	e = aliasRows.Err()
+	aliasRows.Close()
+	if e != nil {
+		return e
+	}
 	history := []domain.ReviewEvidence{}
 	rows, e = tx.Query(ctx, `SELECT result,submitted_at FROM assessments WHERE user_id=$1 AND result IS NOT NULL ORDER BY submitted_at,id`, uid)
 	if e != nil {
@@ -103,6 +128,9 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 				if family == "" {
 					family = item.ID
 				}
+				if canonical, ok := aliases[family]; ok {
+					family = canonical
+				}
 				history = append(history, domain.ReviewEvidence{FamilyID: family, PointID: item.PointID, Correct: item.Correct, At: at})
 			}
 		}
@@ -116,7 +144,22 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	if e != nil {
 		return e
 	}
-	for _, candidate := range domain.PlanCandidates(assets, history, profile, time.Now()) {
+	overview, e := p.LearningOverview(ctx, uid)
+	if e != nil {
+		return e
+	}
+	insight := map[string]domain.PointInsight{}
+	for _, v := range overview.Points {
+		insight[v.ID] = v
+	}
+	candidates := domain.PlanCandidates(assets, history, profile, time.Now())
+	for i := range candidates {
+		v := insight[candidates[i].Asset.PointID]
+		candidates[i].Priority += v.Priority
+		candidates[i].Reason += fmt.Sprintf(" %s；重要性依据：%s；待确认疑问%d条。", v.State, v.ImportanceBasis, v.Doubts)
+	}
+	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Priority > candidates[j].Priority })
+	for _, candidate := range candidates {
 		if len(excluded) >= 20 {
 			break
 		}
@@ -125,7 +168,7 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 		if excluded[family] || candidate.Minutes > budget-allocated {
 			continue
 		}
-		tag, err := tx.Exec(ctx, `INSERT INTO study_tasks(user_id,asset_id,reason,plan_id,estimated_minutes,duration_source,priority) SELECT $1,id,$3,$4,$5,$6,$7 FROM learning_assets WHERE id=$2 AND (user_id=$1 OR is_public=true) AND status='ready' AND revision=$8 ON CONFLICT(user_id,asset_id) WHERE completed_at IS NULL DO UPDATE SET plan_id=EXCLUDED.plan_id,reason=EXCLUDED.reason,estimated_minutes=EXCLUDED.estimated_minutes,duration_source=EXCLUDED.duration_source,priority=EXCLUDED.priority WHERE study_tasks.plan_id IS DISTINCT FROM EXCLUDED.plan_id`, uid, a.ID, candidate.Reason, pid, candidate.Minutes, candidate.DurationSource, candidate.Priority, a.Revision)
+		tag, err := tx.Exec(ctx, `INSERT INTO study_tasks(user_id,asset_id,reason,plan_id,estimated_minutes,duration_source,priority) SELECT $1,id,$3,$4,$5,$6,$7 FROM learning_assets WHERE id=$2 AND (user_id=$1 OR is_public=true) AND status='ready' AND revision=$8 ON CONFLICT(user_id,asset_id) WHERE completed_at IS NULL DO UPDATE SET plan_id=EXCLUDED.plan_id,reason=EXCLUDED.reason,estimated_minutes=EXCLUDED.estimated_minutes,duration_source=EXCLUDED.duration_source,priority=EXCLUDED.priority,superseded=false WHERE study_tasks.plan_id IS DISTINCT FROM EXCLUDED.plan_id`, uid, a.ID, candidate.Reason, pid, candidate.Minutes, candidate.DurationSource, candidate.Priority, a.Revision)
 		if err != nil {
 			return err
 		}

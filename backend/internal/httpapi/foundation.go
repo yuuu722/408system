@@ -14,6 +14,7 @@ import (
 
 func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	s.personalRoutes(mux)
+	s.coachingRoutes(mux)
 	mux.Handle("POST /api/v1/knowledge-bases/{id}/deduplicate-questions", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.DeduplicatePublicQuestions(r.Context(), uid(r), r.PathValue("id"))
 		s.reply(w, v, e)
@@ -57,6 +58,23 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	register("GET /api/v1/documents/{id}/file", s.documentFile)
 	register("GET /api/v1/knowledge-bases/{id}/graph", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.KnowledgeGraph(r.Context(), uid(r), r.PathValue("id"))
+		if e == nil {
+			overview, oe := s.Platform.LearningOverview(r.Context(), uid(r))
+			if oe == nil {
+				byID := map[string]domain.PointInsight{}
+				for _, p := range overview.Points {
+					byID[p.ID] = p
+				}
+				for i := range v.Nodes {
+					if p, ok := byID[v.Nodes[i].KnowledgePointID]; ok {
+						v.Nodes[i].Importance = p.Importance
+						v.Nodes[i].ImportanceBasis = p.ImportanceBasis
+						v.Nodes[i].ExamYears = p.ExamYears
+						v.Nodes[i].CorpusYears = p.CorpusYears
+					}
+				}
+			}
+		}
 		s.reply(w, v, e)
 	})
 	register("POST /api/v1/exam408/assistant/stream", s.chatStream)
@@ -135,6 +153,11 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 			return
 		}
 		v, e := s.Platform.SubmitAssessment(r.Context(), uid(r), r.PathValue("id"), in.Answers)
+		if e == nil {
+			if pe := s.Platform.GenerateTasks(r.Context(), uid(r)); pe != nil && s.Log != nil {
+				s.Log.Warn("plan refresh failed; assessment preserved", "error", pe)
+			}
+		}
 		s.reply(w, v, e)
 	})
 	register("GET /api/v1/exam408/radar", func(w http.ResponseWriter, r *http.Request) {
@@ -284,6 +307,7 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		KnowledgeBaseID, ConversationID, Question string
 		IncludePersonal                           bool
+		Teacher                                   string
 	}
 	if !s.input(w, r, &in) {
 		return
@@ -318,7 +342,20 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 		return r.Context().Err()
 	}
-	result, err := s.RAG.ChatStream(r.Context(), uid(r), in.KnowledgeBaseID, in.ConversationID, in.Question, emit, in.IncludePersonal)
+	if in.Teacher == "" {
+		in.Teacher = "encouraging"
+	}
+	teachingCtx := service.WithTeacher(r.Context(), in.Teacher)
+	profile, pe := s.Platform.Profile(r.Context(), uid(r))
+	memories, me := s.Platform.Memories(r.Context(), uid(r))
+	if pe == nil && me == nil {
+		stage := "beginner"
+		if profile != nil {
+			stage = profile.Stage
+		}
+		teachingCtx = service.WithLearnerContext(teachingCtx, stage, memories)
+	}
+	result, err := s.RAG.ChatStream(teachingCtx, uid(r), in.KnowledgeBaseID, in.ConversationID, in.Question, emit, in.IncludePersonal)
 	if err != nil {
 		if s.Log != nil {
 			s.Log.Error("assistant stream failed", "error", err)
@@ -330,6 +367,11 @@ func (s *Server) chatStream(w http.ResponseWriter, r *http.Request) {
 		}
 		_ = emit("error", map[string]string{"error": message})
 		return
+	}
+	if result.Generation != nil && result.Generation.Verified {
+		if e := s.Platform.RecordQuestionDoubts(r.Context(), uid(r), in.Question); e != nil && s.Log != nil {
+			s.Log.Warn("question memory unavailable", "error", e)
+		}
 	}
 	_ = emit("done", result)
 }

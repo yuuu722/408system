@@ -99,7 +99,7 @@ export function createGraphLayout(nodes: GraphNode[], edges: GraphEdge[], groups
     const center = groupCenter(group, width, height), angle = i * 2.399963, radius = 40 * Math.sqrt(i)
     return { id: n.ID, x: Math.max(50, Math.min(width - 120, center.x + Math.cos(angle) * radius)),
       y: Math.max(50, Math.min(height - 50, center.y + Math.sin(angle) * radius)), vx: 0, vy: 0, group,
-      radius: 18 + Math.min(12, Math.sqrt(degrees.get(n.ID) ?? 0) * 2.4), labelWidth: Math.min(n.Name.length, 18) * 16 + 30 }
+      radius: 18 + (n.Importance ? Math.min(12, Math.max(0,n.Importance-1)*3) : Math.min(12, Math.sqrt(degrees.get(n.ID) ?? 0) * 2.4)), labelWidth: Math.min(n.Name.length, 18) * 16 + 30 }
   })
 }
 function groupCenter(g: number, w: number, h: number) {

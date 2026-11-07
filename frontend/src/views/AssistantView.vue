@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onBeforeUnmount, computed, ref } from 'vue'
+import {useRoute} from 'vue-router'
+import {coaching,teachers} from '@/api/coaching'
+import SpeakButton from '@/components/SpeakButton.vue'
 import { learningApi } from '@/api/learning'
 import { foundation, streamChat, openDocument, type Conversation } from '@/api/foundation'
 import { api, messageOf } from '@/api/client'
@@ -9,6 +12,8 @@ import SafeAnswer from '@/components/SafeAnswer.vue'
 import CitationReader from '@/components/CitationReader.vue'
 interface Understanding {question:string;intent:string;knowledge_points:string[]}
 interface Message {generation?:import('@/api/types').GenerationTrace;related?:import('@/api/foundation').Asset[];reasoning?:RetrievalTrace; understanding?:Understanding; role: 'user' | 'assistant'; content: string; sources?: Citation[]; failure?:string; incomplete?:boolean }
+const route=useRoute(),teacher=ref('encouraging')
+async function saveTeacher(){try{await coaching.memory({Key:'teacher',PointID:'',Kind:'preference',Content:teacher.value,Resolved:false})}catch(e){error.value=messageOf(e)}}
 const bases = ref<KnowledgeBase[]>([]), active = ref(''), question = ref(''), conversation = ref('')
 const busy = ref(false), loading = ref(true), error = ref(''), messages = ref<Message[]>([]), box = ref<HTMLElement>()
 const history=ref<Conversation[]>([]),stage=ref(''),controller=ref<AbortController>()
@@ -40,8 +45,10 @@ async function recognizeImage(){
 const status = ref({ mode: 'unavailable', enabled: false, message: '' })
 async function load() {
  loading.value=true;error.value=''
- try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();const capabilities=(await api.get('/system/capabilities')).data;versionWarning.value=capabilities.release==='2026.11.07.6'?'':'前端与服务端版本不一致，最新功能尚未完整部署。请管理员拉取源码并重建 backend、worker 和 frontend。';active.value=bases.value[0]?.ID||''
+ try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();const capabilities=(await api.get('/system/capabilities')).data;versionWarning.value=capabilities.release==='2026.11.07.7'?'':'前端与服务端版本不一致，最新功能尚未完整部署。请管理员拉取源码并重建 backend、worker 和 frontend。';active.value=bases.value[0]?.ID||''
  const saved=history.value.find(c=>c.ID===sessionStorage.getItem('408_conversation'));if(saved)await selectConversation(saved.ID)
+ if(typeof route.query.question==='string'){reset();question.value=route.query.question}
+ try{const overview=await coaching.overview();const pref=overview.Memories.find(m=>m.Key==='teacher');if(pref&&teachers.some(t=>t.id===pref.Content))teacher.value=pref.Content}catch{/* answering remains usable */}
  }catch(e){error.value=messageOf(e)}finally{loading.value=false}
 }
 function reset(){if(busy.value||recognizing.value)return;clearImage();conversation.value='';messages.value=[];error.value='';sessionStorage.removeItem('408_conversation');followBottom.value=true;sidebarOpen.value=false}
@@ -55,7 +62,7 @@ async function send(){
  if(text.length>4000){error.value='问题最多4000字，请裁剪题目或精简文字';return}
  busy.value=true;followBottom.value=true;error.value='';question.value='';stage.value='正在理解问题…';controller.value=new AbortController()
  messages.value.push({role:'user',content:text});const index=messages.value.length;messages.value.push({role:'assistant',content:''})
- try{await streamChat({KnowledgeBaseID:active.value,ConversationID:conversation.value,Question:text},controller.value.signal,(event,data)=>{
+ try{await streamChat({KnowledgeBaseID:active.value,ConversationID:conversation.value,Question:text,Teacher:teacher.value},controller.value.signal,(event,data)=>{
  if(event==='status')stage.value=({understanding:'正在理解问题…',graph:'正在规划问题并查询图谱路径…',retrieving:'正在所选知识库中检索依据…',generating:'正在根据原文组织回答…',verifying:'正在核对回答与教材依据…'} as Record<string,string>)[(data as {stage:string}).stage]||'正在处理…'
  if(event==='reasoning')messages.value[index]!.reasoning=data as RetrievalTrace
  if(event==='understanding')messages.value[index]!.understanding=data as Understanding
@@ -86,7 +93,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
    <div class="sidebar-foot">教材优先 · 来源可追溯</div>
   </aside>
   <div class="conversation-main" role="region" aria-label="智能答疑">
-   <header class="conversation-header"><div class="header-title"><button class="icon-button sidebar-toggle" aria-label="打开历史会话" @click="sidebarOpen=!sidebarOpen">☰</button><span>408 助教 <small>知识库问答</small></span></div><div class="header-controls"><select v-model="active" aria-label="选择问答知识库" :disabled="busy||recognizing||loading||!bases.length" @change="reset"><option value="" disabled>{{loading?'加载中…':'选择知识库'}}</option><option v-for="kb in bases" :key="kb.ID" :value="kb.ID">{{kb.Name}}{{kb.IsPublic?'':' ＋ 公共教材'}}</option></select><button class="icon-button" aria-label="新对话" title="新对话" :disabled="busy||recognizing" @click="reset">＋</button></div></header>
+   <header class="conversation-header"><div class="header-title"><button class="icon-button sidebar-toggle" aria-label="打开历史会话" @click="sidebarOpen=!sidebarOpen">☰</button><span>408 助教 <small>知识库问答</small></span></div><div class="header-controls"><select v-model="teacher" aria-label="选择老师风格" :disabled="busy" @change="saveTeacher"><option v-for="t in teachers" :key="t.id" :value="t.id">{{t.name}}</option></select><select v-model="active" aria-label="选择问答知识库" :disabled="busy||recognizing||loading||!bases.length" @change="reset"><option value="" disabled>{{loading?'加载中…':'选择知识库'}}</option><option v-for="kb in bases" :key="kb.ID" :value="kb.ID">{{kb.Name}}{{kb.IsPublic?'':' ＋ 公共教材'}}</option></select><button class="icon-button" aria-label="新对话" title="新对话" :disabled="busy||recognizing" @click="reset">＋</button></div></header>
    <div v-if="versionWarning" class="inline-alert" role="status">{{versionWarning}}</div>
    <div v-if="error" class="inline-alert error" role="alert">{{error}} <button v-if="!bases.length" @click="load">重新加载</button><button class="dismiss" aria-label="关闭错误提示" @click="error=''">×</button></div>
    <div v-if="!loading&&!status.enabled" class="inline-alert" role="status">{{status.message||'问答服务暂未启用，请联系管理员。'}}<button @click="load">重新检查</button></div>
@@ -103,7 +110,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
        <p v-if="m.incomplete" class="incomplete-note">{{m.failure||'连接中断，回答未完成，请重试。'}}</p>
        <details v-if="m.sources?.length" class="answer-sources"><summary><span>▤</span> 参考来源 <small>{{m.sources.length}}</small></summary><div class="source-grid"><button v-for="(s,n) in m.sources" :key="s.ChunkID+':'+n" @click="source(s)"><small>[{{n+1}}] {{s.Location||('第'+s.Page+'页')}}</small><strong>{{s.DocumentTitle}}</strong><span>{{s.Excerpt}}</span><em>查看原文 ↗</em></button></div></details>
        <details v-if="m.related?.length" class="related-exercises"><summary>同知识点练习与真题 <small>{{m.related.length}}</small></summary><article v-for="a in m.related" :key="a.ID"><b>{{a.Title}}</b><p>{{a.Payload.Stem}}</p><details><summary>选项与解析</summary><p v-for="(option,n) in a.Payload.Options" :key="n">{{String.fromCharCode(65+n)}}. {{option}}</p><p>{{a.Payload.Explanation}}</p><p v-for="(e,n) in a.Payload.Evidence??[]" :key="n"><button @click="openDocument(e.DocumentID,e.Page,e.RevisionID).catch(err=>error=messageOf(err))">{{e.DocumentTitle}} · 第{{e.Page}}页 ↗</button></p></details><RouterLink :to="{path:'/exam408/assessment',query:{asset:a.ID}}">去练习 →</RouterLink></article></details>
-       <div v-if="m.content&&!busy" class="response-actions"><button title="复制回答" aria-label="复制回答" @click="copyAnswer(m.content)">⧉</button><button v-if="i===messages.length-1&&messages[i-1]?.role==='user'" :disabled="recognizing" @click="question=messages[i-1]!.content;send()">↻ 重新回答</button></div>
+       <SpeakButton v-if="m.content&&!busy" :text="m.content"/><RouterLink v-if="m.content&&!busy" to="/exam408/learning">查看疑问记录与随堂教学 →</RouterLink><div v-if="m.content&&!busy" class="response-actions"><button title="复制回答" aria-label="复制回答" @click="copyAnswer(m.content)">⧉</button><button v-if="i===messages.length-1&&messages[i-1]?.role==='user'" :disabled="recognizing" @click="question=messages[i-1]!.content;send()">↻ 重新回答</button></div>
       </div></template>
      </article>
     </div>
@@ -114,7 +121,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
      <div v-if="imageFile" class="attachment-preview"><img :src="imageURL" alt="待识别题目"/><div><strong>{{imageFile.name}}</strong><p>{{recognized?'识别完成，请核对下方题干和公式':'识别图片后核对题干，再发送问题'}}</p><button :disabled="recognizing||recognized||busy" @click="recognizeImage">{{recognizing?'识别中…':recognized?'已识别':'识别题目'}}</button></div><button class="icon-button" aria-label="移除图片" :disabled="recognizing||busy" @click="clearImage">×</button></div>
      <p v-for="warning in imageWarnings" :key="warning" class="image-warning">{{warning}}</p>
      <form class="chat-composer" @submit.prevent="send"><label class="sr-only" for="question">向助教提问或核对图片识别文字</label><textarea id="question" v-model="question" rows="2" :disabled="!active||busy||recognizing||loading" placeholder="向 408 助教提问，或添加题目图片…" @input="resizeInput" @keydown.enter="onEnter"/><div class="composer-tools"><label class="attach-control" title="添加题目图片"><span>＋</span><span class="attach-label">添加图片</span><input type="file" accept="image/png,image/jpeg" aria-label="添加题目图片" :disabled="busy||recognizing||loading||!active" @change="chooseImage"/></label><span class="composer-scope">{{bases.find(b=>b.ID===active)?.IsPublic?'教材优先':'公共教材＋个人资料'}}</span><button v-if="busy" type="button" class="send-control stop" aria-label="停止生成" @click="controller?.abort()">■</button><button v-else class="send-control" aria-label="发送问题" :disabled="!active||recognizing||!question.trim()||!status.enabled||loading||!!imageFile&&!recognized">↑</button></div></form>
-     <div class="composer-foot"><span>回答附原文出处，请核对公式与推导。Shift＋Enter 换行</span><small title="界面版本">2026.11.07.6</small></div>
+     <div class="composer-foot"><span>回答附原文出处，请核对公式与推导。Shift＋Enter 换行</span><small title="界面版本">2026.11.07.7</small></div>
     </div>
    </div>
    <div v-if="copyNotice" class="copy-toast" role="status">{{copyNotice}}</div>

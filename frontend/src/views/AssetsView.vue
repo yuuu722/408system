@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import {useRoute} from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import SafeAnswer from '@/components/SafeAnswer.vue'
 import {editableAsset} from '@/lib/assetData'
@@ -7,10 +8,10 @@ import { foundation, openDocument, type Asset } from '@/api/foundation'
 import { learningApi } from '@/api/learning'
 import {api, messageOf } from '@/api/client'
 import type { KnowledgePoint, Document } from '@/api/types'
-const auth=useAuthStore()
+const auth=useAuthStore(),route=useRoute()
 const assets=ref<Asset[]>([]),points=ref<KnowledgePoint[]>([]),documents=ref<Document[]>([]),error=ref(''),notice=ref(''),busy=ref(false)
 function blank():Asset{return {IsPublic:true,ID:'',Kind:'question',PointID:'',Title:'',Status:'unavailable',Revision:0,Payload:{EstimatedMinutes:0,Stem:'',Options:['','','',''],ReviewStatus:'pending',Answer:-1,Explanation:'',Source:'',URL:'',DocumentID:'',Page:0,StartSeconds:0,EndSeconds:0,Difficulty:1}}}
-const tab=ref('pending'),kindFilter=ref(''),pointFilter=ref('')
+const tab=ref('pending'),kindFilter=ref(''),pointFilter=ref(typeof route.query.point==='string'?route.query.point:'')
 const selected=ref<string[]>([])
 const questionCounts=computed(()=>{const rows=assets.value.filter(a=>a.Kind==='question');return {all:rows.length,ready:rows.filter(a=>a.Status==='ready').length,uniqueReady:new Set(rows.filter(a=>a.Status==='ready').map(a=>a.Payload.FamilyID||a.ID)).size,repair:rows.filter(a=>!!a.Payload.Issue).length,noAnswer:rows.filter(a=>a.Payload.AnswerOrigin!=='source'||a.Payload.Answer<0).length,pending:rows.filter(a=>a.Status!=='ready'&&!a.Payload.Issue).length}})
 function canPublish(a:Asset){return a.Kind==='question'&&a.Status!=='ready'&&!a.Payload.Issue&&!!a.PointID&&!!a.Payload.Stem.trim()&&a.Payload.Options.length>=2&&a.Payload.Options.every(v=>!!v.trim())&&a.Payload.AnswerOrigin==='source'&&a.Payload.Answer>=0&&a.Payload.Answer<a.Payload.Options.length&&!!a.Payload.Source.trim()}

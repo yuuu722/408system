@@ -389,7 +389,7 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 				familyCount++
 			}
 		}
-		require.Equal(t, 1, familyCount)
+		require.Equal(t, 0, familyCount, "unverified AI variants must not enter the source-graded initial diagnostic")
 		retest, e := store.CreateAssessment(ctx, user.ID, "retest", points[0].ID)
 		if e == nil {
 			for _, q := range retest.Questions {

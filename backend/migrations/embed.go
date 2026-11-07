@@ -89,6 +89,9 @@ type migration struct {
 	sql     string
 }
 
+//go:embed 000026_learning_coach.up.sql
+var learningCoach string
+
 var all = []migration{
 	{version: 1, name: "initial", sql: initial},
 	{version: 2, name: "operational_indexes", sql: operationalIndexes},
@@ -115,6 +118,7 @@ var all = []migration{
 	{version: 23, name: "graph_subject_consensus", sql: graphSubjectConsensus},
 	{version: 24, name: "graph_quality_replay", sql: graphQualityReplay},
 	{version: 25, name: "question_views", sql: questionViews},
+	{version: 26, name: "learning_coach", sql: learningCoach},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {
