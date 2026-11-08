@@ -104,7 +104,14 @@ func (s RAGService) composedAnswerDetail(ctx context.Context, raw, question stri
 			}
 		}
 	}
-	if !adequateCoverage(question, strings.Join(paragraphs, "\n"), contents) {
+	coverageContents := contents
+	if len(compactReview) > 1 {
+		coverageContents = []string{compactReview[1]}
+	}
+	if issue := virtualMemoryAnswerIssue(question, strings.Join(paragraphs, "\n"), coverageContents); issue != "" {
+		return "", nil, false, issue
+	}
+	if !adequateCoverage(question, strings.Join(paragraphs, "\n"), coverageContents) {
 		s.warn("answer validation failed", "reason", "insufficient_coverage")
 		if protocolWhy(question) {
 			return "", nil, false, "missing_protocol_purpose"

@@ -74,6 +74,8 @@ func virtualMemoryMotivation(text string) bool {
 
 func generationFailureLabel(code string) string {
 	switch code {
+	case "virtual_memory_term", "virtual_memory_overclaim", "virtual_memory_coverage":
+		return "虚拟内存讲解存在术语错误、绝对化结论或遗漏本轮证据中的必要方面"
 	case "virtual_memory_definition":
 		return "多次性、一次性或驻留性的定义发生反转"
 	case "subject_mismatch":
@@ -127,6 +129,8 @@ func generationFailureLabel(code string) string {
 
 func repairAnswerGuidance(code, q string) string {
 	switch code {
+	case "virtual_memory_term", "virtual_memory_overclaim", "virtual_memory_coverage":
+		return "使用本轮事实中的准确术语：传统存储管理的一次性不能写成单一性。不要声称完全避免内存浪费。按原因到机制解释：本轮事实若包含容量限制、一次性驻留性、局部性、按需调入，应分别说明其联系；未提供的方面不编造。引用实际支持这些解释的事实编号。"
 	case "virtual_memory_definition":
 		return "核对本轮事实的肯定否定和特征名称，不得把多次性解释成必须一次性全部装入，不得把驻留性与对换性混同。只改写原文支持的内容。"
 	case "subject_mismatch":

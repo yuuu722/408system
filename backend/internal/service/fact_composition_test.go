@@ -78,3 +78,13 @@ func TestFactSchemaCanDowngradeWithoutRelaxingReferenceValidation(t *testing.T) 
 	require.Equal(t, 3, calls)
 	require.Equal(t, `{"claims":[]}`, raw)
 }
+
+// Budgeted-out source details must not become requirements the generator never saw.
+func TestVirtualMemoryCoverageUsesSuppliedCatalog(t *testing.T) {
+	source := "虚拟内存允许作业按需调入内存。基于局部性原理，程序只需部分装入。"
+	refs := []domain.Citation{{DocumentID: "book", Page: 1}}
+	catalog := factCatalog{Facts: []answerFact{{ID: 1, Source: 1, Text: "虚拟内存允许作业按需调入内存。"}}, Locations: map[int]string{1: "第1页"}}
+	s := RAGService{LLM: &reviewLLM{answer: `{"supported":true}`}}
+	_, _, ok, why := s.factComposedAnswer(context.Background(), `{"claims":[{"text":"虚拟内存允许作业按需调入内存。","facts":[1]}]}`, "为什么需要虚拟内存？", catalog, []string{source}, refs, nil)
+	require.True(t, ok, why)
+}

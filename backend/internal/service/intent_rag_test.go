@@ -290,3 +290,54 @@ func TestComparisonChatUsesSeparateSidesAndDropsOtherComparisons(t *testing.T) {
 	require.NotEmpty(t, result.Sources)
 	require.Equal(t, 21, result.Sources[0].Page)
 }
+
+func TestVirtualMemoryRepairsSuperficialAnswerUsingTextbookFacts(t *testing.T) {
+	ctx := context.Background()
+	st := &intentStore{Store: testutil.NewStore()}
+	kb, e := st.CreateKnowledgeBase(ctx, "u", "教材", "")
+	require.NoError(t, e)
+	reason := "传统存储管理要求作业一次性全部装入并驻留在内存中。作业大于可用物理内存时无法运行，暂时不用的程序也会占用内存。"
+	mechanism := "基于局部性原理，应用程序只需将当前要运行的少数页面装入内存便可运行，其余部分暂留磁盘。"
+	for _, id := range []string{"cause", "mechanism"} {
+		st.Docs[id] = domain.Document{ID: id, UserID: "u", KnowledgeBaseID: kb.ID, Status: "ready"}
+	}
+	st.Chunks = []domain.Chunk{{ID: "m", DocumentID: "mechanism", UserID: "u", KnowledgeBaseID: kb.ID, Content: mechanism, Embedding: []float32{1, 0}, Metadata: map[string]any{"resource_type": "textbook", "heading_path": "3.2 虚拟内存"}}}
+	st.extra = []domain.Chunk{{ID: "r", DocumentID: "cause", UserID: "u", KnowledgeBaseID: kb.ID, Content: reason, Score: 1, Metadata: map[string]any{"resource_type": "textbook", "heading_path": "3.2 虚拟内存"}}}
+	generationCalls := 0
+	model := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct{ Messages []struct{ Content string } }
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		last := body.Messages[1].Content
+		content := `{"supported":true}`
+		if !strings.Contains(last, `"supported"`) {
+			require.Contains(t, last, "一次性")
+			require.Contains(t, last, "驻留")
+			require.Contains(t, last, "局部性")
+			content = `{"claims":[{"text":"传统存储管理要求作业一次性装入并驻留，作业大小受到物理内存容量限制，暂时不用的部分也会占用内存。虚拟内存基于局部性，只需调入当前使用的部分，其余部分留在磁盘。","kind":"explanation","facts":[1,2,3]}]}`
+			generationCalls++
+			if generationCalls == 1 {
+				content = `{"claims":[{"text":"传统管理的一次性和驻留性造成浪费，虚拟内存通过对换提高利用率。","kind":"explanation","facts":[1,2]}]}`
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]any{"choices": []any{map[string]any{"message": map[string]string{"content": content}, "finish_reason": "stop"}}})
+	}))
+	defer model.Close()
+	rag := service.RAGService{Store: st, Embedder: fixedEmbedding{}, LLM: service.OpenAILLM{BaseURL: model.URL, APIKey: "fixture"}, Knowledge: service.KnowledgeService{Store: st}, Learning: service.LearningService{Store: st}, TopK: 3, MinScore: .35}
+	result, e := rag.Chat(ctx, "u", kb.ID, "", "为什么需要虚拟内存？")
+	require.NoError(t, e)
+	require.Equal(t, []string{kb.ID}, st.kids)
+	require.NotContains(t, result.Answer, "原句（不是模型生成答案）")
+	require.Contains(t, result.Answer, "物理内存容量限制")
+	require.NotNil(t, result.Generation)
+	require.True(t, result.Generation.Attempted)
+	require.True(t, result.Generation.ProviderReturned)
+	require.True(t, result.Generation.Verified)
+	require.Equal(t, 2, result.Generation.Attempts)
+	require.Equal(t, 2, generationCalls)
+	seen := map[string]bool{}
+	for _, s := range result.Sources {
+		seen[s.DocumentID] = true
+	}
+	require.True(t, seen["cause"])
+	require.True(t, seen["mechanism"])
+}

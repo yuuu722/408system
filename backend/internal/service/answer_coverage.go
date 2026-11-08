@@ -33,9 +33,7 @@ func adequateCoverage(q, answer string, contents []string) bool {
 	if !virtualMemoryWhy(q) {
 		return true
 	}
-	p, m := answerAspects(strings.Join(contents, "\n"))
-	ap, am := answerAspects(answer)
-	return (!p || ap) && (!m || am)
+	return virtualMemoryAnswerIssue(q, answer, contents) == ""
 }
 
 func balanceWhyEvidence(q string, chunks []domain.Chunk, minScore float64) []domain.Chunk {
