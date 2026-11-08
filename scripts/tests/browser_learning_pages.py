@@ -44,6 +44,17 @@ with sync_playwright() as p:
  navigate('/exam408/assessment?asset=a2&point=p2');page.get_by_text('题干a2',exact=True).wait_for();assert page.get_by_text('题干a1',exact=True).count()==0;assert starts==['a1','a2'],starts
  fail_generate[0]=True;page.get_by_role('radio').first.check();page.get_by_role('button',name='提交并查看报告',exact=True).click();page.get_by_text('计入学情 1 / 1 题，其中正确 1 题',exact=True).wait_for();page.get_by_role('status').filter(has_text='计划更新失败').wait_for();fail_generate[0]=False
  navigate('/exam408/tasks');page.get_by_role('heading',name='我的学习任务',exact=True).wait_for();page.get_by_role('heading',name='专项复习1 待学习',exact=True).wait_for();assert page.get_by_text('专项复习3',exact=True).count()==0
+ nav=page.get_by_role('navigation',name='主导航')
+ assert nav.get_by_role('link').count()==9
+ for label,path,title in [('前测练习与报告','assessment','前测、练习与报告'),('薄弱点复习','weakness','薄弱点复习'),('学情统计','statistics','学情统计')]:
+  nav.get_by_role('link',name=label,exact=True).click();page.wait_for_url('**/exam408/'+path);page.get_by_role('heading',name=title,exact=True).wait_for()
+  assert page.get_by_role('navigation',name='测评学情分区').count()==0
+  assert nav.get_by_role('link',name=label,exact=True).get_attribute('aria-current')=='page'
+ navigate('/exam408/assessment?tab=weakness&point=p1');page.wait_for_url('**/exam408/weakness?point=p1')
+ navigate('/exam408/assessment?tab=statistics&point=p2');page.wait_for_url('**/exam408/statistics?point=p2')
+ page.set_viewport_size({'width':1920,'height':1080});navigate('/exam408/assessment');page.get_by_role('heading',name='前测、练习与报告',exact=True).wait_for()
+ assert page.locator('main').evaluate('(e)=>e.getBoundingClientRect().width')>1800
+ page.screenshot(path='/tmp/assessment-independent-desktop.png',full_page=True)
  for width in [1440,1024,768,390,320]:
   page.set_viewport_size({'width':width,'height':900});navigate('/exam408/tasks?tab=teacher');page.get_by_role('heading',name='我的老师与学习方案',exact=True).wait_for();page.wait_for_timeout(100)
   assert not page.evaluate('document.documentElement.scrollWidth>innerWidth+2'),('overflow',width)
