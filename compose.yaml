@@ -62,8 +62,8 @@ services:
       test: ["CMD", "/exam408", "healthcheck"]
       interval: 5s
       timeout: 3s
-      start_period: 20s
-      retries: 12
+      start_period: 90s
+      retries: 24
     restart: unless-stopped
     ports: ["8080:8080"]
     volumes: ["uploads:/data/uploads"]

@@ -35,8 +35,53 @@ if ($EnableGraphExtraction) {
 [IO.File]::WriteAllText($path, $text, (New-Object Text.UTF8Encoding($false)))
 Push-Location $root
 try {
-    docker compose up -d --build
-    if ($LASTEXITCODE -ne 0) { throw 'Docker Compose failed. Check the service logs.' }
+    function Show-StartupDiagnostics {
+        docker compose ps -a
+        docker compose logs --since 10m --tail 100 backend postgres
+        $container = docker compose ps -a -q backend
+        if ($LASTEXITCODE -eq 0 -and $container) {
+            docker inspect --format '{{json .State.Health}}' $container
+        }
+    }
+    Write-Host 'Building images. Existing data volumes are preserved.'
+    docker compose build backend worker frontend
+    if ($LASTEXITCODE -ne 0) { throw 'Image build failed; startup stopped.' }
+    # Backend performs existing-resource checks before it listens. Do not let
+    # frontend's dependency check abort the whole update during this stage.
+    docker compose up -d postgres redis neo4j backend
+    if ($LASTEXITCODE -ne 0) {
+        Show-StartupDiagnostics
+        throw 'Backend/dependency startup failed. See logs above; do not remove data volumes.'
+    }
+    $backendReady = $false
+    $deadline = [DateTime]::UtcNow.AddMinutes(5)
+    $attempt = 0
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $container = docker compose ps -a -q backend
+        if ($LASTEXITCODE -ne 0 -or -not $container) { break }
+        $raw = docker inspect --format '{{json .State}}' $container
+        if ($LASTEXITCODE -ne 0) { break }
+        $state = $raw | ConvertFrom-Json
+        if ($state.Health -and $state.Health.Status -eq 'healthy') {
+            $backendReady = $true
+            break
+        }
+        if ($state.Status -eq 'exited' -or $state.Status -eq 'dead') { break }
+        if ($attempt % 5 -eq 0) {
+            Write-Host ('Waiting for backend initialization: container=' + $state.Status + '; health=' + $state.Health.Status + '. Existing-resource checks may take time.')
+        }
+        $attempt++
+        Start-Sleep -Seconds 2
+    }
+    if (-not $backendReady) {
+        Show-StartupDiagnostics
+        throw 'Backend did not become healthy within 5 minutes. See logs above; no data volumes were removed. Do not repeatedly rebuild before checking the error.'
+    }
+    docker compose up -d worker frontend
+    if ($LASTEXITCODE -ne 0) {
+        Show-StartupDiagnostics
+        throw 'Worker/frontend startup failed. Backend readiness was checked; see logs above.'
+    }
     docker compose ps
     $expected = '2026.11.08.3'
     $verified = $false
