@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import StudyPlanPreview from '@/components/StudyPlanPreview.vue'
 import SafeAnswer from '@/components/SafeAnswer.vue'
@@ -9,18 +9,54 @@ import { foundation,type Assessment,type RadarSubject } from '@/api/foundation'
 import { messageOf } from '@/api/client'
 const activeSource=ref<Citation|null>(null)
 const route=useRoute(),error=ref(''),notice=ref(''),busy=ref(false),history=ref<Assessment[]>([]),current=ref<Assessment|null>(null),answers=ref<Record<string,number>>({}),radar=ref<RadarSubject[]>([])
+let routeRequest=0
 const completeRadar=computed(()=>radar.value.length===4&&radar.value.every(s=>s.Accuracy!==null))
 function xy(i:number,score:number){const a=i*Math.PI/2-Math.PI/2;return [150+Math.cos(a)*score*90,150+Math.sin(a)*score*90]}
 const polygon=computed(()=>radar.value.map((s,i)=>xy(i,s.Accuracy??0).join(',')).join(' '))
 async function load(){[history.value,radar.value]=await Promise.all([foundation.assessments(),foundation.radar()])}
-async function action(fn:()=>Promise<void>){busy.value=true;error.value='';notice.value='';try{await fn()}catch(e){error.value=messageOf(e)}finally{busy.value=false}}
-async function start(kind:string){await action(async()=>{current.value=await foundation.start(kind,typeof route.query.point==='string'?route.query.point:'',kind==='practice'&&typeof route.query.asset==='string'?route.query.asset:'');answers.value={};await load()})}
+async function action(fn:()=>Promise<void>){const request=routeRequest;busy.value=true;error.value='';notice.value='';try{await fn()}catch(e){if(request===routeRequest)error.value=messageOf(e)}finally{if(request===routeRequest)busy.value=false}}
+async function start(kind:string){const request=routeRequest,point=typeof route.query.point==='string'?route.query.point:'',asset=kind==='practice'&&typeof route.query.asset==='string'?route.query.asset:'';await action(async()=>{const next=await foundation.start(kind,point,asset);if(request!==routeRequest)return;current.value=next;answers.value={};await load()})}
 function resume(a:Assessment){current.value=a;answers.value=Object.fromEntries((a.Result?.Items??[]).map(item=>[item.ID,item.Selected]));error.value=''}
-async function submit(){if(!current.value)return;await action(async()=>{current.value!.Result=await foundation.submit(current.value!.ID,answers.value);notice.value='作答已保存。';try{await foundation.generate();notice.value='作答已保存，复习计划已更新，见下方今日复习计划。'}catch(e){notice.value='作答已保存；计划更新失败，请在下方点击更新计划重试：'+messageOf(e)}try{await load()}catch(e){error.value='学情刷新失败，作答已保留：'+messageOf(e)}})}
-async function infer(qid:string){await action(async()=>{current.value!.Result=await foundation.infer(current.value!.ID,qid);await load()})}
-async function confirmAnswer(qid:string,decision:string){await action(async()=>{current.value!.Result=await foundation.confirm(current.value!.ID,qid,decision);await load()})}
+async function submit(){
+ const assessment=current.value
+ if(!assessment)return
+ const selections={...answers.value}
+ await action(async()=>{
+  const result=await foundation.submit(assessment.ID,selections)
+  if(current.value!==assessment)return
+  assessment.Result=result
+  notice.value='作答已保存。'
+  try{
+   await foundation.generate()
+   if(current.value!==assessment)return
+   notice.value='作答已保存，复习计划已更新，见下方今日复习计划。'
+  }catch(e){
+   if(current.value!==assessment)return
+   notice.value='作答已保存；计划更新失败，请在下方点击更新计划重试：'+messageOf(e)
+  }
+  try{await load()}catch(e){if(current.value===assessment)error.value='学情刷新失败，作答已保留：'+messageOf(e)}
+ })
+}
+async function infer(qid:string){const assessment=current.value;if(!assessment)return;await action(async()=>{const result=await foundation.infer(assessment.ID,qid);if(current.value!==assessment)return;assessment.Result=result;await load()})}
+async function confirmAnswer(qid:string,decision:string){const assessment=current.value;if(!assessment)return;await action(async()=>{const result=await foundation.confirm(assessment.ID,qid,decision);if(current.value!==assessment)return;assessment.Result=result;await load()})}
 function answerLetter(value:number|undefined){return value===undefined||value<0?'暂无法确定':String.fromCharCode(65+value)}
-onMounted(()=>action(async()=>{await load();const id=route.query.assessment;if(typeof id==='string'){const found=history.value.find(a=>a.ID===id);if(found)resume(found);else notice.value='该测评未在最近记录中找到，请从测评历史中选择。'}else if(typeof route.query.asset==='string'){current.value=await foundation.start('practice',typeof route.query.point==='string'?route.query.point:'',route.query.asset);answers.value={};await load()}}))
+watch(()=>[route.query.assessment,route.query.asset,route.query.point],async()=>{
+ const id=++routeRequest,assessment=route.query.assessment,asset=route.query.asset,point=route.query.point
+ current.value=null;answers.value={};error.value='';notice.value='';busy.value=true
+ try{
+  const [records,scores]=await Promise.all([foundation.assessments(),foundation.radar()])
+  if(id!==routeRequest)return
+  history.value=records;radar.value=scores
+  if(typeof assessment==='string'){
+   const found=records.find(a=>a.ID===assessment)
+   if(found)resume(found);else notice.value='该测评未在最近记录中找到，请从测评历史中选择。'
+  }else if(typeof asset==='string'){
+   const next=await foundation.start('practice',typeof point==='string'?point:'',asset)
+   if(id===routeRequest)current.value=next
+  }
+ }catch(e){if(id===routeRequest)error.value=messageOf(e)}finally{if(id===routeRequest)busy.value=false}
+},{immediate:true})
+
 </script>
 <template><div><header class="page-head"><div><h1>测评与学情</h1><p>问卷了解目标，答题结果形成学情。未测科目保持“待测”。</p></div></header><div v-if="error" class="notice error" role="alert">{{error}}</div><div v-if="notice" class="notice" role="status">{{notice}}</div>
 <p class="muted">学习目标与每日预算统一在 <RouterLink to="/exam408/settings">个人中心</RouterLink> 设置；薄弱点与统计请切换上方分区。</p>
