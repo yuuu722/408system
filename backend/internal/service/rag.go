@@ -499,17 +499,27 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 	}
 	related := []domain.Asset{}
+	ids := []string{}
+	for _, point := range detected {
+		ids = append(ids, point.ID)
+	}
 	if store, ok := s.Store.(interface {
+		RelatedQuestionCandidates(context.Context, string, string, []string) ([]domain.Asset, error)
+	}); ok {
+		candidates, e := store.RelatedQuestionCandidates(ctx, uid, kid, ids)
+		if e != nil {
+			s.warn("related question lookup failed", "error", e)
+		} else {
+			related = focusedRelatedQuestions(question, candidates)
+		}
+	} else if store, ok := s.Store.(interface {
 		RelatedQuestions(context.Context, string, string, []string) ([]domain.Asset, error)
 	}); ok {
-		ids := []string{}
-		for _, point := range detected {
-			ids = append(ids, point.ID)
-		}
-		var relatedErr error
-		related, relatedErr = store.RelatedQuestions(ctx, uid, kid, ids)
-		if relatedErr != nil {
-			s.warn("related question lookup failed", "error", relatedErr)
+		candidates, e := store.RelatedQuestions(ctx, uid, kid, ids)
+		if e != nil {
+			s.warn("related question lookup failed", "error", e)
+		} else {
+			related = focusedRelatedQuestions(question, candidates)
 		}
 	}
 	if !generation.Verified {

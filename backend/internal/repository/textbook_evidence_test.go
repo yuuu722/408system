@@ -79,4 +79,13 @@ func TestLiteralTextbookRecallFindsCauseAndRespectsScopeAndPurpose(t *testing.T)
 		require.Equal(t, book.ID, rows[0].DocumentID)
 	})
 
+	t.Run("comparison prefers body evidence for both objects over broad chapter mentions", func(t *testing.T) {
+		add(a.ID, ka.ID, "textbook", "knowledge", "进程参与资源管理、调度、通信和共享，服务器进程还负责建立FTP连接。")
+		expected := add(a.ID, ka.ID, "textbook", "knowledge", "进程是资源分配的基本单位，线程是调度的基本单位。")
+		rows, e := p.SearchTextbookEvidence(ctx, a.ID, ka.ID, []string{"进程", "线程"}, []string{"比较", "区别", "资源", "调度", "通信", "共享", "基本单位"}, 1)
+		require.NoError(t, e)
+		require.Len(t, rows, 1)
+		require.Equal(t, expected.ID, rows[0].DocumentID)
+	})
+
 }

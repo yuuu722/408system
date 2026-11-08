@@ -7,7 +7,7 @@ import (
 
 // Only reviewed, usable questions from the selected scope. Retrieval never
 // publishes extraction candidates or exposes another member's exercises.
-func (p *Postgres) RelatedQuestions(ctx context.Context, uid, kid string, pointIDs []string) ([]domain.Asset, error) {
+func (p *Postgres) RelatedQuestionCandidates(ctx context.Context, uid, kid string, pointIDs []string) ([]domain.Asset, error) {
 	chosen, e := p.KnowledgeBase(ctx, uid, kid)
 	if e != nil {
 		return nil, e
@@ -27,7 +27,7 @@ func (p *Postgres) RelatedQuestions(ctx context.Context, uid, kid string, pointI
  WHERE sd.id::text=ev->>'DocumentID' AND (sk.is_public OR (sk.id=$2 AND sk.user_id=$1))
  AND (sd.status='ready' OR sd.active_revision_id IS NOT NULL)
  AND (COALESCE(ev->>'RevisionID','')='' OR sd.active_revision_id::text=ev->>'RevisionID')))
- ORDER BY (d.resource_type='past_exam') DESC,a.updated_at DESC LIMIT 100`, uid, kid, pointIDs, !chosen.IsPublic)
+ ORDER BY (d.resource_type='past_exam') DESC,a.updated_at DESC LIMIT 500`, uid, kid, pointIDs, !chosen.IsPublic)
 	if e != nil {
 		return out, e
 	}
@@ -37,14 +37,23 @@ func (p *Postgres) RelatedQuestions(ctx context.Context, uid, kid string, pointI
 		if e != nil {
 			return out, e
 		}
+		if domain.QuestionTextIssue(a) != "" {
+			continue
+		}
 		out = append(out, a)
 	}
 	if e := rows.Err(); e != nil {
 		return nil, e
 	}
 	out = domain.CollapsePublicQuestionVariants(out)
+
+	return out, nil
+}
+
+func (p *Postgres) RelatedQuestions(ctx context.Context, uid, kid string, pointIDs []string) ([]domain.Asset, error) {
+	out, e := p.RelatedQuestionCandidates(ctx, uid, kid, pointIDs)
 	if len(out) > 3 {
 		out = out[:3]
 	}
-	return out, nil
+	return out, e
 }

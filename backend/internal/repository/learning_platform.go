@@ -53,6 +53,7 @@ func (p *Postgres) Assets(ctx context.Context, uid string) ([]domain.Asset, erro
 		if e != nil {
 			return nil, e
 		}
+		domain.MarkQuestionTextQuality(&a)
 		out = append(out, a)
 	}
 	if e := rows.Err(); e != nil {
@@ -169,6 +170,9 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 			rows.Close()
 			return a, e
 		}
+		if domain.QuestionTextIssue(q) != "" {
+			continue
+		}
 		a.Questions = append(a.Questions, q)
 	}
 	err = rows.Err()
@@ -235,6 +239,9 @@ func Grade(questions []domain.Asset, answers map[string]int) (domain.AssessmentR
 		return r, fmt.Errorf("请完成全部题目，不确定时选择未掌握（Incomplete answers）")
 	}
 	for _, q := range questions {
+		if issue := domain.QuestionTextIssue(q); issue != "" {
+			return r, &domain.RequestError{Status: 409, Message: issue + "；请重新组卷"}
+		}
 		v, ok := answers[q.ID]
 		if !ok || v < -1 || v >= len(q.Payload.Options) {
 			return r, fmt.Errorf("答案格式不正确（Invalid answer）")

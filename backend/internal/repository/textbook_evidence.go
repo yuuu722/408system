@@ -28,11 +28,12 @@ func (p *Postgres) SearchTextbookEvidence(ctx context.Context, uid, kid string, 
  AND (d.status='ready' OR d.active_revision_id IS NOT NULL)
  AND c.metadata->>'embedding_space'=$6
  ), scored AS (
- SELECT e.*,(SELECT count(*) FROM unnest($4::text[]) term WHERE strpos(e.body,lower(term))>0) hits
+ SELECT e.*,(SELECT count(*) FROM unnest($4::text[]) term WHERE strpos(e.body,lower(term))>0) hits,
+ (SELECT count(*) FROM unnest($3::text[]) topic WHERE strpos(e.body,lower(topic))>0) topic_hits
  FROM eligible e WHERE EXISTS(SELECT 1 FROM unnest($3::text[]) topic WHERE strpos(e.scope,lower(topic))>0)
  ) SELECT id,document_id,knowledge_base_id,user_id,content,chunk_index,source_location,
  metadata||jsonb_build_object('resource_type','textbook','is_public',is_public,'retrieval_method','textbook_intent'),original_filename
- FROM scored WHERE hits>0 ORDER BY hits DESC,is_public DESC,document_id,chunk_index LIMIT $5`, uid, kid, topics, needs, limit, p.EmbeddingSpace)
+ FROM scored WHERE hits>0 ORDER BY CASE WHEN '比较'=ANY($4::text[]) OR '区别'=ANY($4::text[]) THEN topic_hits ELSE 0 END DESC,hits DESC,is_public DESC,document_id,chunk_index LIMIT $5`, uid, kid, topics, needs, limit, p.EmbeddingSpace)
 	if e != nil {
 		return nil, e
 	}

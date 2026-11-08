@@ -1,36 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { learningApi } from '@/api/learning'
-import { messageOf } from '@/api/client'
-import type { Dashboard } from '@/api/types'
-const data = ref<Dashboard | null>(null), error = ref(''), loading = ref(false)
-async function load() {
-  loading.value = true; error.value = ''
-  try { data.value = await learningApi.dashboard() } catch (e) { error.value = messageOf(e) } finally { loading.value = false }
-}
+import {computed,onMounted,ref} from 'vue'
+import {foundation,type StudySummary} from '@/api/foundation'
+import {messageOf} from '@/api/client'
+const data=ref<StudySummary>(),error=ref(''),loading=ref(false)
+const coverage=computed(()=>data.value?.TotalPoints?Math.round(data.value.CoveredPoints/data.value.TotalPoints*100):0)
+async function load(){loading.value=true;error.value='';try{data.value=await foundation.studySummary()}catch(e){error.value=messageOf(e)}finally{loading.value=false}}
 onMounted(load)
 </script>
-<template>
-  <div>
-    <header class="page-head"><div><p class="eyebrow">LEARNING OVERVIEW</p><h1>学情深度看板</h1><p>从真实的资料和学习记录中，找到下一步方向。</p></div><button class="secondary" :disabled="loading" @click="load">{{ loading ? '加载中…' : '刷新数据' }}</button></header>
-    <div v-if="error" class="notice error" role="alert">{{ error }} <button class="secondary" @click="load">重试</button></div>
-    <div v-if="loading && !data" class="card empty">正在加载学习数据…</div>
-    <template v-if="data">
-      <section class="grid metrics-grid">
-        <div class="card metric blue"><span>个人知识库</span><b>{{ data.KnowledgeBaseCount }} <small>个</small></b><p>将课程资料整理成自己的学习空间</p></div>
-        <div class="card metric purple"><span>已就绪资料</span><b>{{ data.ReadyDocumentCount }} <small>份</small></b><p>已完成处理，可用于资料问答</p></div>
-        <div class="card metric orange"><span>待复习薄弱点</span><b>{{ data.Weaknesses.length }} <small>个</small></b><p>根据当前学习事件计算</p></div>
-      </section>
-      <section class="grid overview-grid section">
-        <div class="card"><div class="section-title"><h2>四科学习进度</h2><RouterLink to="/exam408/knowledge">查看知识体系 →</RouterLink></div><p class="muted">按当前已录入知识点统计，尚未覆盖完整考纲。</p>
-          <div class="subject-rows"><div v-for="s in data.Subjects" :key="s.ID" class="subject-row"><div class="section-title"><div><span class="subject-code">{{ s.Code }}</span><h3>{{ s.Name }}</h3></div><b>{{ s.TouchedCount ? Math.round(s.Progress * 100) + '%' : '待测' }}</b></div><div class="progress"><i :style="{ width: `${Math.round(s.Progress * 100)}%` }"></i></div><span class="muted">有记录 {{ s.TouchedCount }} / {{ s.KnowledgePointCount }} 个知识点 · 规则掌握度</span></div></div><div v-if="!data.Subjects.length" class="empty">暂无学科数据。</div>
-        </div>
-        <aside class="card advice-card"><h2>你的学习建议</h2><div class="advice-panel"><span class="pill">下一步行动</span><h3>把难点变成新的理解</h3><p>上传你的 408 学习资料，通过带引用的问答理解概念，再回到原文复习。</p><div v-if="data.Recommendations.length" class="advice-target"><b>{{ data.Recommendations[0]?.KnowledgePointName }}</b><p>{{ data.Recommendations[0]?.Reason }}</p></div><p v-else class="advice-target">目前还没有推荐。积累学习记录后，可在薄弱点页面生成建议。</p><RouterLink class="primary" to="/exam408/weakness">查看复习建议 →</RouterLink></div></aside>
-      </section>
-      <section class="grid two-col section"><div class="card"><div class="section-title"><h2>优先复习</h2><RouterLink to="/exam408/weakness">查看全部 →</RouterLink></div><div v-if="!data.Weaknesses.length" class="empty">完成测评后，这里会显示需要复习的知识点。</div><div class="list"><div v-for="w in data.Weaknesses.slice(0, 4)" :key="w.KnowledgePointID" class="list-item"><div class="grow"><b>{{ w.KnowledgePointName }}</b><div class="reason">{{ w.SubjectName }} · {{ w.InteractionCount }} 次交互</div></div><span class="pill warn">薄弱 {{ Math.round(w.WeaknessScore * 100) }}%</span></div></div></div>
-        <div class="card"><div class="section-title"><h2>最近的学习资料</h2><RouterLink to="/exam408/resources">管理资料 →</RouterLink></div><div v-if="!data.RecentDocuments.length" class="empty">还没有资料，先创建知识库并上传一份笔记。</div><div class="list"><div v-for="d in data.RecentDocuments.slice(0, 4)" :key="d.ID" class="list-item"><div class="grow"><b>{{ d.OriginalFilename }}</b><div class="reason">{{ new Date(d.CreatedAt).toLocaleDateString() }}</div></div><span class="pill">{{ d.Status === 'ready' ? '已就绪' : d.Status === 'failed' ? '处理失败' : '处理中' }}</span></div></div></div>
-      </section>
-    </template>
-  </div>
-</template>
-
+<template><div><header class="page-head"><div><h1>学情统计</h1><p>按独立题组最近有效作答统计，结合覆盖范围判断，不把浏览、提问或刷同题当作掌握。</p></div><button class="secondary" :disabled="loading" @click="load">{{loading?'读取中…':'刷新统计'}}</button></header><p v-if="error" class="notice error">{{error}}</p><template v-if="data"><p class="notice">{{data.Notice}}</p><section class="grid metrics-grid"><article class="card section"><h2>已提交测评</h2><strong>{{data.Submitted}}</strong><p>尚未提交 {{data.Unsubmitted}} 次</p></article><article class="card section"><h2>有效独立题组</h2><strong>{{data.ValidFamilies}}</strong><p>正确 {{data.CorrectFamilies}} 组 · {{data.Accuracy===null?'待测':Math.round(data.Accuracy*100)+'%正确'}}</p></article><article class="card section"><h2>目录覆盖</h2><strong>{{coverage}}%</strong><p>{{data.CoveredPoints}} / {{data.TotalPoints}} 个已录入知识点，不代表完整考纲</p></article></section><section class="card section"><h2>四科表现</h2><article v-for="s in data.Subjects" :key="s.ID" class="subject"><div class="section-title"><h3>{{s.Name}}</h3><b>{{s.Accuracy===null?'待测':Math.round(s.Accuracy*100)+'%'}}</b></div><div class="progress"><i :style="{width:((s.Accuracy??0)*100)+'%'}"/></div><p>有效题组 {{s.Tested}} · 答对 {{s.Correct}} · 已测知识点 {{s.CoveredPoints}} / {{s.TotalPoints}}</p><small>{{s.Tested===0?'尚无有效作答':s.Tested<5?'样本较少，暂不判断整体水平':'仍需结合知识点覆盖范围判断，不作为成绩预测'}}</small></article></section><p class="muted">待确认或未计入学情的作答共 {{data.UncountedAttempts}} 题次。</p><div class="toolbar-actions"><RouterLink class="secondary" to="/exam408/assessment">查看测评记录与报告</RouterLink><RouterLink class="secondary" :to="{path:'/exam408/assessment',query:{tab:'weakness'}}">查看薄弱点</RouterLink><RouterLink class="primary" to="/exam408/tasks">按计划复习</RouterLink></div></template></div></template>
+<style scoped>.subject{padding:14px 0;border-bottom:1px solid #e2e8f0}.subject h3{margin:0}.subject small{color:#64748b}.metrics-grid strong{font-size:28px;color:#245ce5}</style>

@@ -1,0 +1,8 @@
+import test from 'node:test'
+import assert from 'node:assert/strict'
+import {readFileSync} from 'node:fs'
+const read=p=>readFileSync(new URL('../src/'+p,import.meta.url),'utf8')
+test('legacy teacher and weakness links redirect with their original query',()=>{const r=read('router/index.ts');assert.match(r,/path:'exam408\/learning',redirect:to=>\(\{path:'\/exam408\/tasks',query:\{\.\.\.to.query,tab:'teacher'/);assert.match(r,/path:'exam408\/weakness',redirect:to=>\(\{path:'\/exam408\/assessment',query:\{\.\.\.to.query,tab:'weakness'/)})
+test('student top navigation has seven clear entries and no redundant pages',()=>{const layout=read('components/AppLayout.vue').split('const studentItems = [')[1].split('const items=')[0];assert.equal((layout.match(/path:/g)||[]).length,7);for(const label of ['薄弱点复习','我的老师与学习方案','知识图谱','学情分析'])assert.ok(!layout.includes(`label:'${label}'`))})
+test('goals, assessment statistics and practice generation have single editing homes',()=>{assert.ok(read('views/SettingsView.vue').includes('v-model.number="profile.GoalScore"'));assert.ok(!read('views/AssessmentView.vue').includes('v-model.number="profile.GoalScore"'));assert.ok(!read('views/SettingsView.vue').includes('<h2>学情检测</h2>'));assert.ok(!read('views/TasksView.vue').includes('<GeneratePractice'));assert.ok(read('views/AssetsView.vue').includes('<GeneratePractice'))})
+test('teacher page selects a lesson while knowledge hub owns the full map',()=>{assert.ok(!read('views/LearningStudioView.vue').includes('<KnowledgeMindMap'));assert.ok(read('views/KnowledgeMapView.vue').includes('<KnowledgeMindMap'));assert.ok(read('views/KnowledgeHubView.vue').includes('知识关系图谱'))})

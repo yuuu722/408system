@@ -76,7 +76,7 @@ func comparisonEvidence(q, text string) string {
 const comparisonCompositionInstruction = `本题是比较分析。只能用facts及premises逐项比较comparison.left和comparison.right，不补充模型常识。
 只返回JSON：{"comparisons":[{"dimension":"资源","left":"左侧对象的具体情况。","right":"右侧对象的具体情况。","left_facts":[1],"right_facts":[2]}]}。
 每侧分别引用支持该侧结论的事实编号，不能互换主语。维度使用短名词，每侧写完整句，不能只说有区别、不同、存在差异。仅比较本题两个对象，不引入其他对象的比较。
-优先覆盖证据中有完整支持的定义、资源、调度、开销、通信等维度，最多5行。保留用户级/内核级线程等适用条件，不把有条件结论绝对化。原文没给的维度不猜补。无法同时支持双方时不写该行；全部无依据则返回{"comparisons":[]}。不要写来源编号、Markdown或额外文字。`
+优先覆盖证据中有完整支持的定义、资源、调度、开销、通信等维度，最多5行。每格明确主语，线程共享资源须保留“同一进程内”或“所属进程”等范围；仅涉及用户级或内核级线程的结论，必须保留其种类限定。保留用户级/内核级线程等适用条件，不把有条件结论绝对化。原文没给的维度不猜补。无法同时支持双方时不写该行；全部无依据则返回{"comparisons":[]}。不要写来源编号、Markdown或额外文字。`
 
 func compositionInstruction(q string) string {
 	if comparisonTargets(q) != nil {
@@ -188,4 +188,41 @@ func renderComparison(spec *comparisonSpec, rows []comparisonRow) string {
 		out.WriteString("| " + cell(row.Dimension) + " | " + cell(row.Left) + " | " + cell(row.Right) + " |\n")
 	}
 	return strings.TrimSpace(out.String())
+}
+
+// Balance independent definitions as well as sentences mentioning both sides;
+// sorting only by lexical score can consume the whole fact budget on one side.
+func balanceComparisonSentences(q string, items []answerSentence) []answerSentence {
+	spec := comparisonTargets(q)
+	if spec == nil {
+		return items
+	}
+	groups := [][]answerSentence{{}, {}, {}, {}}
+	for _, v := range items {
+		l, r := mentions(v.Text, spec.Left), mentions(v.Text, spec.Right)
+		i := 3
+		if l && r {
+			i = 0
+		} else if l {
+			i = 1
+		} else if r {
+			i = 2
+		}
+		groups[i] = append(groups[i], v)
+	}
+	out := []answerSentence{}
+	for {
+		added := false
+		for i := 0; i < 3; i++ {
+			if len(groups[i]) > 0 {
+				out = append(out, groups[i][0])
+				groups[i] = groups[i][1:]
+				added = true
+			}
+		}
+		if !added {
+			break
+		}
+	}
+	return append(out, groups[3]...)
 }

@@ -144,6 +144,7 @@ func sentenceCandidates(question string, contents []string, scopes ...[]domain.C
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	out = balanceComparisonSentences(question, out)
 	if len(out) > 16 {
 		out = out[:16]
 	}

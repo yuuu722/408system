@@ -5,6 +5,10 @@ import "strings"
 // Readiness is computed, never approved by a publisher or supplied by a client.
 func PrepareAsset(a *Asset) {
 	a.Status = "unavailable"
+	if issue := QuestionTextIssue(*a); issue != "" {
+		a.Payload.Issue = issue
+		return
+	}
 	if a.Payload.AnswerOrigin == "" {
 		if a.Payload.Answer >= 0 {
 			a.Payload.AnswerOrigin = "source"

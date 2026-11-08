@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import GeneratePractice from '@/components/GeneratePractice.vue'
 import {useRoute} from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import SafeAnswer from '@/components/SafeAnswer.vue'
@@ -43,7 +44,7 @@ async function importFile(event:Event){const file=(event.target as HTMLInputElem
 function template(){const b=new Blob([JSON.stringify(blank(),null,2)],{type:'application/json'}),url=URL.createObjectURL(b),a=document.createElement('a');a.href=url;a.download='resource-template.json';a.click();URL.revokeObjectURL(url)}
 onMounted(load)
 </script>
-<template><div><header class="page-head"><div><h1>{{auth.user?.role==='admin'?'题库与课程审核':'题目与学习资源'}}</h1><p>知识库资料与可测评题目分别管理；自动抽题先审核，确认题干、选项、来源答案及知识点后再发布。</p></div><button v-if="auth.user?.role==='admin'" class="primary" :disabled="busy" @click="edit()">新建资源</button></header>
+<template><div><header class="page-head"><div><h1>{{auth.user?.role==='admin'?'题库与课程审核':'题目与学习资源'}}</h1><p>知识库资料与可测评题目分别管理；自动抽题先审核，确认题干、选项、来源答案及知识点后再发布。</p></div><button v-if="auth.user?.role==='admin'" class="primary" :disabled="busy" @click="edit()">新建资源</button></header><details class="card section"><summary>AI辅助生成同知识点练习</summary><GeneratePractice/></details>
 <div v-if="error" class="notice error" role="alert">{{error}}</div><div v-if="notice" class="notice" role="status">{{notice}}</div>
 <section v-if="auth.user?.role==='admin'" class="card"><h2>题库处理进度</h2><p>候选题 {{questionCounts.all}} · 可练习分组 {{questionCounts.uniqueReady}}（{{questionCounts.ready}} 条来源记录） · 待审核 {{questionCounts.pending}} · 待修复 {{questionCounts.repair}} · 缺可靠答案 {{questionCounts.noAnswer}}（分类可能重叠）</p><p v-if="!questionCounts.ready" class="notice">学生只能练习已核对发布的题目。先整理题库用途的原文件，再配对答案、修复或关联知识点，最后审核发布。</p><button class="primary" :disabled="busy||!selected.length" @click="publishSelected">发布选中且已核对的题目（{{selected.length}}）</button><p class="reason">只有具备可靠答案、完整题干选项和知识点且无解析异常的候选题可选；支持逐题检查后批量发布。</p></section>
 <section v-if="auth.user?.role==='admin'" class="card"><RouterLink class="secondary" to="/exam408/admin/resources">上传或整理题目原文件</RouterLink><p>PDF / Word 在资料管理中选择“题库”用途；此处 JSON 用于导入已结构化的题目。无需重复上传同一文件。</p><div class="toolbar-actions"><button class="secondary" @click="template">下载空白 JSON 模板</button><label>导入资源 JSON <input type="file" accept=".json" :disabled="busy" @change="importFile" /></label></div><p class="muted">PointID 需填写已有知识点 ID，Answer 使用从 0 开始的选项序号；答案未知时填写 -1，可在作答后获取 AI 参考判断。</p></section>
