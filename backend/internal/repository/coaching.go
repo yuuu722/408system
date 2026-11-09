@@ -173,6 +173,7 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 			seen[domain.Family(a)] = true
 		}
 	}
+	subtreeCounts := domain.SubtreeQuestionCounts(points, available)
 	years := map[string]map[string]bool{}
 	corpus := map[string]map[string]bool{}
 	pointSubjects := map[string]string{}
@@ -218,7 +219,7 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 		return out, e
 	}
 	for _, k := range points {
-		v := domain.PointInsight{ID: k.ID, Code: k.Code, Name: k.Name, ParentID: k.ParentID, SubjectID: k.SubjectID, SubjectName: k.SubjectName, Description: k.Description, Tested: tested[k.ID], Correct: correct[k.ID], AvailableQuestions: available[k.ID], ExamYears: len(years[k.ID]), CorpusYears: len(corpus[k.SubjectID]), State: "待测", Importance: 1, ImportanceBasis: "目录基础顺序；尚无可靠考频", Sources: []domain.FrequencySource{}}
+		v := domain.PointInsight{ID: k.ID, Code: k.Code, Name: k.Name, ParentID: k.ParentID, SubjectID: k.SubjectID, SubjectName: k.SubjectName, Description: k.Description, Tested: tested[k.ID], Correct: correct[k.ID], AvailableQuestions: available[k.ID], SubtreeQuestions: subtreeCounts[k.ID], ExamYears: len(years[k.ID]), CorpusYears: len(corpus[k.SubjectID]), State: "待测", Importance: 1, ImportanceBasis: "目录基础顺序；尚无可靠考频", Sources: []domain.FrequencySource{}}
 		if v.Tested > 0 {
 			ratio := float64(v.Correct) / float64(v.Tested)
 			v.Accuracy = &ratio

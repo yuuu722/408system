@@ -32,6 +32,8 @@ with sync_playwright() as p:
   elif path=='/exam408/assessments' and route.request.method=='POST':
    body=route.request.post_data_json;starts.append(body['AssetID']);data=dict(ID='round'+body['AssetID'],Kind='practice',Questions=[dict(ID=body['AssetID'],Title=body['AssetID'],Payload=dict(Stem='题干'+body['AssetID'],Options=['甲','乙','丙','丁'],Images=[],Source='回归样本'))],Result=None,CreatedAt='2026-11-08')
   elif path=='/exam408/coaching':data=[dict(ID='old',PointID='p2',Teacher='encouraging',CreatedAt='2026-11-08',Lesson={'Answer':'不应在进程课堂显示的旧网络课堂','Sources':[]},Assessment={'Questions':[],'Result':None})]
+  elif path.endswith('/study'):
+   id=path.split('/')[-2];pt=next((q for q in points if q['ID']==id),points[0]);data=dict(Point=pt,Ancestors=[],Children=[],Knowledge=[],Example=None,Exercises=[],Mistakes=[],DirectQuestions=pt['AvailableQuestions'],SubtreeQuestions=pt['AvailableQuestions'],Missing=[])
   elif path=='/knowledge-bases':data=[]
   elif path=='/exam408/radar':data=[]
   else:data=[]

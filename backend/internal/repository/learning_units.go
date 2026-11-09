@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
 )
+
+var textbookNameAcronyms = regexp.MustCompile(`[A-Za-z][A-Za-z0-9-]+`)
 
 func resourceKey(parts ...string) string {
 	h := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
@@ -18,14 +21,22 @@ func resourceKey(parts ...string) string {
 }
 
 // Textbook-only, owner/public scoped references; these are excerpts, not generated explanations.
-func (p *Postgres) unitKnowledge(ctx context.Context, uid, name string) ([]domain.Citation, error) {
+func (p *Postgres) unitKnowledge(ctx context.Context, uid, name string, extra ...string) ([]domain.Citation, error) {
 	terms := []string{name}
 	for _, v := range strings.FieldsFunc(name, func(r rune) bool { return r == '与' || r == '、' }) {
 		if len([]rune(v)) >= 2 {
 			terms = append(terms, v)
 		}
 	}
-	rows, e := p.DB.Query(ctx, `SELECT c.document_id,d.original_filename,c.id,c.source_location,c.content,COALESCE(c.metadata->>'page','0'),COALESCE(c.metadata->>'revision_id','') FROM document_chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id LEFT JOIN document_catalog dc ON dc.document_id=d.id WHERE (kb.is_public OR kb.user_id=$1) AND COALESCE(dc.resource_type,d.resource_type)='textbook' AND COALESCE(dc.purpose,'knowledge')<>'questions' AND (d.status='ready' OR d.active_revision_id IS NOT NULL) AND EXISTS(SELECT 1 FROM unnest($2::text[]) term WHERE strpos(c.content,term)>0) AND COALESCE(c.metadata->>'heading_path','') !~ '(习题|选择题|参考答案|答案解析)' ORDER BY kb.is_public DESC,(strpos(c.content,$3)>0) DESC,c.document_id,c.chunk_index LIMIT 2`, uid, terms, name)
+	primary := append([]string{}, terms...)
+	focus := textbookNameAcronyms.FindAllString(name, -1)
+	for _, v := range extra {
+		v = strings.Join(strings.Fields(v), "")
+		if len([]rune(v)) >= 2 && v != "基本概念" && v != "原理" && v != "基础" && len(terms) < 12 {
+			terms = append(terms, v)
+		}
+	}
+	rows, e := p.DB.Query(ctx, `SELECT c.document_id,d.original_filename,c.id,c.source_location,c.content,COALESCE(c.metadata->>'page','0'),COALESCE(c.metadata->>'revision_id','') FROM document_chunks c JOIN documents d ON d.id=c.document_id JOIN knowledge_bases kb ON kb.id=c.knowledge_base_id LEFT JOIN document_catalog dc ON dc.document_id=d.id WHERE (kb.is_public OR kb.user_id=$1) AND COALESCE(dc.resource_type,d.resource_type)='textbook' AND COALESCE(dc.purpose,'knowledge')<>'questions' AND (d.status='ready' OR d.active_revision_id IS NOT NULL) AND EXISTS(SELECT 1 FROM unnest($2::text[]) term WHERE strpos(lower(translate(c.content,' '||chr(9)||chr(10)||chr(13)||chr(160)||chr(12288),'')),lower(term))>0) AND (COALESCE(cardinality($4::text[]),0)=0 OR EXISTS(SELECT 1 FROM unnest($4::text[]) term WHERE strpos(lower(translate(c.content,' '||chr(9)||chr(10)||chr(13)||chr(160)||chr(12288),'')),lower(term))>0)) AND COALESCE(c.metadata->>'heading_path','') !~ '(习题|选择题|参考答案|答案解析)' ORDER BY (strpos(lower(translate(c.content,' '||chr(9)||chr(10)||chr(13)||chr(160)||chr(12288),'')),lower($3))>0) DESC,(SELECT count(*) FROM unnest($5::text[]) term WHERE strpos(lower(translate(c.content,' '||chr(9)||chr(10)||chr(13)||chr(160)||chr(12288),'')),lower(term))>0) DESC,(SELECT count(*) FROM unnest($2::text[]) term WHERE strpos(lower(translate(c.content,' '||chr(9)||chr(10)||chr(13)||chr(160)||chr(12288),'')),lower(term))>0) DESC,kb.is_public DESC,c.document_id,c.chunk_index LIMIT 2`, uid, terms, strings.Join(strings.Fields(name), ""), focus, primary)
 	if e != nil {
 		return nil, e
 	}

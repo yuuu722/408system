@@ -4,6 +4,10 @@ import "net/http"
 
 func (s *Server) learningUnitRoutes(mux *http.ServeMux) {
 	register := func(path string, fn http.HandlerFunc) { mux.Handle(path, s.auth(fn)) }
+	register("GET /api/v1/exam408/knowledge-points/{point}/study", func(w http.ResponseWriter, r *http.Request) {
+		v, e := s.Platform.PointStudy(r.Context(), uid(r), r.PathValue("point"))
+		s.reply(w, v, e)
+	})
 	register("GET /api/v1/exam408/learning-units", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.LearningUnits(r.Context(), uid(r))
 		s.reply(w, v, e)

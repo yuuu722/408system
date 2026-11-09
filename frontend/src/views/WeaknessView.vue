@@ -1,27 +1,19 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { learningApi } from '@/api/learning'
-import { messageOf } from '@/api/client'
-import type { Mastery, Recommendation } from '@/api/types'
-const weak = ref<Mastery[]>([]), recs = ref<Recommendation[]>([]), busy = ref(false), loading = ref(false), error = ref('')
-async function load() {
-  loading.value = true; error.value = ''
-  try { [weak.value, recs.value] = await Promise.all([learningApi.weaknesses(), learningApi.recommendations()]) }
-  catch (e) { error.value = messageOf(e) } finally { loading.value = false }
-}
-async function generate() {
-  busy.value = true; error.value = ''
-  try { recs.value = await learningApi.generateRecommendations() }
-  catch (e) { error.value = messageOf(e) } finally { busy.value = false }
-}
-const actionNames: Record<string, string> = { review_material: '回顾学习资料', practice_and_review: '练习与复习',follow_daily_plan:'按学习计划复习' }
-onMounted(load)
+import {computed,onMounted,ref,watch,nextTick} from 'vue'
+import {useRoute,useRouter} from 'vue-router'
+import {coaching,type Overview} from '@/api/coaching'
+import {foundation} from '@/api/foundation'
+import {messageOf} from '@/api/client'
+import PointStudyPanel from '@/components/PointStudyPanel.vue'
+const content=ref<HTMLElement|null>(null)
+const route=useRoute(),router=useRouter(),data=ref<Overview>(),selected=ref(''),loading=ref(false),error=ref(''),refreshKey=ref(0)
+const weak=computed(()=>data.value?.Points.filter(p=>p.Tested>0&&p.Correct<p.Tested)??[])
+const point=computed(()=>data.value?.Points.find(p=>p.ID===selected.value))
+const doubts=computed(()=>data.value?.Points.filter(p=>p.Doubts>0)??[])
+async function select(id:string){if(data.value?.Points.some(p=>p.ID===id)){selected.value=id;await router.replace({query:{...route.query,point:id}});await nextTick();if(window.matchMedia('(max-width:800px)').matches)content.value?.scrollIntoView({block:'start'})}}
+async function load(update=false){loading.value=true;error.value='';try{if(update)await foundation.generate();data.value=await coaching.overview();const id=typeof route.query.point==='string'?route.query.point:selected.value;selected.value=data.value.Points.some(p=>p.ID===id)?id:weak.value[0]?.ID??doubts.value[0]?.ID??data.value.Points.find(p=>p.AvailableQuestions>0)?.ID??'';refreshKey.value++}catch(e){error.value=messageOf(e)}finally{loading.value=false}}
+watch(()=>route.query.point,id=>{if(typeof id==='string'&&data.value?.Points.some(p=>p.ID===id))selected.value=id})
+onMounted(()=>load())
 </script>
-<template><div>
-  <header class="page-head"><div><p class="eyebrow">REVIEW & REFLECTION</p><h1>薄弱点复习</h1><p>根据已有学习记录安排复习；提问本身并不代表未掌握。</p></div><button class="primary" :disabled="busy || loading" @click="generate">{{ busy ? '计算中…' : '重新生成建议' }}</button></header>
-  <div v-if="error" class="notice error" role="alert">{{ error }} <button class="secondary" @click="load">重试</button></div>
-  <div v-if="loading" class="card empty">正在加载复习数据…</div>
-  <section v-else class="grid two-col"><div class="card"><div class="section-title"><h2>薄弱度排序</h2><span class="pill warn">{{ weak.length }} 个知识点</span></div><div v-if="!weak.length" class="empty"><h3>还没有足够的学习记录</h3><p>先完成前测或可靠题目的练习；浏览和提问不会直接生成掌握度。</p><RouterLink class="secondary" to="/exam408/assessment">开始测评 →</RouterLink></div><div class="list"><div v-for="w in weak" :key="w.KnowledgePointID" class="list-item"><div class="grow"><b>{{ w.KnowledgePointName }}</b><div class="reason">{{ w.SubjectName }} · 样本充分度（规则） {{ Math.round(w.Confidence * 100) }}% · {{ w.InteractionCount }} 个有效作答样本</div><div class="progress"><i :style="{ width: `${Math.round(w.WeaknessScore * 100)}%`, background: '#f59e0b' }"></i></div></div><span class="score">{{ Math.round(w.WeaknessScore * 100) }}%</span></div></div></div>
-    <div class="card"><div class="section-title"><h2>可解释学习建议</h2></div><div v-if="!recs.length" class="empty">暂无推荐。积累学习记录后，点击“重新生成建议”。</div><div class="list"><div v-for="r in recs" :key="r.ID" class="list-item"><div class="grow"><b>{{ r.KnowledgePointName }}</b><div class="reason">{{ r.Reason }}</div><span class="pill">{{ actionNames[r.RecommendedAction] || r.RecommendedAction }}</span></div><span class="score">{{ Math.round(r.Score * 100) }}</span></div></div></div>
-  </section>
-</div></template>
+<template><div><header class="page-head"><div><p class="eyebrow">复查原因 → 补学 → 再练习</p><h1>薄弱点复习</h1><p>从有效错题定位需要复查的知识点，再用教材、例题和新练习补上漏洞。</p></div><button class="secondary" :disabled="loading" @click="load(true)">更新复习安排</button></header><p v-if="error" class="notice error" role="alert">{{error}} <button @click="load()">重试</button></p><p v-if="loading" role="status">正在读取有效作答与复习依据…</p><section v-if="data" class="review-summary card"><b>{{weak.length}} 个知识点有有效错题</b><span>{{doubts.length}} 个知识点有待确认疑问</span><RouterLink to="/exam408/tasks">查看今日复习单元 →</RouterLink><p>提问不等于答错，未测也不等于薄弱。少量错题只提示复查，不能据此判断整章水平。</p></section><div v-if="data" class="review-grid"><aside class="card review-list"><h2>先复查什么</h2><p v-if="!weak.length">暂无当前有效错题。可以先做前测或学习一个知识点，再用新题检查；这不表示已掌握全部内容。</p><RouterLink v-if="!weak.length" class="secondary" to="/exam408/assessment">开始前测与练习</RouterLink><button v-for="p in weak" :key="p.ID" :class="{selected:p.ID===selected}" @click="select(p.ID)"><b>{{p.Name}}</b><span>最近 {{p.Tested}} 个有效题组中 {{p.Tested-p.Correct}} 个答错</span><small>{{p.SubjectName}} · 参考重要性 {{p.Importance.toFixed(1)}}/5 · {{p.Tested<5?'样本少，先复查':'结合覆盖范围继续检查'}}</small></button><details v-if="doubts.length"><summary>待确认疑问（不计为错题）</summary><button v-for="p in doubts" :key="p.ID" @click="select(p.ID)">{{p.Name}} · {{p.Doubts}} 条疑问</button></details><p class="muted">综合有效错题与参考重要性排序；重要性不是未来出题概率。</p></aside><article v-if="point" ref="content" class="card review-content"><header><h2>{{point.Name}}</h2><p>{{point.State}} · 本点 {{point.AvailableQuestions}} 个题组，含下级 {{point.SubtreeQuestions??point.AvailableQuestions}} 个</p><p class="muted">{{point.ImportanceBasis}}</p></header><PointStudyPanel :key="selected+refreshKey" :point-id="selected" @select="select"/></article><article v-else class="card empty">暂无可定位的知识点，请先检查知识目录。</article></div></div></template>
+<style scoped>.review-summary{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:20px 0}.review-summary p{width:100%;color:#64748b;margin:0;font-size:13px}.review-grid{display:grid;grid-template-columns:minmax(240px,320px) minmax(0,1fr);gap:20px;align-items:start}.review-list{max-height:80vh;overflow-y:auto}.review-list button{display:grid;gap:8px;width:100%;padding:14px;border:1px solid #e2e8f0;border-radius:10px;margin:10px 0;background:#f8fafc;text-align:left;cursor:pointer}.review-list .selected{border-color:#2563eb;background:#eff6ff}.review-list span,.review-list small{color:#64748b}.review-content{min-width:0}.review-list details{margin-top:20px}@media(max-width:800px){.review-grid{grid-template-columns:1fr}.review-list{max-height:360px}.page-head{align-items:flex-start;flex-wrap:wrap}}</style>

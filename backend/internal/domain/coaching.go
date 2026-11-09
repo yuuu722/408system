@@ -16,7 +16,7 @@ type FrequencySource struct {
 }
 type PointInsight struct {
 	ID, Name, Code, SubjectID, SubjectName, ParentID, Description, State, ImportanceBasis string
-	Tested, Correct, AvailableQuestions, ExamYears, CorpusYears, Doubts                   int
+	Tested, Correct, AvailableQuestions, SubtreeQuestions, ExamYears, CorpusYears, Doubts int
 	Accuracy                                                                              *float64
 	Importance, Priority                                                                  float64
 	Sources                                                                               []FrequencySource

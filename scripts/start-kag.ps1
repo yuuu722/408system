@@ -83,7 +83,7 @@ try {
         throw 'Worker/frontend startup failed. Backend readiness was checked; see logs above.'
     }
     docker compose ps
-    $expected = '2026.11.09.1'
+    $expected = '2026.11.09.2'
     $verified = $false
     for ($attempt = 0; $attempt -lt 10; $attempt++) {
         try {
