@@ -4,7 +4,7 @@ export interface PlanAPI {dailyPlan:()=>Promise<DailyPlan>;tasks:()=>Promise<Stu
 // different from a failed request and must not trigger a generation loop.
 export async function loadStudyPlan(api:PlanAPI,generateMissing=false,regenerate=false){
  let plan=await api.dailyPlan()
- if(regenerate||(generateMissing&&!plan.ID)){await api.generate();plan=await api.dailyPlan()}
+ if(regenerate||(generateMissing&&(!plan.ID||['408-learning-v2','408-rules-v1'].includes(plan.Strategy)))){await api.generate();plan=await api.dailyPlan()}
  const tasks=(await api.tasks()).filter(t=>t.PlanDate===plan.Date)
  return {plan,tasks}
 }

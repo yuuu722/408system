@@ -6,9 +6,8 @@ import { DashboardIcon, TreeListIcon, FolderOpenIcon, ChatIcon, ChartBubbleIcon 
 const route = useRoute(), router = useRouter(), auth = useAuthStore()
 const studentItems = [
  {path:'/exam408',label:'学习概览',icon:DashboardIcon},
- {path:'/exam408/assessment',label:'前测练习与报告',icon:ChartBubbleIcon},
+ {path:'/exam408/assessment',label:'测评与学情',icon:ChartBubbleIcon},
  {path:'/exam408/weakness',label:'薄弱点复习',icon:TreeListIcon},
- {path:'/exam408/statistics',label:'学情统计',icon:DashboardIcon},
  {path:'/exam408/tasks',label:'学习任务',icon:TreeListIcon},
  {path:'/exam408/assets',label:'题库课程',icon:FolderOpenIcon},
  {path:'/exam408/knowledge',label:'知识体系',icon:TreeListIcon},
@@ -37,7 +36,7 @@ function logout() { auth.logout(); router.push('/login') }
       <div class="account-menu"><RouterLink to="/exam408/settings" class="account-link" aria-label="个人中心"><span class="account"><b>{{ auth.user?.username || '同学' }}</b><small>{{ !auth.user ? '正在读取身份…' : auth.user.role === 'admin' ? '管理员 · 公共资源维护' : '个人中心' }}</small></span><span class="avatar">{{ auth.user?.username?.slice(0, 1).toUpperCase() || 'U' }}</span></RouterLink><button class="text-btn" @click="logout">退出</button></div>
     </header>
     <main id="main-content" class="main" :class="{'main-assistant':route.path==='/exam408/assistant','main-wide':['/exam408/assessment','/exam408/weakness','/exam408/statistics'].includes(route.path)}" tabindex="-1"><RouterView /></main>
-    <footer v-if="route.path!=='/exam408/assistant'" class="site-footer">408 Assistant · 让资料、理解与复习连接起来 · 版本 2026.11.08.3</footer>
+    <footer v-if="route.path!=='/exam408/assistant'" class="site-footer">408 Assistant · 让资料、理解与复习连接起来 · 版本 2026.11.09.1</footer>
   </div>
 </template>
 
@@ -50,6 +49,6 @@ function logout() { auth.logout(); router.push('/login') }
 .main-navigation{min-width:0;flex:1;flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;white-space:nowrap}
 .main-navigation>a{flex:1 0 auto;justify-content:center;padding:10px 9px;font-size:14px}
 .main.main-wide{max-width:none}
-@media(max-width:1500px) and (min-width:1101px){.brand b{display:none}.main-navigation>a{font-size:13px;padding:10px 7px}.account-menu{gap:8px}}
+@media(max-width:1280px) and (min-width:1101px){.brand b{display:none}.main-navigation>a{font-size:13px;padding:10px 7px}.account-menu{gap:8px}}
 @media(max-width:1100px){.topbar{flex-wrap:wrap}.main-navigation{order:3;flex-basis:100%;justify-content:flex-start}.account-menu{margin-left:auto}.main-navigation>a{flex:1 0 auto}}
 </style>

@@ -49,30 +49,54 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	if saved != nil {
 		profile = *saved
 	}
+	var previousStrategy string
+	e = tx.QueryRow(ctx, `SELECT strategy FROM daily_plans WHERE user_id=$1 AND plan_date=$2`, uid, planDate()).Scan(&previousStrategy)
+	if e != nil && nf(e) != ErrNotFound {
+		return e
+	}
 	var pid string
 	var budget int
-	e = tx.QueryRow(ctx, `INSERT INTO daily_plans(user_id,plan_date,budget_minutes) VALUES($1,$2,$3) ON CONFLICT(user_id,plan_date) DO UPDATE SET strategy='408-learning-v2',budget_minutes=GREATEST(EXCLUDED.budget_minutes,COALESCE((SELECT sum(t.estimated_minutes) FROM study_tasks t WHERE t.plan_id=daily_plans.id AND t.completed_at IS NOT NULL),0)) RETURNING id,budget_minutes`, uid, planDate(), profile.DailyMinutes).Scan(&pid, &budget)
+	e = tx.QueryRow(ctx, `INSERT INTO daily_plans(user_id,plan_date,budget_minutes,strategy) VALUES($1,$2,$3,'408-learning-units-v1') ON CONFLICT(user_id,plan_date) DO UPDATE SET strategy='408-learning-units-v1',budget_minutes=GREATEST(EXCLUDED.budget_minutes,COALESCE((SELECT sum(t.estimated_minutes) FROM study_tasks t WHERE t.plan_id=daily_plans.id AND (t.completed_at IS NOT NULL OR daily_plans.strategy='408-learning-units-v1')),0)) RETURNING id,budget_minutes`, uid, planDate(), profile.DailyMinutes).Scan(&pid, &budget)
 	if e != nil {
 		return e
 	}
-	// Re-rank unfinished work after new evidence; preserve completed work and
-	// existing task IDs when the same resource is selected again.
-	if _, e = tx.Exec(ctx, `UPDATE study_tasks SET superseded=true,plan_id=NULL WHERE user_id=$1 AND plan_id=$2 AND completed_at IS NULL`, uid, pid); e != nil {
-		return e
+	// Keep the resources of a started learning sequence stable through its
+	// examples, exercises and check. Only upgrade legacy resource-only plans.
+	if previousStrategy != "408-learning-units-v1" {
+		if _, e = tx.Exec(ctx, `UPDATE study_tasks SET superseded=true,plan_id=NULL WHERE user_id=$1 AND plan_id=$2 AND completed_at IS NULL`, uid, pid); e != nil {
+			return e
+		}
+	} else {
+		units, err := p.LearningUnits(ctx, uid)
+		if err != nil {
+			return err
+		}
+		for _, unit := range units {
+			complete := len(unit.Steps) == 4
+			for _, step := range unit.Steps {
+				complete = complete && step.Completed
+			}
+			if complete {
+				if _, err = tx.Exec(ctx, `UPDATE study_tasks SET completed_at=COALESCE(completed_at,now()) WHERE user_id=$1 AND plan_id=$2 AND asset_id IN(SELECT id FROM learning_assets WHERE point_id=$3)`, uid, pid, unit.PointID); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	var allocated int
 	if e = tx.QueryRow(ctx, `SELECT COALESCE(sum(estimated_minutes),0) FROM study_tasks WHERE plan_id=$1`, pid).Scan(&allocated); e != nil {
 		return e
 	}
 	excluded := map[string]bool{}
-	rows, e := tx.Query(ctx, `SELECT a.id,a.payload FROM study_tasks t JOIN learning_assets a ON a.id=t.asset_id WHERE t.plan_id=$1`, pid)
+	pointSlots := map[string]int{}
+	rows, e := tx.Query(ctx, `SELECT a.id,COALESCE(a.point_id::text,''),a.payload FROM study_tasks t JOIN learning_assets a ON a.id=t.asset_id WHERE t.plan_id=$1`, pid)
 	if e != nil {
 		return e
 	}
 	for rows.Next() {
 		var a domain.Asset
 		var raw []byte
-		if e = rows.Scan(&a.ID, &raw); e != nil {
+		if e = rows.Scan(&a.ID, &a.PointID, &raw); e != nil {
 			rows.Close()
 			return e
 		}
@@ -81,6 +105,7 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 			return e
 		}
 		excluded[domain.Family(a)] = true
+		pointSlots[a.PointID]++
 	}
 	e = rows.Err()
 	rows.Close()
@@ -152,28 +177,47 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	for _, v := range overview.Points {
 		insight[v.ID] = v
 	}
-	candidates := domain.PlanCandidates(assets, history, profile, time.Now())
+	sourceCounts := map[string]int{}
+	eligibleAssets := []domain.Asset{}
+	for _, a := range assets {
+		if a.Kind == "question" && a.Payload.AnswerOrigin != "source" {
+			continue
+		}
+		eligibleAssets = append(eligibleAssets, a)
+		if a.Kind == "question" && a.Status == "ready" {
+			sourceCounts[a.PointID]++
+		}
+	}
+	candidates := domain.PlanCandidates(eligibleAssets, history, profile, time.Now())
 	for i := range candidates {
 		v := insight[candidates[i].Asset.PointID]
 		candidates[i].Priority += v.Priority
 		candidates[i].Reason += fmt.Sprintf(" %s；重要性依据：%s；待确认疑问%d条。", v.State, v.ImportanceBasis, v.Doubts)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Priority > candidates[j].Priority })
-	for _, candidate := range candidates {
+	for _, candidate := range domain.UnitCandidateOrder(candidates) {
 		if len(excluded) >= 20 {
 			break
 		}
 		a := candidate.Asset
 		family := domain.Family(a)
-		if excluded[family] || candidate.Minutes > budget-allocated {
+		minutes := candidate.Minutes
+		if pointSlots[a.PointID] == 0 {
+			minutes += 20
+		} // knowledge, example and a new-question check
+		if pointSlots[a.PointID] == 0 && minutes > budget-allocated && budget-allocated >= 10 {
+			minutes = budget - allocated
+		} // explicitly split across sessions
+		if excluded[family] || pointSlots[a.PointID] >= max(1, min(2, sourceCounts[a.PointID]-2)) || minutes > budget-allocated || (a.Kind == "question" && a.Payload.AnswerOrigin != "source") {
 			continue
 		}
-		tag, err := tx.Exec(ctx, `INSERT INTO study_tasks(user_id,asset_id,reason,plan_id,estimated_minutes,duration_source,priority) SELECT $1,id,$3,$4,$5,$6,$7 FROM learning_assets WHERE id=$2 AND (user_id=$1 OR is_public=true) AND status='ready' AND revision=$8 ON CONFLICT(user_id,asset_id) WHERE completed_at IS NULL DO UPDATE SET plan_id=EXCLUDED.plan_id,reason=EXCLUDED.reason,estimated_minutes=EXCLUDED.estimated_minutes,duration_source=EXCLUDED.duration_source,priority=EXCLUDED.priority,superseded=false WHERE study_tasks.plan_id IS DISTINCT FROM EXCLUDED.plan_id`, uid, a.ID, candidate.Reason, pid, candidate.Minutes, candidate.DurationSource, candidate.Priority, a.Revision)
+		tag, err := tx.Exec(ctx, `INSERT INTO study_tasks(user_id,asset_id,reason,plan_id,estimated_minutes,duration_source,priority) SELECT $1,id,$3,$4,$5,$6,$7 FROM learning_assets WHERE id=$2 AND (user_id=$1 OR is_public=true) AND status='ready' AND revision=$8 ON CONFLICT(user_id,asset_id) WHERE completed_at IS NULL DO UPDATE SET plan_id=EXCLUDED.plan_id,reason=EXCLUDED.reason,estimated_minutes=EXCLUDED.estimated_minutes,duration_source=EXCLUDED.duration_source,priority=EXCLUDED.priority,superseded=false WHERE study_tasks.plan_id IS DISTINCT FROM EXCLUDED.plan_id`, uid, a.ID, candidate.Reason, pid, minutes, "learning_unit_estimate", candidate.Priority, a.Revision)
 		if err != nil {
 			return err
 		}
 		if tag.RowsAffected() == 1 {
-			allocated += candidate.Minutes
+			allocated += minutes
+			pointSlots[a.PointID]++
 			excluded[family] = true
 		}
 	}

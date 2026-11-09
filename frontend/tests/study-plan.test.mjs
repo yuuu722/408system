@@ -24,3 +24,10 @@ test('recommendation reason separates sparse errors, importance and provisional 
  assert.match(reason,/2 个有效题组答对 0 个/);assert.match(reason,/4.2\/5/);assert.match(reason,/不等于答错/)
  assert.match(learningReason({Tested:0,Correct:0,Importance:1,Doubts:0}),/尚未测评/)
 })
+
+test('legacy question-only plans upgrade to learning units once',async()=>{
+ let generation=0
+ const api={dailyPlan:async()=>({...plan,Strategy:generation?'408-learning-units-v1':'408-learning-v2'}),tasks:async()=>[],generate:async()=>{generation++}}
+ assert.equal((await loadStudyPlan(api,true)).plan.Strategy,'408-learning-units-v1')
+ await loadStudyPlan(api,true);assert.equal(generation,1)
+})

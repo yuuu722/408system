@@ -53,3 +53,11 @@ export async function streamChat(body:{KnowledgeBaseID:string;ConversationID:str
 
 export interface StructuredPage {Number:number;Segment?:number;Width?:number;Height?:number;Rotation?:number;CoordinateSpace?:string;Text:string;Warnings:string[];Blocks:{ID:string;Kind:string;Text:string;Confidence?:number|null;Start?:number;End?:number;Image?:string;Box?:number[]}[]}
 export interface ParsedDocument {State?:string;RevisionID?:string;Engine:string;Pages:StructuredPage[]}
+
+export interface UnitStep {Key:'knowledge'|'example'|'practice'|'check';Title:string;ResourceKey:string;Notice:string;Minutes:number;Available:boolean;Completed:boolean}
+export interface LearningUnit {PointID:string;Name:string;Goal:string;Reason:string;Date:string;PlanID:string;ScheduledMinutes:number;EstimatedMinutes:number;Knowledge:Citation[];Materials?:Asset[];Example:Asset|null;Practice:Asset[];Steps:UnitStep[];CheckAssessmentID:string}
+export const unitApi={
+ list:async():Promise<LearningUnit[]> => (await api.get('/exam408/learning-units')).data??[],
+ mark:(point:string,step:UnitStep)=>api.put(`/exam408/learning-units/${point}/steps/${step.Key}`,{ResourceKey:step.ResourceKey,Completed:!step.Completed}),
+ check:async(point:string):Promise<Assessment>=>(await api.post(`/exam408/learning-units/${point}/check`)).data
+}
