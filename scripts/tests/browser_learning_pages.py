@@ -13,7 +13,7 @@ with sync_playwright() as p:
  def task(n,date):return dict(ID='t'+str(n),AssetID='a'+str(n),PointID='p'+str(n),Title='专项复习'+str(n),Kind='question',Reason='根据最近有效作答安排复查。',PlanDate=date,EstimatedMinutes=5,Completed=False)
  tasks=[task(1,plan['Date']),task(2,plan['Date']),task(3,'2026-11-07')];starts=[];fail_plan=[False];fail_generate=[False]
  def unit(n):
-  sample=dict(ID='ex'+str(n),Title='例题',Kind='question',PointID='p'+str(n),Status='ready',Payload=dict(Stem='例题题干',Options=['甲','乙'],Answer=0,Explanation='根据教材定义，甲满足题目条件。',Source='样本来源',Images=[]))
+  sample=dict(ID='ex'+str(n),Revision=1,Title='例题',Kind='question',PointID='p'+str(n),Status='ready',Payload=dict(Stem='例题题干',Options=['甲','乙'],Answer=0,Explanation='根据教材定义，甲满足题目条件。',Source='样本来源',Images=[]))
   return dict(PointID='p'+str(n),Name=points[n-1]['Name'],Goal='掌握定义和适用条件，独立解题。',Reason='根据最近有效作答安排复查。',Date=plan['Date'],ScheduledMinutes=25,EstimatedMinutes=25,Knowledge=[],Example=sample,Practice=[dict(ID='a'+str(n),Title='练习'+str(n))],Steps=[dict(Key=k,Title=t,Minutes=m,ResourceKey='key',Available=k!='knowledge',Completed=False,Notice='教材待补充' if k=='knowledge' else '') for k,t,m in [('knowledge','知识复习',8),('example','典型例题',7),('practice','独立练习',5),('check','新题复测与总结',5)]],CheckAssessmentID='')
  units=[unit(1),unit(2)]
  def respond(route):
@@ -31,6 +31,11 @@ with sync_playwright() as p:
   elif path.endswith('/submit'):data=dict(Total=1,Counted=1,Correct=1,Items=[dict(ID='a2',PointID='p2',Selected=0,Answer=0,Correct=True,Explanation='样本原文解析',AnswerOrigin='source',Counted=True)])
   elif path=='/exam408/assessments' and route.request.method=='POST':
    body=route.request.post_data_json;starts.append(body['AssetID']);data=dict(ID='round'+body['AssetID'],Kind='practice',Questions=[dict(ID=body['AssetID'],Title=body['AssetID'],Payload=dict(Stem='题干'+body['AssetID'],Options=['甲','乙','丙','丁'],Images=[],Source='回归样本'))],Result=None,CreatedAt='2026-11-08')
+  elif path.endswith('/example-attempts'):
+   if route.request.method=='GET':data={'Assessment':None}
+   else:
+    q=unit(1)['Example'];data=dict(ID='example-fixture',Kind='practice',Questions=[q],Result=None,CreatedAt='2026-11-09')
+  elif path.endswith('/explain'):data=dict(Answer='根据教材定义，甲满足题目条件。',Sources=[],KnowledgePoints=[],ConversationID='example-feedback')
   elif path=='/exam408/coaching':data=[dict(ID='old',PointID='p2',Teacher='encouraging',CreatedAt='2026-11-08',Lesson={'Answer':'不应在进程课堂显示的旧网络课堂','Sources':[]},Assessment={'Questions':[],'Result':None})]
   elif path.endswith('/study'):
    id=path.split('/')[-2];pt=next((q for q in points if q['ID']==id),points[0]);data=dict(Point=pt,Ancestors=[],Children=[],Knowledge=[],Example=None,Exercises=[],Mistakes=[],DirectQuestions=pt['AvailableQuestions'],SubtreeQuestions=pt['AvailableQuestions'],Missing=[])
@@ -51,7 +56,7 @@ with sync_playwright() as p:
  navigate('/exam408/assessment?asset=a2&point=p2');page.get_by_text('题干a2',exact=True).wait_for();assert page.get_by_text('题干a1',exact=True).count()==0;assert starts==['a1','a2'],starts
  fail_generate[0]=True;page.get_by_role('radio').first.check();page.get_by_role('button',name='提交并查看报告',exact=True).click();page.get_by_text('计入学情 1 / 1 题，其中正确 1 题',exact=True).wait_for();page.get_by_role('status').filter(has_text='计划更新失败').wait_for();fail_generate[0]=False
  navigate('/exam408/tasks');page.get_by_role('heading',name='我的学习任务',exact=True).wait_for();page.locator('.unit').first.wait_for();assert page.get_by_text('典型例题',exact=True).count()==2;assert page.get_by_text('专项复习3',exact=True).count()==0
- page.get_by_role('button',name='查看参考答案与原文解析',exact=True).first.click();page.get_by_text('根据教材定义，甲满足题目条件。',exact=True).wait_for()
+ example=page.get_by_role('region',name='例题作答与讲解').first;example.get_by_role('radio').first.check();example.get_by_role('button',name='提交例题并看讲解',exact=True).click();page.get_by_text('根据教材定义，甲满足题目条件。',exact=True).wait_for()
  if os.environ.get('PAGE_TEST_SCREENSHOTS'):page.screenshot(path='/tmp/learning-unit-desktop.png',full_page=True)
  nav=page.get_by_role('navigation',name='主导航')
  assert nav.get_by_role('link').count()==8
@@ -62,7 +67,7 @@ with sync_playwright() as p:
  navigate('/exam408/statistics?point=p2');page.wait_for_url('**/exam408/assessment?point=p2&tab=statistics');page.get_by_role('heading',name='学情统计',exact=True).wait_for()
  page.get_by_role('navigation',name='测评与学情分区').get_by_role('link',name='前测、练习与报告',exact=True).click();page.get_by_role('heading',name='前测、练习与报告',exact=True).wait_for()
  page.set_viewport_size({'width':1920,'height':1080});navigate('/exam408/assessment');page.get_by_role('heading',name='前测、练习与报告',exact=True).wait_for()
- assert page.locator('main').evaluate('(e)=>e.getBoundingClientRect().width')>1800
+ assert page.locator('main').evaluate('(e)=>e.getBoundingClientRect().width')<=1280
  page.screenshot(path='/tmp/assessment-independent-desktop.png',full_page=True)
  for width in [1440,1024,768,390,320]:
   page.set_viewport_size({'width':width,'height':900});navigate('/exam408/tasks?tab=teacher');page.get_by_role('heading',name='我的老师与学习方案',exact=True).wait_for();page.wait_for_timeout(100)

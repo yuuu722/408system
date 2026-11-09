@@ -95,6 +95,9 @@ var learningCoach string
 //go:embed 000027_learning_units.up.sql
 var learningUnits string
 
+//go:embed 000028_unit_teaching.up.sql
+var unitTeaching string
+
 var all = []migration{
 	{version: 1, name: "initial", sql: initial},
 	{version: 2, name: "operational_indexes", sql: operationalIndexes},
@@ -123,6 +126,7 @@ var all = []migration{
 	{version: 25, name: "question_views", sql: questionViews},
 	{version: 26, name: "learning_coach", sql: learningCoach},
 	{version: 27, name: "learning_units", sql: learningUnits},
+	{version: 28, name: "unit_teaching", sql: unitTeaching},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

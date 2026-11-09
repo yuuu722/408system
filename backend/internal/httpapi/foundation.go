@@ -16,6 +16,7 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	s.personalRoutes(mux)
 	s.coachingRoutes(mux)
 	s.learningUnitRoutes(mux)
+	s.unitTeachingRoutes(mux)
 	mux.Handle("POST /api/v1/knowledge-bases/{id}/deduplicate-questions", s.requireAdmin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.DeduplicatePublicQuestions(r.Context(), uid(r), r.PathValue("id"))
 		s.reply(w, v, e)

@@ -141,7 +141,21 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 		}
 		return questions[i].ID < questions[j].ID
 	})
+	preferred, e := p.PreferredExampleID(ctx, uid, pointID)
+	if e != nil {
+		return out, e
+	}
 	for _, a := range questions {
+		if a.ID == preferred {
+			copy := a
+			out.Example = &copy
+			break
+		}
+	}
+	for _, a := range questions {
+		if out.Example != nil {
+			break
+		}
 		if !pending[domain.Family(a)] && a.Payload.Explanation != "" {
 			copy := a
 			out.Example = &copy
@@ -180,6 +194,10 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 	}
 	if len(out.Exercises) == 0 {
 		out.Missing = append(out.Missing, "暂无未接触的独立练习题组，可先复查已有错题或补充资料。")
+	}
+	if out.Example != nil {
+		out.Example.Payload.Answer = -1
+		out.Example.Payload.Explanation = ""
 	}
 	return out, nil
 }

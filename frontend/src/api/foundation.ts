@@ -61,3 +61,10 @@ export const unitApi={
  mark:(point:string,step:UnitStep)=>api.put(`/exam408/learning-units/${point}/steps/${step.Key}`,{ResourceKey:step.ResourceKey,Completed:!step.Completed}),
  check:async(point:string):Promise<Assessment>=>(await api.post(`/exam408/learning-units/${point}/check`)).data
 }
+
+export const teachingApi={
+ lesson:async(point:string,generate=false):Promise<{Lesson:ChatResult|null}>=>(await api.request({method:generate?'POST':'GET',url:`/exam408/learning-units/${point}/lesson`,timeout:240000})).data,
+ example:async(point:string,q:Asset):Promise<{Assessment:Assessment|null}>=>(await api.get(`/exam408/knowledge-points/${point}/example-attempts`,{params:{asset:q.ID,revision:q.Revision}})).data,
+ startExample:async(point:string,q:Asset,retry=false):Promise<Assessment>=>(await api.post(`/exam408/knowledge-points/${point}/example-attempts`,{AssetID:q.ID,Revision:q.Revision,Retry:retry})).data,
+ explainExample:async(id:string):Promise<ChatResult>=>(await api.post(`/exam408/example-attempts/${id}/explain`,{},{timeout:240000})).data
+}

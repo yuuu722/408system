@@ -206,7 +206,21 @@ func (p *Postgres) LearningUnits(ctx context.Context, uid string) ([]domain.Lear
 		for _, a := range u.Practice {
 			families[domain.Family(a)] = true
 		}
+		preferred, err := p.PreferredExampleID(ctx, uid, u.PointID)
+		if err != nil {
+			return nil, err
+		}
 		for _, a := range assets {
+			if a.ID == preferred && a.PointID == u.PointID && a.Kind == "question" && a.Status == "ready" && a.Payload.AnswerOrigin == "source" && !families[domain.Family(a)] {
+				copy := a
+				u.Example = &copy
+				break
+			}
+		}
+		for _, a := range assets {
+			if u.Example != nil {
+				break
+			}
 			if a.PointID == u.PointID && a.Kind == "question" && a.Status == "ready" && a.Payload.AnswerOrigin == "source" && a.Payload.Explanation != "" && !families[domain.Family(a)] && !pendingFamilies[domain.Family(a)] {
 				copy := a
 				u.Example = &copy
@@ -235,7 +249,7 @@ func (p *Postgres) LearningUnits(ctx context.Context, uid string) ([]domain.Lear
 		}
 		u.Steps = []domain.LearningUnitStep{{Key: "knowledge", Title: "知识复习", Minutes: 8, Available: len(u.Knowledge) > 0 || len(u.Materials) > 0, ResourceKey: resourceKey(knowledgeParts...)}, {Key: "example", Title: "典型例题", Minutes: 7, Available: u.Example != nil, ResourceKey: exampleKey}, {Key: "practice", Title: "独立练习", Minutes: 5 * len(u.Practice), Available: len(u.Practice) > 0}, {Key: "check", Title: "新题复测与总结", Minutes: 5, Available: false}}
 		u.EstimatedMinutes = max(20+5*len(u.Practice), u.ScheduledMinutes)
-		for j := 0; j < 2; j++ {
+		for j := 0; j < 1; j++ {
 			step := &u.Steps[j]
 			if step.Available {
 				if e = p.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM learning_unit_steps WHERE user_id=$1 AND point_id=$2 AND step=$3 AND resource_key=$4)`, uid, u.PointID, step.Key, step.ResourceKey).Scan(&step.Completed); e != nil {
@@ -244,6 +258,20 @@ func (p *Postgres) LearningUnits(ctx context.Context, uid string) ([]domain.Lear
 			} else {
 				step.Notice = "缺少可核对资料，暂不标记完成；可补充资料或联系管理员。"
 			}
+		}
+		if u.Example != nil {
+			attempt, err := p.ExampleAttempt(ctx, uid, u.PointID, exampleKey)
+			if err != nil {
+				return nil, err
+			}
+			u.Steps[1].Completed = attempt != nil && attempt.Result != nil && attempt.Result.Counted > 0
+			if u.Steps[1].Completed && attempt.Result.Correct < attempt.Result.Counted {
+				u.Steps[1].Notice = "例题作答有误，已记录到学情，请核对讲解并继续练习。"
+			}
+			u.Example.Payload.Answer = -1
+			u.Example.Payload.Explanation = ""
+		} else {
+			u.Steps[1].Notice = "缺少可核对的例题，暂不标记完成。"
 		}
 		done := map[string]bool{}
 		for _, a := range assessments {
@@ -320,8 +348,8 @@ func (p *Postgres) LearningUnits(ctx context.Context, uid string) ([]domain.Lear
 }
 
 func (p *Postgres) MarkUnitStep(ctx context.Context, uid, point, step, key string, complete bool) error {
-	if step != "knowledge" && step != "example" {
-		return fmt.Errorf("练习和复测只能通过实际作答记录完成")
+	if step != "knowledge" {
+		return fmt.Errorf("例题、练习和复测只能通过实际作答记录完成")
 	}
 	units, e := p.LearningUnits(ctx, uid)
 	if e != nil {

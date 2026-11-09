@@ -119,7 +119,31 @@ func TestLearningUnitsSourcesProgressPrivacyAndNewChecks(t *testing.T) {
 		require.Equal(t, u.Practice[i].ID, stable[0].Practice[i].ID)
 	}
 	require.True(t, stable[0].Steps[0].Completed)
-	require.NoError(t, p.MarkUnitStep(ctx, learner.ID, point.ID, "example", u.Steps[1].ResourceKey, true))
+	require.Error(t, p.MarkUnitStep(ctx, learner.ID, point.ID, "example", u.Steps[1].ResourceKey, true), "manual completion must not fake an example attempt")
+	example, e := p.CreateExampleAttempt(ctx, learner.ID, point.ID, u.Example.ID, u.Example.Revision, false)
+	require.NoError(t, e)
+	require.Equal(t, -1, example.Questions[0].Payload.Answer)
+	require.Empty(t, example.Questions[0].Payload.Explanation)
+	pendingUnit, e := p.LearningUnits(ctx, learner.ID)
+	require.NoError(t, e)
+	require.Equal(t, u.Example.ID, pendingUnit[0].Example.ID, "pending example must stay stable")
+	resumedExample, e := p.CreateExampleAttempt(ctx, learner.ID, point.ID, u.Example.ID, u.Example.Revision, false)
+	require.NoError(t, e)
+	require.Equal(t, example.ID, resumedExample.ID)
+	_, e = p.SubmitAssessment(ctx, learner.ID, example.ID, map[string]int{u.Example.ID: 1})
+	require.NoError(t, e)
+	answeredUnit, e := p.LearningUnits(ctx, learner.ID)
+	require.NoError(t, e)
+	require.True(t, answeredUnit[0].Steps[1].Completed)
+	require.Contains(t, answeredUnit[0].Steps[1].Notice, "作答有误")
+	exampleOverview, e := p.LearningOverview(ctx, learner.ID)
+	require.NoError(t, e)
+	for _, v := range exampleOverview.Points {
+		if v.ID == point.ID {
+			require.Greater(t, v.Tested, v.Correct, "wrong example records an actual weakness")
+		}
+	}
+
 	check, e := p.CreateUnitCheck(ctx, learner.ID, point.ID)
 	require.NoError(t, e)
 	require.Len(t, check.Questions, 1)
@@ -249,6 +273,73 @@ func TestLearningUnitsSourcesProgressPrivacyAndNewChecks(t *testing.T) {
 		require.Len(t, pack.Knowledge, 1)
 		require.Contains(t, pack.Knowledge[0].Excerpt, "TCP")
 		require.NotContains(t, pack.Knowledge[0].Excerpt, "HDLC")
+	})
+
+	t.Run("coherent lesson cache is verified owner scoped and invalidated by source changes", func(t *testing.T) {
+		calls := 0
+		key := u.Steps[0].ResourceKey + ":coherent-v1"
+		result := domain.ChatResult{Answer: "本节先讲清定义和条件，再解释原理与逻辑，最后总结适用范围。", Sources: []domain.Citation{{DocumentID: doc.ID, Excerpt: point.Name + "的定义与适用条件在此。"}}, Generation: &domain.GenerationTrace{Verified: true}}
+		first, e := p.BuildUnitLesson(ctx, learner.ID, point.ID, key, func() (domain.ChatResult, error) { calls++; return result, nil })
+		require.NoError(t, e)
+		require.Equal(t, result.Answer, first.Answer)
+		_, e = p.BuildUnitLesson(ctx, learner.ID, point.ID, key, func() (domain.ChatResult, error) {
+			calls++
+			return domain.ChatResult{}, fmt.Errorf("must not rebuild valid cache")
+		})
+		require.NoError(t, e)
+		require.Equal(t, 1, calls)
+		foreign, e := p.UnitLesson(ctx, other.ID, point.ID, key)
+		require.NoError(t, e)
+		require.Nil(t, foreign)
+		_, e = p.BuildUnitLesson(ctx, other.ID, point.ID, key, func() (domain.ChatResult, error) { return result, nil })
+		require.Error(t, e, "cannot cache another member's private textbook")
+		_, e = p.DB.Exec(ctx, `UPDATE documents SET updated_at=clock_timestamp() WHERE id=$1`, doc.ID)
+		require.NoError(t, e)
+		stale, e := p.UnitLesson(ctx, learner.ID, point.ID, key)
+		require.NoError(t, e)
+		require.Nil(t, stale)
+		_, e = p.BuildUnitLesson(ctx, learner.ID, point.ID, key, func() (domain.ChatResult, error) { return domain.ChatResult{Answer: "未核验的内容"}, nil })
+		require.Error(t, e)
+		_, e = p.BuildUnitLesson(ctx, learner.ID, point.ID, key, func() (domain.ChatResult, error) {
+			_, err := p.DB.Exec(ctx, `UPDATE documents SET updated_at=clock_timestamp() WHERE id=$1`, doc.ID)
+			require.NoError(t, err)
+			return result, nil
+		})
+		require.Error(t, e, "source updated during generation must not save a stale lesson")
+	})
+
+	t.Run("example HTTP grading persists weakness even when teacher unavailable", func(t *testing.T) {
+		call := func(method, path, tok string, body any, code int) []byte {
+			t.Helper()
+			raw, _ := json.Marshal(body)
+			r := httptest.NewRequest(method, path, bytes.NewReader(raw))
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			server.ServeHTTP(w, r)
+			require.Equal(t, code, w.Code, w.Body.String())
+			return w.Body.Bytes()
+		}
+		path := "/api/v1/exam408/knowledge-points/" + point.ID + "/example-attempts"
+		var initial domain.Assessment
+		require.NoError(t, json.Unmarshal(call("POST", path, token, map[string]any{"AssetID": u.Example.ID, "Revision": u.Example.Revision, "Retry": true}, 200), &initial))
+		require.Nil(t, initial.Result)
+		require.Equal(t, -1, initial.Questions[0].Payload.Answer)
+		explain := "/api/v1/exam408/example-attempts/" + initial.ID + "/explain"
+		call("POST", explain, token, nil, 409)
+		call("POST", explain, otherToken, nil, 404)
+		var graded domain.AssessmentResult
+		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments/"+initial.ID+"/submit", token, map[string]any{"Answers": map[string]int{u.Example.ID: 1}}, 200), &graded))
+		require.Equal(t, 1, graded.Counted)
+		require.False(t, graded.Items[0].Correct)
+		call("POST", explain, token, nil, 503)
+		saved, e := p.Assessment(ctx, learner.ID, initial.ID)
+		require.NoError(t, e)
+		require.NotNil(t, saved.Result)
+		require.False(t, saved.Result.Items[0].Correct)
+		require.NotEmpty(t, saved.Result.Items[0].Explanation)
+		private, _ := p.ExampleAttempt(ctx, other.ID, point.ID, u.Steps[1].ResourceKey)
+		require.Nil(t, private)
+		call("POST", "/api/v1/exam408/learning-units/"+point.ID+"/lesson", token, nil, 503)
 	})
 
 }

@@ -21,8 +21,8 @@ func (s *Server) learningUnitRoutes(mux *http.ServeMux) {
 			return
 		}
 		step := r.PathValue("step")
-		if (step != "knowledge" && step != "example") || len(in.ResourceKey) != 64 {
-			write(w, 400, map[string]string{"error": "仅支持记录教材阅读与例题学习；作答进度以实际提交为准"})
+		if step != "knowledge" || len(in.ResourceKey) != 64 {
+			write(w, 400, map[string]string{"error": "仅支持确认知识阅读；例题、练习和复测以实际作答为准"})
 			return
 		}
 		s.reply(w, map[string]bool{"ok": true}, s.Platform.MarkUnitStep(r.Context(), uid(r), r.PathValue("point"), step, in.ResourceKey, in.Completed))
