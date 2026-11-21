@@ -18,11 +18,23 @@ func (p *Postgres) RetrieveGraphEvidence(ctx context.Context, uid, kid string, t
 	if e != nil {
 		return out, e
 	}
-	out.Paths = paths
+	if len(paths) == 0 {
+		return out, nil
+	}
+	points, e := p.ListKnowledgePoints(ctx)
+	if e != nil {
+		return out, e
+	}
+	namesByID := domain.DirectoryNames(points)
+	for _, path := range paths {
+		if formalGraphPath(path, namesByID) {
+			out.Paths = append(out.Paths, path)
+		}
+	}
 	ids := []string{}
 	seen := map[string]bool{}
 	names := map[string]bool{}
-	for _, path := range paths {
+	for _, path := range out.Paths {
 		for _, n := range path.Nodes {
 			if n.EvidenceChunkID != "" && !seen[n.EvidenceChunkID] {
 				ids = append(ids, n.EvidenceChunkID)
@@ -66,4 +78,20 @@ func (p *Postgres) RetrieveGraphEvidence(ctx context.Context, uid, kid string, t
 		out.Chunks = append(out.Chunks, c)
 	}
 	return out, rows.Err()
+}
+
+// Candidate edges can record co-occurrence or a model proposal. Neither is
+// sufficient to justify a relationship in an answer.
+func formalGraphPath(path domain.KnowledgePath, names map[string]string) bool {
+	for _, node := range path.Nodes {
+		if !domain.DirectoryGraphNode(node, names) {
+			return false
+		}
+	}
+	for _, edge := range path.Edges {
+		if !domain.FormalGraphEdge(edge) {
+			return false
+		}
+	}
+	return len(path.Nodes) > 0
 }

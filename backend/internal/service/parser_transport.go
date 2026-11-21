@@ -15,6 +15,8 @@ import (
 	"time"
 )
 
+const ParserRevision = "native-v7-source-check"
+
 func (p Parser) Fingerprint() string {
 	version := p.Version
 	if version == "" {
@@ -23,7 +25,7 @@ func (p Parser) Fingerprint() string {
 	if version == "" {
 		version = "408-parser-v2"
 	}
-	return version + "/native-v5-layout-ocr/" + p.Mode + "/" + p.Endpoint
+	return version + "/" + ParserRevision + "/" + p.Mode + "/" + p.Endpoint
 }
 func (p Parser) remotePages(ctx context.Context, path string) ([]TextPage, error) {
 	pages, _, e := p.remoteBatch(ctx, path, 1, 0)

@@ -75,7 +75,7 @@ func RecoverQuestionPageLayout(ctx context.Context, path string, page int) (Text
 	if !NativeOCRAvailable() {
 		return TextPage{}, fmt.Errorf("PDF第%d页文字层不足，且局部OCR工具不可用", page)
 	}
-	p, e := (Parser{Mode: "builtin"}).ocrPDFPage(ctx, path, page, false)
+	p, e := (Parser{Mode: "builtin"}).ocrPDFPage(ctx, path, page)
 	if e != nil || !ValidBody(p.Text) {
 		return TextPage{}, fmt.Errorf("PDF第%d页局部OCR未恢复足够正文，保留原解析", page)
 	}

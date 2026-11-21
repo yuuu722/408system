@@ -8,7 +8,7 @@ export const learningApi = {
   async assistantStatus() { return (await api.get<{mode: 'unavailable' | 'demo' | 'model'; enabled: boolean; message: string}>('/exam408/assistant/status')).data },
   async dashboard() { return normalizeDashboard((await api.get<Dashboard>('/exam408/dashboard')).data) },
   bases: () => list<KnowledgeBase>('/knowledge-bases'),
-  async graph(base: string) { return (await api.get<KnowledgeGraph>(`/knowledge-bases/${id(base)}/graph`)).data },
+  async graph(base: string, candidates = false) { return (await api.get<KnowledgeGraph>(`/knowledge-bases/${id(base)}/graph`, {params:{view:candidates?'candidates':undefined}})).data },
   async createBase(name: string, description: string) { return (await api.post<KnowledgeBase>('/knowledge-bases', { name, description })).data },
   documents: (base: string) => list<Document>(`/knowledge-bases/${id(base)}/documents`),
   async upload(base: string, file: File, resourceType: string) {

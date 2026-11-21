@@ -86,6 +86,14 @@ func Load() (Config, error) {
 			return Config{}, fmt.Errorf("NEO4J_URL must be an HTTP(S) endpoint without credentials")
 		}
 	}
+	llmURL, llmModel := "https://api.openai.com/v1", "gpt-4.1-mini"
+	switch env("LLM_PROVIDER", "compatible") {
+	case "compatible":
+	case "qwen":
+		llmURL, llmModel = "https://dashscope.aliyuncs.com/compatible-mode/v1", "qwen-plus"
+	default:
+		return Config{}, fmt.Errorf("invalid LLM_PROVIDER")
+	}
 	c := Config{GraphBackend: backend, AssistantMode: modeQA, Neo4jURL: os.Getenv("NEO4J_URL"), Neo4jUsername: env("NEO4J_USERNAME", "neo4j"), Neo4jPassword: os.Getenv("NEO4J_PASSWORD"), DocumentJobTimeout: jobTimeout, EmbeddingMode: mode, PersonalKBEnabled: personal,
 		DemoMode: demo, RAGMinScore: minScore,
 		HTTPAddr: env("HTTP_ADDR", ":8080"), DatabaseURL: os.Getenv("DATABASE_URL"),
@@ -93,7 +101,7 @@ func Load() (Config, error) {
 		JWTSecret: strings.TrimSpace(os.Getenv("JWT_SECRET")), JWTTTL: ttl,
 		StorageRoot: env("STORAGE_ROOT", "./storage/uploads"), MaxUploadBytes: maxMB << 20,
 		AdminBootstrapToken: strings.TrimSpace(os.Getenv("ADMIN_BOOTSTRAP_TOKEN")),
-		LLMBaseURL:          env("LLM_BASE_URL", "https://api.openai.com/v1"), LLMAPIKey: os.Getenv("LLM_API_KEY"), LLMModel: env("LLM_MODEL", "gpt-4.1-mini"),
+		LLMBaseURL:          env("LLM_BASE_URL", llmURL), LLMAPIKey: os.Getenv("LLM_API_KEY"), LLMModel: env("LLM_MODEL", llmModel),
 		EmbeddingBaseURL: env("EMBEDDING_BASE_URL", "https://api.openai.com/v1"), EmbeddingAPIKey: os.Getenv("EMBEDDING_API_KEY"), EmbeddingModel: env("EMBEDDING_MODEL", "text-embedding-3-small"), EmbeddingDimension: dim,
 		RAGTopK: topK, CORSOrigins: strings.Split(env("CORS_ORIGINS", "http://localhost:5173"), ","),
 	}

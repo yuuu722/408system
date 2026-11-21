@@ -385,6 +385,12 @@ func (p *Postgres) AddValidatedGraphCandidates(ctx context.Context, uid, kid, di
 	}
 	pointRows.Close()
 
+	// Accept only explicit, curated aliases. Similar characters do not imply
+	// the same concept, and evidence still has to contain the literal alias.
+	if point, ok := pointsByName["虚拟内存"]; ok {
+		pointsByName["虚存"] = point
+	}
+
 	findEvidence := func(evidence, requiredA, requiredB string) (sourceChunk, bool) {
 		if len([]rune(evidence)) < 12 || len([]rune(evidence)) > 300 {
 			return sourceChunk{}, false
@@ -432,7 +438,7 @@ func (p *Postgres) AddValidatedGraphCandidates(ctx context.Context, uid, kid, di
 			len([]rune(candidate.Description)) > 500 || candidate.Confidence < 0.75 || candidate.Confidence > 1 {
 			continue
 		}
-		if !sourcequality.TechnicalNoun(name) {
+		if _, controlled := pointsByName[strings.ToLower(name)]; !controlled && !sourcequality.TechnicalNoun(name) {
 			continue
 		}
 		if !strings.Contains(strings.ToLower(candidate.Evidence), strings.ToLower(name)) {

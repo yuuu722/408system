@@ -121,6 +121,15 @@ func repairQuestionReadingPage(p TextPage) (TextPage, bool) {
 			if b.Box[0] < a.Box[2]-.002 {
 				return p, false
 			}
+			if a.RawText == "" {
+				a.RawText = a.Text
+			}
+			raw := b.RawText
+			if raw == "" {
+				raw = b.Text
+			}
+			a.RawText += " " + raw
+			a.NeedsReview = blockNeedsReview(a) || blockNeedsReview(b)
 			a.Text += " " + b.Text
 			a.ID += "+" + b.ID
 			a.Box[1] = math.Min(a.Box[1], b.Box[1])

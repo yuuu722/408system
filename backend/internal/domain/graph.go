@@ -59,3 +59,53 @@ type GraphEntityCandidate struct {
 type GraphCandidateStore interface {
 	AddValidatedGraphCandidates(context.Context, string, string, string, []GraphEntityCandidate, []GraphRelationCandidate) error
 }
+
+// FormalGraphNode reports whether the node belongs to the controlled directory.
+func FormalGraphNode(node GraphNode) bool {
+	return node.KnowledgePointID != "" && (node.Source == "canonical" || node.Source == "canonical_directory")
+}
+
+func FormalGraphEdge(edge GraphEdge) bool {
+	return edge.Source == "canonical" || edge.Source == "canonical_directory" || edge.Source == "manual"
+}
+
+// GraphView returns the formal graph or the candidate review graph. The review
+// graph includes formal endpoints only where they give a candidate edge context.
+func DirectoryNames(points []KnowledgePoint) map[string]string {
+	names := make(map[string]string, len(points))
+	for _, point := range points {
+		names[point.ID] = point.Name
+	}
+	return names
+}
+
+func DirectoryGraphNode(node GraphNode, names map[string]string) bool {
+	name, known := names[node.KnowledgePointID]
+	return known && FormalGraphNode(node) && node.Name == name
+}
+
+func GraphView(graph KnowledgeGraph, candidates bool, names map[string]string) KnowledgeGraph {
+	nodes := make(map[string]bool, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		nodes[node.ID] = DirectoryGraphNode(node, names)
+	}
+	incident := map[string]bool{}
+	edges := make([]GraphEdge, 0, len(graph.Edges))
+	for _, edge := range graph.Edges {
+		from, hasFrom := nodes[edge.FromEntityID]
+		to, hasTo := nodes[edge.ToEntityID]
+		formal := from && to && FormalGraphEdge(edge)
+		if hasFrom && hasTo && formal != candidates {
+			edges = append(edges, edge)
+			incident[edge.FromEntityID], incident[edge.ToEntityID] = true, true
+		}
+	}
+	filtered := make([]GraphNode, 0, len(graph.Nodes))
+	for _, node := range graph.Nodes {
+		if nodes[node.ID] != candidates || incident[node.ID] {
+			filtered = append(filtered, node)
+		}
+	}
+	graph.Nodes, graph.Edges = filtered, edges
+	return graph
+}

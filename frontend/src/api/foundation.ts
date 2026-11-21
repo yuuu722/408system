@@ -51,7 +51,7 @@ export async function streamChat(body:{KnowledgeBaseID:string;ConversationID:str
  };if(!done)throw new Error('连接中断，回答未完成，请重试（Answer incomplete）')}finally{reader.releaseLock()}
 }
 
-export interface StructuredPage {Number:number;Segment?:number;Width?:number;Height?:number;Rotation?:number;CoordinateSpace?:string;Text:string;Warnings:string[];Blocks:{ID:string;Kind:string;Text:string;Confidence?:number|null;Start?:number;End?:number;Image?:string;Box?:number[]}[]}
+export interface StructuredPage {Number:number;SourceCheck?:'unknown'|'conflict'|'corroborated';Segment?:number;Width?:number;Height?:number;Rotation?:number;CoordinateSpace?:string;Text:string;Warnings:string[];Blocks:{ID:string;Kind:string;Text:string;RawText?:string;NeedsReview?:boolean;Confidence?:number|null;Start?:number;End?:number;Image?:string;Box?:number[]}[]}
 export interface ParsedDocument {State?:string;RevisionID?:string;Engine:string;Pages:StructuredPage[]}
 
 export interface UnitStep {Key:'knowledge'|'example'|'practice'|'check';Title:string;ResourceKey:string;Notice:string;Minutes:number;Available:boolean;Completed:boolean}

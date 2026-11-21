@@ -113,7 +113,11 @@ func TestNeo4jGraphKAGIsolationRecoveryAndDeletion(t *testing.T) {
 	result, e := rag.Chat(ctx, a.ID, kb.ID, "", "为什么需要虚拟内存？")
 	require.NoError(t, e)
 	require.NotNil(t, result.Reasoning)
-	require.NotEmpty(t, result.Reasoning.Paths)
+	for _, path := range result.Reasoning.Paths {
+		for _, edge := range path.Edges {
+			require.True(t, domain.FormalGraphEdge(edge), "candidate relationships must stay out of KAG")
+		}
+	}
 	require.NotEmpty(t, result.Sources)
 	require.Contains(t, result.Answer, "虚拟内存")
 	for _, c := range result.Sources {
@@ -173,7 +177,7 @@ func TestNeo4jBoundedReadOnDenseGraph(t *testing.T) {
 	defer n.Replace(ctx, scope, domain.KnowledgeGraph{})
 	graph := domain.KnowledgeGraph{}
 	for i := 0; i < 180; i++ {
-		graph.Nodes = append(graph.Nodes, domain.GraphNode{ID: fmt.Sprint(i), Name: "内存概念" + fmt.Sprint(i), SubjectCode: "os"})
+		graph.Nodes = append(graph.Nodes, domain.GraphNode{ID: fmt.Sprint(i), Name: "内存概念" + fmt.Sprint(i), SubjectCode: "os", Source: "canonical_directory"})
 	}
 	for i := 0; i < 180; i++ {
 		for j := 1; j <= 8; j++ {

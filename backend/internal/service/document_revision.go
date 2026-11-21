@@ -50,7 +50,7 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		parserKey = p.Fingerprint()
 	}
 	parseKey := digest(hash + "/" + parserKey)
-	chunkKey := digest(parseKey + "/context-v3/source-clean-v1/900/120")
+	chunkKey := digest(parseKey + "/context-v3/source-clean-v2/900/120")
 	points, e := s.Store.ListKnowledgePoints(ctx)
 	if e != nil {
 		return e
@@ -143,6 +143,17 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		if len(chunks) == 0 {
 			return fmt.Errorf("未提取到有效正文，可查看原文（No extractable text）")
 		}
+		safe := chunks[:0]
+		for _, chunk := range chunks {
+			if chunk.Metadata["parser_uncertain"] == true || chunk.Metadata["context_incomplete"] == true {
+				continue
+			}
+			safe = append(safe, chunk)
+		}
+		if len(safe) == 0 {
+			return fmt.Errorf("没有通过质量筛查的正文，保留原文件和本次解析供核对")
+		}
+		chunks = safe
 		if e = store.SaveRevisionChunks(ctx, d, rev.ID, chunks); e != nil {
 			return e
 		}
@@ -181,7 +192,9 @@ func (s *DocumentService) processRevision(ctx context.Context, d domain.Document
 		return fmt.Errorf("源文件已改变，请重新处理（Source changed）")
 	}
 	parsed := domain.ParsedDocument{RevisionID: rev.ID, Pages: pages, Engine: parserKey}
-	if e = store.ActivateRevision(ctx, d, rev.ID, parsed, ExtractQuestions(d, pages, points)); e != nil {
+	questionSource := d
+	questionSource.ActiveRevisionID = rev.ID
+	if e = store.ActivateRevision(ctx, d, rev.ID, parsed, ExtractQuestions(questionSource, pages, points)); e != nil {
 		return e
 	}
 	s.extractGraphRelations(ctx, d, pages, points)
@@ -218,6 +231,14 @@ func CanonicalPage(p *TextPage) {
 	if len(p.Blocks) == 0 && p.Text != "" {
 		p.Blocks = []domain.DocumentBlock{{ID: "text", Kind: "text", Text: p.Text}}
 	}
+	if p.SourceCheck == "" {
+		p.SourceCheck = domain.SourceUnknown
+	}
+	suspectPage := sourcequality.SuspectFormula(p.Text)
+	locatedFormula := false
+	for _, block := range p.Blocks {
+		locatedFormula = locatedFormula || sourcequality.SuspectFormula(block.Text)
+	}
 	var text strings.Builder
 	offset := 0
 	for i := range p.Blocks {
@@ -231,6 +252,7 @@ func CanonicalPage(p *TextPage) {
 			b.End = offset
 			continue
 		}
+		b.NeedsReview = blockNeedsReview(*b) || p.SourceCheck == domain.SourceConflict && !p.LocalizedCheck || (suspectPage && !locatedFormula)
 		if strings.ContainsRune(b.Text, '�') {
 			warning := "OCR文本含无法识别字符，请核对原页；不会自动猜改公式或正文。"
 			found := false
@@ -243,7 +265,11 @@ func CanonicalPage(p *TextPage) {
 				p.Warnings = append(p.Warnings, warning)
 			}
 		}
-		b.Text = sourcequality.Clean(b.Text)
+		cleaned := sourcequality.Clean(b.Text)
+		if b.RawText == "" && cleaned != b.Text {
+			b.RawText = b.Text
+		}
+		b.Text = cleaned
 		prefix := fmt.Sprintf("%d:%d:", p.Segment, i)
 		if !strings.HasPrefix(b.ID, prefix) {
 			b.ID = prefix + b.ID
@@ -262,6 +288,20 @@ func CanonicalPage(p *TextPage) {
 	}
 	p.Text = text.String()
 }
+func blockNeedsReview(b domain.DocumentBlock) bool {
+	return b.NeedsReview || strings.ContainsRune(b.RawText, '�') || sourcequality.SuspectFormula(b.RawText) || b.Confidence != nil && *b.Confidence < .8 ||
+		strings.ContainsRune(b.Text, '�') || sourcequality.SuspectFormula(b.Text)
+}
+
+func sourceSpanNeedsReview(page TextPage, from, to int) bool {
+	for _, block := range page.Blocks {
+		if block.Start < to && block.End > from && blockNeedsReview(block) {
+			return true
+		}
+	}
+	return false
+}
+
 func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 	runes := []rune(page.Text)
 	out := []domain.Chunk{}
@@ -296,6 +336,23 @@ func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 				}
 			}
 		}
+		// Split at the first uncertain range so neighboring source text remains
+		// searchable. Keep the uncertain block in the parse, outside the index.
+		for _, block := range page.Blocks {
+			if block.Start >= end {
+				break
+			}
+			if block.End <= start || block.End <= block.Start || !blockNeedsReview(block) {
+				continue
+			}
+			if block.Start > start {
+				end = block.Start
+			} else {
+				end = min(end, block.End)
+			}
+			hardBoundary = true
+			break
+		}
 		if strings.TrimSpace(string(runes[start:end])) == "" {
 			if end == len(runes) {
 				break
@@ -307,7 +364,7 @@ func MappedChunks(page TextPage, rid, space string) []domain.Chunk {
 		uncertain := false
 		for _, b := range page.Blocks {
 			if b.End > start && b.Start < end {
-				if b.Confidence != nil && *b.Confidence < .8 {
+				if blockNeedsReview(b) {
 					uncertain = true
 				}
 				bounds := b.Box
@@ -364,7 +421,7 @@ func (s *DocumentService) extractGraphRelations(ctx context.Context, d domain.Do
 			source.WriteString(page.Text)
 		} else {
 			for _, block := range page.Blocks {
-				if block.Confidence != nil && *block.Confidence < .8 || sourcequality.SuspectFormula(block.Text) {
+				if blockNeedsReview(block) {
 					source.WriteString("\n\n")
 					continue
 				}

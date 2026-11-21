@@ -104,3 +104,20 @@ func TestStandaloneKnowledgeProcessingDefaults(t *testing.T) {
 		t.Fatal("oversized transport setting accepted")
 	}
 }
+
+func TestQwenProviderDefaultsAndOverrides(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://example.invalid/exam408")
+	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("LLM_PROVIDER", "qwen")
+	t.Setenv("LLM_BASE_URL", "")
+	t.Setenv("LLM_MODEL", "")
+	cfg, err := Load()
+	if err != nil || cfg.LLMBaseURL != "https://dashscope.aliyuncs.com/compatible-mode/v1" || cfg.LLMModel != "qwen-plus" {
+		t.Fatalf("unexpected Qwen configuration: %s %s (%v)", cfg.LLMBaseURL, cfg.LLMModel, err)
+	}
+	t.Setenv("LLM_MODEL", "qwen-max")
+	cfg, err = Load()
+	if err != nil || cfg.LLMModel != "qwen-max" {
+		t.Fatalf("expected explicit model override: %s (%v)", cfg.LLMModel, err)
+	}
+}

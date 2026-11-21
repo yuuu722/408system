@@ -143,3 +143,12 @@ func TestObservedMissingSectionSeparatorNeedsExplicitPriorTopic(t *testing.T) {
 	scope, _, _ = questionHeadingContext("3.12.5 答案与解析", "3.1")
 	require.Equal(t, "3.12", scope)
 }
+
+func TestInlineAnswerConflictDoesNotBecomeGrade(t *testing.T) {
+	pages := []TextPage{{Number: 3, Text: "1.1.4 本节习题精选\n01. 操作系统管理什么？\nA. 系统资源 B. 颜色\n答案：A\n1.1.5 答案与解析\n01. B\n解析：这一处答案和题目末尾的答案相互冲突。"}}
+	assets := ExtractQuestions(domain.Document{ID: "q"}, pages, []domain.KnowledgePoint{{ID: "p", Name: "操作系统"}})
+	require.Len(t, assets, 1)
+	require.Equal(t, inlineAnswerConflict, assets[0].Payload.Issue)
+	require.Equal(t, -1, assets[0].Payload.Answer)
+	require.NotEqual(t, "ready", assets[0].Status)
+}

@@ -19,6 +19,8 @@ var answerHeading = regexp.MustCompile(`^(?:[一二三四五六七八九十0-9]+
 
 var answerEntry = regexp.MustCompile(`(?:^|\s)(\d{1,4})\s*[.．、):：]\s*([A-F])(?:\s|$|[，,；;])`)
 
+const inlineAnswerConflict = "题内答案与同章节答案表存在冲突"
+
 // Deliberately bounded to numbered single-choice questions. It never invents missing options or source answers.
 func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.KnowledgePoint) []domain.Asset {
 	pages = questionReadingPages(pages)
@@ -108,7 +110,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			if answerMode {
 				setAnswerLine()
 				// A partial/failed answer page must not become a source of automatic grades.
-				if hasQuestionExtractionWarning(page.Warnings) {
+				if questionSpanWarning(page, from, to) {
 					continue
 				}
 				if multi := multipleNumberedAnswer.FindAllStringSubmatch(line, -1); len(multi) > 0 {
@@ -149,12 +151,21 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		}
 		a := domain.Asset{Kind: "question", Title: fmt.Sprintf("%s · 第%s题", d.OriginalFilename, c.number), Payload: domain.AssetPayload{QuestionNumber: c.number, SectionKey: c.section, Answer: -1, AnswerOrigin: "ai_pending", Difficulty: 1, DocumentID: d.ID, Page: c.page, Source: fmt.Sprintf("%s，第%d页，第%s题", d.OriginalFilename, c.page, c.number), Images: c.images, Issue: c.issue, QuestionOrigin: "extracted"}}
 		body := c.body
+		sourceAnswers := answers[key(c.section, c.number)]
 		if multipleInlineAnswer.MatchString(body) {
 			a.Payload.Issue = "原文含多个答案，当前仅支持单选计分"
 		} else if m := inlineAnswer.FindStringSubmatchIndex(body); m != nil {
 			a.Payload.Answer = int(body[m[2]] - 'A')
 			a.Payload.AnswerOrigin = "source"
 			a.Payload.Explanation = strings.TrimSpace(body[m[3]:])
+			for _, answer := range sourceAnswers {
+				if answer != a.Payload.Answer {
+					a.Payload.Issue = inlineAnswerConflict
+					a.Payload.Answer = -1
+					a.Payload.AnswerOrigin = "ai_pending"
+					break
+				}
+			}
 			body = body[:m[0]]
 			marks = questionOptionMarks(body)
 		} else if numberCount[key(c.section, c.number)] == 1 && len(answers[key(c.section, c.number)]) == 1 {
@@ -228,7 +239,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 	for _, pair := range MatchAnswerFile(out, entries, "", "") {
 		for i := range out {
 			a := &out[i]
-			if a.Payload.ExtractionKey != pair.Asset.Payload.ExtractionKey {
+			if a.Payload.ExtractionKey != pair.Asset.Payload.ExtractionKey || a.Payload.Issue == inlineAnswerConflict {
 				continue
 			}
 			if pair.Answer.Answer < 0 || pair.Answer.Answer >= len(a.Payload.Options) {
@@ -326,6 +337,9 @@ func questionSpanWarning(page TextPage, from, to int) bool {
 	}
 	warnings := []string{}
 	for _, w := range page.Warnings {
+		if page.LocalizedCheck && strings.HasPrefix(w, "局部图像复读完成") {
+			continue
+		}
 		if located && strings.HasPrefix(w, "第") && strings.Contains(w, "行OCR置信度较低") {
 			continue
 		}
@@ -334,12 +348,7 @@ func questionSpanWarning(page TextPage, from, to int) bool {
 	if hasQuestionExtractionWarning(warnings) {
 		return true
 	}
-	for _, b := range page.Blocks {
-		if b.Confidence != nil && *b.Confidence < .8 && b.Start < to && b.End > from {
-			return true
-		}
-	}
-	return false
+	return sourceSpanNeedsReview(page, from, to)
 }
 
 func optionLetter(body string, m []int) byte {

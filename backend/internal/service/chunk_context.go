@@ -62,6 +62,7 @@ func ContextualChunks(pages []TextPage, rid, space, title string) []domain.Chunk
 			}
 
 			contexts := []ChunkContext{}
+			previousUncertain := false
 			prefix := []rune(before)
 			offset := max(0, len(prefix)-500)
 			if localHeading == heading {
@@ -81,9 +82,14 @@ func ContextualChunks(pages []TextPage, rid, space, title string) []domain.Chunk
 				}
 				text := strings.TrimSpace(string(r[from:]))
 				if text != "" {
-					idx := strings.Index(prev.Text, text)
+					idx := strings.LastIndex(prev.Text, text)
 					begin := len([]rune(prev.Text[:idx]))
-					contexts = append([]ChunkContext{{Text: text, Page: prev.Number, Segment: prev.Segment, Start: begin, End: begin + len([]rune(text)), Kind: "preceding_page"}}, contexts...)
+					end := begin + len([]rune(text))
+					if sourceSpanNeedsReview(prev, begin, end) {
+						previousUncertain = true
+					} else {
+						contexts = append([]ChunkContext{{Text: text, Page: prev.Number, Segment: prev.Segment, Start: begin, End: end, Kind: "preceding_page"}}, contexts...)
+					}
 				}
 			}
 			// Keep all required short premises within a bounded budget. Dropping
@@ -111,7 +117,7 @@ func ContextualChunks(pages []TextPage, rid, space, title string) []domain.Chunk
 					depends = true
 				}
 			}
-			if depends && len(contexts) == 0 {
+			if depends && (len(contexts) == 0 || previousUncertain) {
 				c.Metadata["context_incomplete"] = true
 			}
 			c.Metadata["document_title"] = title
@@ -135,7 +141,10 @@ func contextSpans(page TextPage, text string, offset int) []ChunkContext {
 			if trim != "" && len([]rune(trim)) <= 240 && premiseSentence.MatchString(trim) {
 				leading := len([]rune(part)) - len([]rune(strings.TrimLeft(part, " \t\r\n")))
 				begin := offset + start + leading
-				out = append(out, ChunkContext{Text: trim, Page: page.Number, Segment: page.Segment, Start: begin, End: begin + len([]rune(trim)), Kind: "premise"})
+				end := begin + len([]rune(trim))
+				if !sourceSpanNeedsReview(page, begin, end) {
+					out = append(out, ChunkContext{Text: trim, Page: page.Number, Segment: page.Segment, Start: begin, End: end, Kind: "premise"})
+				}
 			}
 			start = end + 1
 		}

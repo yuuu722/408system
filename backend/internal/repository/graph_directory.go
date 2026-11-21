@@ -48,7 +48,9 @@ func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph
 	}
 	edgeKeys := map[string]bool{}
 	for _, r := range g.Edges {
-		edgeKeys[r.FromEntityID+":"+r.ToEntityID+":"+r.RelationType] = true
+		if domain.FormalGraphEdge(r) {
+			edgeKeys[r.FromEntityID+":"+r.ToEntityID+":"+r.RelationType] = true
+		}
 	}
 	add := func(from, to, kind string) {
 		key := from + ":" + to + ":" + kind

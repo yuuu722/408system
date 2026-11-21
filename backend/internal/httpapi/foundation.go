@@ -61,6 +61,12 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 	register("GET /api/v1/knowledge-bases/{id}/graph", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.KnowledgeGraph(r.Context(), uid(r), r.PathValue("id"))
 		if e == nil {
+			points, err := s.Store.ListKnowledgePoints(r.Context())
+			if err != nil {
+				s.fail(w, err)
+				return
+			}
+			v = domain.GraphView(v, r.URL.Query().Get("view") == "candidates", domain.DirectoryNames(points))
 			overview, oe := s.Platform.LearningOverview(r.Context(), uid(r))
 			if oe == nil {
 				byID := map[string]domain.PointInsight{}

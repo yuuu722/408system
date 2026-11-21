@@ -1,10 +1,20 @@
 package domain
 
+type SourceCheck string
+
+const (
+	SourceUnknown      SourceCheck = "unknown"
+	SourceConflict     SourceCheck = "conflict"
+	SourceCorroborated SourceCheck = "corroborated"
+)
+
 type DocumentBlock struct {
 	ID, Kind, Text, Image string
 	Start, End            int
 	Box                   []float64
 	Confidence            *float64
+	RawText               string `json:",omitempty"`
+	NeedsReview           bool   `json:",omitempty"`
 }
 type StructuredPage struct {
 	Segment           int
@@ -12,6 +22,8 @@ type StructuredPage struct {
 	Width, Height     float64
 	Rotation          int
 	CoordinateSpace   string
+	SourceCheck       SourceCheck `json:",omitempty"`
+	LocalizedCheck    bool        `json:",omitempty"`
 	Number            int
 	Text              string
 	Blocks            []DocumentBlock

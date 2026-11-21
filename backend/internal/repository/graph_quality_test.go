@@ -52,3 +52,18 @@ func TestNonNounLegacyNodesCannotAppearInGraphOrPaths(t *testing.T) {
 	require.Equal(t, "d", filtered.Edges[0].ToEntityID)
 	require.Len(t, g.Nodes, 4, "original evidence retained")
 }
+
+func TestKAGUsesFormalPathsOnly(t *testing.T) {
+	node := domain.GraphNode{Name: "虚拟内存", KnowledgePointID: "memory", Source: "canonical_directory"}
+	names := map[string]string{"memory": "虚拟内存", "table": "页表"}
+	path := domain.KnowledgePath{Nodes: []domain.GraphNode{node, {Name: "页表", KnowledgePointID: "table", Source: "canonical"}}}
+	path.Edges = []domain.GraphEdge{{Source: "llm_candidate"}}
+	require.False(t, formalGraphPath(path, names))
+	path.Edges[0].Source = "canonical_directory"
+	require.True(t, formalGraphPath(path, names))
+	path.Nodes[1].Name = "资料中的无关名称"
+	require.False(t, formalGraphPath(path, names))
+	path.Nodes[1].Name = "页表"
+	path.Nodes[1].Source = "llm_candidate"
+	require.False(t, formalGraphPath(path, names))
+}

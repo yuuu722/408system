@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"github.com/stretchr/testify/require"
-	"strings"
 	"testing"
 )
 
@@ -26,12 +25,6 @@ func TestOCRConfidenceAndLineGeometry(t *testing.T) {
 	require.InDelta(t, .7, *p.Blocks[0].Confidence, .001)
 	require.Contains(t, p.Text, "N-!")
 }
-func TestOCRReplacementRequiresNearlyIdenticalSurroundings(t *testing.T) {
-	a := strings.Repeat("确认号表示期望收到的下一个字节", 3) + "N-!。"
-	require.True(t, sameSurroundingText(a, strings.ReplaceAll(a, "N-!", "N-1")))
-	require.False(t, sameSurroundingText(a, "这是另一本教材中的完全不同的一段内容，不能替换原来页面。"))
-}
-
 func TestRealPDFFormulaLayout(t *testing.T) {
 	if !NativeOCRAvailable() {
 		t.Skip("Poppler/Tesseract unavailable")
@@ -53,4 +46,33 @@ func TestUncertainOCRCannotBecomeReliableChunk(t *testing.T) {
 	chunks := MappedChunks(page, "revision", "space")
 	require.NotEmpty(t, chunks)
 	require.Equal(t, true, chunks[0].Metadata["parser_uncertain"])
+}
+
+func TestFormulaConflictRetainsRawTextAndCannotSupplyEvidence(t *testing.T) {
+	page := TextPage{Number: 1, SourceCheck: domain.SourceConflict, Blocks: []domain.DocumentBlock{
+		{ID: "line", Text: "若 由 N-! 个字节组成，则需要核对原图。", Box: []float64{.1, .1, .6, .2}},
+	}}
+	CanonicalPage(&page)
+	CanonicalPage(&page)
+	require.Equal(t, "若 由 N-! 个字节组成，则需要核对原图。", page.Blocks[0].RawText)
+	require.True(t, page.Blocks[0].NeedsReview)
+	require.True(t, questionSpanWarning(page, 0, len([]rune(page.Text))))
+	chunks := ContextualChunks([]TextPage{page, {Number: 2, Text: "因此需要额外的确认步骤。"}}, "revision", "space", "source")
+	require.Len(t, chunks, 2)
+	require.Equal(t, true, chunks[0].Metadata["parser_uncertain"])
+	require.Equal(t, true, chunks[1].Metadata["context_incomplete"])
+}
+
+func TestLocalizedConflictKeepsAdjacentEvidence(t *testing.T) {
+	page := TextPage{Number: 1, SourceCheck: domain.SourceConflict, LocalizedCheck: true, Blocks: []domain.DocumentBlock{
+		{ID: "before", Text: "前一段的原文没有识别异常。"},
+		{ID: "formula", Text: "序号为 N-!。"},
+		{ID: "after", Text: "后一段的原文仍可检索。"},
+	}}
+	CanonicalPage(&page)
+	chunks := MappedChunks(page, "revision", "space")
+	require.Len(t, chunks, 3)
+	require.Equal(t, false, chunks[0].Metadata["parser_uncertain"])
+	require.Equal(t, true, chunks[1].Metadata["parser_uncertain"])
+	require.Equal(t, false, chunks[2].Metadata["parser_uncertain"])
 }

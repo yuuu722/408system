@@ -225,11 +225,11 @@ func MatchAnswerFile(assets []domain.Asset, answers []FileAnswer, qsection, asec
 		qs[key(a.Payload.SectionKey, a.Payload.QuestionNumber)]++
 	}
 	for _, a := range answers {
-		if a.Blocked {
-			blocked[key(a.Section, a.Number)] = true
+		if asection != "" && a.Section != asection {
 			continue
 		}
-		if asection != "" && a.Section != asection {
+		if a.Blocked {
+			blocked[key(a.Section, a.Number)] = true
 			continue
 		}
 		k := key(a.Section, a.Number)
