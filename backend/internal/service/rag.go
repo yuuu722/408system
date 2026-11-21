@@ -370,8 +370,8 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 					continue
 				}
 				seenURLs[item.URL] = true
-				location := "网页检索摘录 · " + item.Title
-				citations = append(citations, domain.Citation{WebURL: item.URL, ChunkID: item.URL, DocumentTitle: item.Title, Location: location, LocationQuality: "web_excerpt", Excerpt: body})
+				location := "千问联网摘要 · " + item.Title
+				citations = append(citations, domain.Citation{WebURL: item.URL, ChunkID: item.URL, DocumentTitle: item.Title, Location: location, LocationQuality: "web_summary", Excerpt: body})
 				sourceContents = append(sourceContents, body)
 				fmt.Fprintf(&evidence, "[%d] %s\n%s\n\n", len(citations), location, body)
 				trace.WebStatus = "results"
@@ -502,10 +502,17 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 					if modelFailure != "" {
 						notice = "模型服务未完成整理"
 					}
-					answer = notice + "，以下为教材中可核对的完整原句（不是模型生成答案）：\n\n" + fallback
+					label := "以下为教材中可核对的完整原句（不是模型生成答案）"
+					for _, source := range originalSources {
+						if source.WebURL != "" {
+							label = "以下为可核对出处的教材片段及千问联网摘要"
+							break
+						}
+					}
+					answer = notice + "，" + label + "：\n\n" + fallback
 					citations = originalSources
 				} else if tcpReliabilityOnly(question) && len(originalSources) > 0 && !tcpReliabilityOffTopic(fallback) {
-					answer = "当前检索片段不足以完整解释TCP的可靠传输机制。以下是可核对的原文摘录：\n\n" + fallback
+					answer = "当前检索片段不足以完整解释TCP的可靠传输机制。以下是可核对的原文摘录或联网摘要：\n\n" + fallback
 					citations = originalSources
 				} else {
 					answer = "本次未能生成通过教材依据与完整性核验的整理回答。检索到的原文来源保留在下方；需补充完整教材上下文后再回答。"

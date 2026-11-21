@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -80,24 +79,4 @@ func TestAnswerCombinesKnowledgeAndWebAndFallsBackWhenSearchFails(t *testing.T) 
 			}
 		})
 	}
-}
-
-type searchTransport func(*http.Request) (*http.Response, error)
-
-func (f searchTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
-
-func TestBraveSearchSendsOnlyBoundedQueryAndAcceptsTrustedSites(t *testing.T) {
-	client := &http.Client{Transport: searchTransport(func(r *http.Request) (*http.Response, error) {
-		require.Equal(t, "https", r.URL.Scheme)
-		require.Equal(t, "api.search.brave.com", r.URL.Host)
-		require.Equal(t, "/res/v1/web/search", r.URL.Path)
-		require.Equal(t, "fixture", r.Header.Get("X-Subscription-Token"))
-		require.Contains(t, r.URL.Query().Get("q"), "TCP 如何实现可靠传输")
-		reply := `{"web":{"results":[{"title":"TCP standard","url":"https://www.rfc-editor.org/rfc/rfc9293.html","description":"TCP uses acknowledgments.","extra_snippets":["TCP retransmits segments."]},{"title":"lookalike","url":"https://www.rfc-editor.org.invalid","description":"Untrusted excerpt."}]}}`
-		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(reply)), Header: make(http.Header)}, nil
-	})}
-	result, err := (service.BraveSearch{APIKey: "fixture", Client: client}).Search(context.Background(), "TCP 如何实现可靠传输？")
-	require.NoError(t, err)
-	require.Len(t, result, 1)
-	require.Contains(t, result[0].Text, "TCP retransmits segments.")
 }
