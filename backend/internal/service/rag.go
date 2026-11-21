@@ -460,7 +460,12 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 					answer = strings.TrimRight(modelFailure, "。.!！ ") + "。\n\n" + answer
 				}
 			} else {
-				answer, citations, _ = sentenceAnswer(answer, question, sourceContents, citations, dependencies)
+				text, sources, _ := sentenceAnswer(answer, question, sourceContents, citations, dependencies)
+				if tcpReliabilityOnly(question) && !adequateCoverage(question, text, sourceContents) {
+					answer = "当前证据不足以说明 TCP 确认号的含义及重传条件。相关资料保留在下方供核对。"
+				} else {
+					answer, citations = text, sources
+				}
 			}
 		}
 

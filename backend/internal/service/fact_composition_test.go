@@ -13,19 +13,19 @@ import (
 func TestFactIDsResolveExactOCRQuotesWithoutAskingModelToCopyThem(t *testing.T) {
 	source := "TCP通过检验、序号、确认和重传等机制实现可靠传输。TCP在不可靠的IP层之上提供可靠传输服务。这里不再痪述。"
 	refs := []domain.Citation{{DocumentID: "textbook", Page: 122, Location: "第122页·TCP"}}
-	facts := buildAnswerFacts("TCP如何实现可靠传输？", []string{source}, refs, nil)
+	facts := buildAnswerFacts("TCP提供什么服务？", []string{source}, refs, nil)
 	require.Len(t, facts.Facts, 2)
 	require.NotContains(t, facts.JSON(), "痪述")
 	require.NotContains(t, facts.JSON(), `"source"`)
 	s := RAGService{LLM: &reviewLLM{answer: `{"supported":"true"}`}}
-	text, sources, ok, reason := s.factComposedAnswer(context.Background(), `{"claims":[{"text":"TCP利用检验、序号、确认和重传机制提供可靠传输服务","facts":[1,2]}]}`, "TCP如何实现可靠传输？", facts, []string{source}, refs, nil)
+	text, sources, ok, reason := s.factComposedAnswer(context.Background(), `{"claims":[{"text":"TCP利用检验、序号、确认和重传机制提供可靠传输服务","facts":[1,2]}]}`, "TCP提供什么服务？", facts, []string{source}, refs, nil)
 	require.True(t, ok, reason)
 	require.Contains(t, text, "TCP利用")
 	require.Len(t, sources, 1)
 	require.Contains(t, sources[0].Excerpt, "TCP通过检验")
 	require.NotContains(t, sources[0].Excerpt, "TCP利用")
 	require.Equal(t, 122, sources[0].Page)
-	_, _, ok, reason = s.factComposedAnswer(context.Background(), `{"claims":[{"text":"TCP通过序号、确认和重传实现可靠传输。","facts":[999]}]}`, "TCP如何实现可靠传输？", facts, []string{source}, refs, nil)
+	_, _, ok, reason = s.factComposedAnswer(context.Background(), `{"claims":[{"text":"TCP通过序号、确认和重传实现可靠传输。","facts":[999]}]}`, "TCP提供什么服务？", facts, []string{source}, refs, nil)
 	require.False(t, ok)
 	require.Equal(t, "unknown_fact_id", reason)
 }

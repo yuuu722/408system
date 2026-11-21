@@ -20,7 +20,8 @@ func answerAspects(text string) (problem, mechanism bool) {
 	return
 }
 func adequateCoverage(q, answer string, contents []string) bool {
-	if tcpReliabilityQuestion(q) && (!tcpMechanismCoverage(answer) || tcpReliabilityOnly(q) && tcpReliabilityOffTopic(answer)) {
+	if tcpReliabilityQuestion(q) && (!tcpMechanismCoverage(answer) ||
+		tcpReliabilityOnly(q) && (tcpReliabilityOffTopic(answer) || !tcpReliabilityExplained(answer))) {
 		return false
 	}
 
@@ -34,6 +35,26 @@ func adequateCoverage(q, answer string, contents []string) bool {
 		return true
 	}
 	return virtualMemoryAnswerIssue(q, answer, contents) == ""
+}
+
+// A list of mechanism names is not sufficient for a how question.
+func tcpReliabilityExplained(answer string) bool {
+	ackExplained, retryExplained := false, false
+	for _, clause := range strings.FieldsFunc(answer, func(r rune) bool {
+		return strings.ContainsRune("。！？；;\n", r)
+	}) {
+		lower := strings.ToLower(clause)
+		ack := strings.Contains(clause, "确认") || ackToken.MatchString(clause)
+		ackMeaning := strings.Contains(clause, "期望") || strings.Contains(clause, "下一个") ||
+			strings.Contains(clause, "已收到") || strings.Contains(clause, "已接收") || strings.Contains(clause, "连续收到")
+		ackExplained = ackExplained || ack && ackMeaning
+		retry := strings.Contains(clause, "重传") || strings.Contains(clause, "重发") || strings.Contains(clause, "重新发送")
+		trigger := strings.Contains(clause, "超时") || strings.Contains(clause, "未收到确认") ||
+			strings.Contains(clause, "重复确认") || strings.Contains(clause, "重复 ACK") ||
+			strings.Contains(lower, "timeout") || strings.Contains(lower, "duplicate ack")
+		retryExplained = retryExplained || retry && trigger
+	}
+	return ackExplained && retryExplained
 }
 
 func balanceWhyEvidence(q string, chunks []domain.Chunk, minScore float64) []domain.Chunk {

@@ -55,7 +55,10 @@ func TestProtocolGraphPathsDoNotDriftAndAreDeduplicated(t *testing.T) {
 
 func TestTCPReliabilityRejectsQuotedCongestionExercise(t *testing.T) {
 	q := "TCP 如何实现可靠传输？"
-	mechanism := "TCP 使用字节序号、累计确认和超时重传实现可靠传输。"
+	mechanism := "TCP 用字节序号保证按序交付。累计确认号表示下一个期望收到的字节序号。超时未收到确认时，发送方重传未确认数据。"
+	shallow := "TCP 用序号、确认和重传实现可靠传输，序号用于按序交付。"
+	require.False(t, adequateCoverage(q, shallow, nil))
+	require.False(t, completeAnswerText(mechanism+"结果。"))
 	exercise := "TCP 的拥塞窗口初始值为 8，当拥塞窗口上升到 12 时网络发生了超时，TCP 使用慢开始和拥塞避免。TCP 选用了窗口扩大选项。"
 	require.True(t, adequateCoverage(q, mechanism, nil))
 	require.False(t, adequateCoverage(q, mechanism+exercise, nil))

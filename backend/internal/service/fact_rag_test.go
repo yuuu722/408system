@@ -38,7 +38,7 @@ func TestFactBasedRealProviderPathReturnsComposedAnswerWithoutModelCopiedQuotes(
 	}))
 	defer model.Close()
 	rag := service.RAGService{Store: store, Embedder: fixedEmbedding{}, LLM: service.OpenAILLM{BaseURL: model.URL, APIKey: "fixture", Model: "fixture"}, Knowledge: service.KnowledgeService{Store: store}, Learning: service.LearningService{Store: store}, TopK: 3, MinScore: .35}
-	result, e := rag.Chat(ctx, "u", kb.ID, "", "TCP如何实现可靠传输？")
+	result, e := rag.Chat(ctx, "u", kb.ID, "", "TCP提供什么服务？")
 	require.NoError(t, e)
 	require.Equal(t, 2, calls)
 	require.Contains(t, result.Answer, "TCP利用")

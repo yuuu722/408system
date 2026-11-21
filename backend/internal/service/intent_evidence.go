@@ -140,6 +140,9 @@ func repairAnswerGuidance(code, q string) string {
 	case "invalid_comparison_structure", "incomplete_comparison", "comparison_side_unsupported":
 		return "严格返回comparisons数组；每项给出dimension、left、right、left_facts、right_facts，分别说明双方具体情况并引用支持各自结论的事实。没有双方证据的维度不写。"
 	case "insufficient_coverage", "missing_protocol_purpose":
+		if tcpReliabilityOnly(q) {
+			return "说明 TCP 序号的作用、确认号表示什么，以及由什么条件触发重传。仅列出机制名称不够。只使用本轮原文明确支持的细节。"
+		}
 		if protocolWhy(q) {
 			return "解释所问协议的用途、功能或解决的问题，只用本轮事实。帧字段、MTU数值不是必须重复的原因；证据只有格式时明确说明用途依据不足，不编造内容。"
 		}

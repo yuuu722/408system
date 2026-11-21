@@ -82,6 +82,9 @@ func compositionInstruction(q string) string {
 	if comparisonTargets(q) != nil {
 		return comparisonCompositionInstruction
 	}
+	if tcpReliabilityOnly(q) {
+		return factCompositionInstruction + "\n要解释机制：指出序号如何帮助按序交付、确认号表示什么、何时重传。只写本轮证据支持的细节。"
+	}
 	return factCompositionInstruction
 }
 func comparisonSchema() map[string]any {
