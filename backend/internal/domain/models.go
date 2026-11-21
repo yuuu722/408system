@@ -61,6 +61,7 @@ type Recommendation struct {
 	GeneratedAt, ExpiresAt                                                                           time.Time
 }
 type Citation struct {
+	WebURL                                                string `json:",omitempty"`
 	RevisionID                                            string
 	Regions                                               []SourceRegion
 	LocationQuality                                       string

@@ -14,7 +14,7 @@ const factCompositionInstruction = `
 facts填写事实id，不是文件编号。不要抄写原文quote，出处由程序绑定；正文不写来源编号或“根据资料”。
 回答原因时解释原因及机制；解释虚拟内存的引入时，先说明本轮事实中的传统管理限制，再联系局部性和按需调入；覆盖已提供的原因与机制，不把一次性写成单一性，不声称完全避免内存浪费。缺少的方面不得自补。询问为何使用某协议时，解释证据中的用途、功能、应用场景，不强行补写历史缺陷，不用帧字段或长度限制代替用途；回答实现时按资料中的步骤讲清。资料只有机制名称时只能概括，不能凭常识扩写细节，可以说明细节依据不足。
 必须保留事实中的主语、属性归属、条件和指代所需前文。传统存储管理方式的特征不能改写为程序的特征；严格核对事实的肯定否定和特征归属，不得调换多次性、一次性、驻留性与对换性；不得更换公式变量或猜测乱码。计算推导使用kind=derivation并说明条件；其他使用explanation。
-最多3段，合计600字，引用不超过8个事实。每段写完。能回答部分时，整理已获支持的部分，并明确说明所引用片段没有展开的细节；只有完全无法回答时返回{"claims":[]}。`
+知识库事实优先。标为网页检索摘录的事实只用于补充所问细节；与教材冲突时采用教材口径并说明差异。有相关教材事实时必须引用。最多3段，合计600字，引用不超过8个事实。每段写完。能回答部分时，整理已获支持的部分，并明确说明所引用片段没有展开的细节；只有完全无法回答时返回{"claims":[]}。`
 
 type factPremise struct {
 	Source int    `json:"source"`
@@ -42,7 +42,14 @@ func buildAnswerFacts(question string, contents []string, citations []domain.Cit
 	}
 	budget := 2200
 	seen := map[string]bool{}
-	for _, candidate := range sentenceCandidates(question, contents, citations) {
+	candidates := sentenceCandidates(question, contents, citations)
+	hasWeb := false
+	for _, candidate := range candidates {
+		if candidate.Source > 0 && candidate.Source <= len(citations) && citations[candidate.Source-1].WebURL != "" {
+			hasWeb = true
+		}
+	}
+	for _, candidate := range candidates {
 		source := candidate.Source
 		if source < 1 || source > len(citations) || contextOnly[source] && len(deps[source]) == 0 {
 			continue
@@ -80,7 +87,8 @@ func buildAnswerFacts(question string, contents []string, citations []domain.Cit
 				break
 			}
 		}
-		if !valid || cost > budget {
+		local := citations[source-1].WebURL == ""
+		if !valid || cost > budget || hasWeb && local && (len(out.Facts) >= 8 || cost > budget-500) {
 			continue
 		}
 		budget -= cost
@@ -207,6 +215,15 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	_ = json.Unmarshal([]byte(chosen.JSON()), &reviewData)
 	reviewData["question"] = question
 	reviewData["claims"] = reviewClaims
+	if hasWebFacts(catalog, citations) {
+		var textbook []string
+		for _, fact := range catalog.Facts {
+			if fact.Source > 0 && fact.Source <= len(citations) && citations[fact.Source-1].WebURL == "" {
+				textbook = append(textbook, fact.Text)
+			}
+		}
+		reviewData["knowledge_base_facts_for_conflicts"] = textbook
+	}
 	if spec != nil {
 		reviewData["comparison_objects"] = spec
 		reviewData["comparison_rows"] = comparisonRows
@@ -223,10 +240,32 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 	if !ok {
 		return "", nil, false, why
 	}
+	hasLocal := false
+	for _, fact := range catalog.Facts {
+		hasLocal = hasLocal || fact.Source > 0 && fact.Source <= len(citations) && citations[fact.Source-1].WebURL == ""
+	}
+	if hasLocal {
+		localUsed := false
+		for _, source := range sources {
+			localUsed = localUsed || source.WebURL == ""
+		}
+		if !localUsed {
+			return "", nil, false, "knowledge_base_priority"
+		}
+	}
 	if spec != nil {
 		text = renderComparison(spec, comparisonRows)
 	}
 	return text, sources, true, ""
+}
+
+func hasWebFacts(catalog factCatalog, citations []domain.Citation) bool {
+	for _, fact := range catalog.Facts {
+		if fact.Source > 0 && fact.Source <= len(citations) && citations[fact.Source-1].WebURL != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // A small output grammar prevents local models from omitting fact references.

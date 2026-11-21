@@ -9,6 +9,7 @@ type RetrievalTrace struct {
 	Subquestions []string
 	Paths        []KnowledgePath
 	Notice       string
+	WebStatus    string `json:",omitempty"`
 }
 type GraphRetrieval struct {
 	Paths  []KnowledgePath

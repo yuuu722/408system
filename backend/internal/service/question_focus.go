@@ -84,8 +84,8 @@ func focusedProtocolEvidence(q, content string, scope ...string) string {
 				continuation = continuation || strings.HasPrefix(sentence, prefix)
 			}
 			if scoped && tcpReliabilityQuestion(q) {
-				for _, word := range []string{"序号", "确认", "重传", "校验", "丢失", "重复", "失序", "滑动窗口"} {
-					continuation = continuation || strings.Contains(sentence, word)
+				for _, word := range []string{"序号", "确认", "重传", "校验", "丢失", "重复", "失序", "滑动窗口", "sequence", "acknowledg", "retransmi", "checksum", "timeout"} {
+					continuation = continuation || strings.Contains(strings.ToLower(sentence), word)
 				}
 			}
 			if scoped && protocolWhy(q) && protocolPurpose(sentence) {

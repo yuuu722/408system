@@ -144,6 +144,7 @@ func TestTCPDefinitionOnlyCannotBePresentedAsMechanismAnswer(t *testing.T) {
 	result, e := rag.Chat(ctx, "u", kb.ID, "", "TCP 如何实现可靠传输？")
 	require.NoError(t, e)
 	require.Contains(t, result.Answer, "不足以完整解释TCP")
-	require.NotContains(t, result.Answer, "确保接收方读取")
+	require.Contains(t, result.Answer, "可核对的原文摘录")
+	require.False(t, result.Generation.Verified)
 	require.NotContains(t, result.Answer, "完整原句（不是模型生成答案）")
 }

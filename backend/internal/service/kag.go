@@ -63,7 +63,7 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 		degraded = true
 		graph = domain.GraphRetrieval{Paths: []domain.KnowledgePath{}}
 		trace.Mode = "rag-degraded"
-		trace.Notice = "本次仅使用文档检索，不宣称完成图谱推理。"
+		trace.Notice = "图谱不可用，知识库部分仅使用文档检索。"
 		if unavailable != nil {
 			trace.Notice = unavailable.Message + "。" + trace.Notice
 		}
@@ -82,7 +82,7 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 	}
 	trace.Paths = graph.Paths
 	if len(graph.Paths) == 0 && !degraded {
-		trace.Notice = "本题未匹配到图谱路径，以下仅使用文档检索证据，不宣称已完成图谱推理。"
+		trace.Notice = "本题未匹配到图谱路径，知识库部分使用文档检索证据。"
 	}
 	queries := append([]string{}, planner...)
 	if len(graph.Terms) > 0 {

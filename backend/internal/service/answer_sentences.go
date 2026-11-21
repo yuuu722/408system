@@ -143,11 +143,29 @@ func sentenceCandidates(question string, contents []string, scopes ...[]domain.C
 			out = append(out, answerSentence{Source: i + 1, Text: text, Previous: previous, Score: score})
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	sort.SliceStable(out, func(i, j int) bool {
+		if len(scopes) > 0 {
+			local := func(id int) bool { return id <= len(scopes[0]) && scopes[0][id-1].WebURL == "" }
+			if a, b := local(out[i].Source), local(out[j].Source); a != b {
+				return a
+			}
+		}
+		return out[i].Score > out[j].Score
+	})
 	out = balanceComparisonSentences(question, out)
 	out = balanceVirtualMemorySentences(question, out)
 	if len(out) > 16 {
-		out = out[:16]
+		// Reserve a few slots for web evidence after high-ranked textbook facts.
+		cut := 16
+		if len(scopes) > 0 {
+			for i, candidate := range out {
+				if i >= 12 && candidate.Source <= len(scopes[0]) && scopes[0][candidate.Source-1].WebURL != "" {
+					out = append(out[:12], out[i:min(i+4, len(out))]...)
+					return out
+				}
+			}
+		}
+		out = out[:cut]
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -71,7 +72,11 @@ func main() {
 	}
 	learning := service.LearningService{Store: store}
 	knowledge := service.KnowledgeService{Store: store}
-	srv := &httpapi.Server{QuestionAI: service.QuestionAI{Text: *llm, Vision: service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}}, Platform: store, Store: store, Auth: service.AuthService{Store: store, Secret: []byte(cfg.JWTSecret), TTL: cfg.JWTTTL}, Documents: &service.DocumentService{EmbeddingSpace: cfg.EmbeddingSpace(), Store: store, Parser: service.Parser{Endpoint: os.Getenv("DOCUMENT_PARSER_URL"), Token: os.Getenv("DOCUMENT_PARSER_TOKEN"), Mode: os.Getenv("DOCUMENT_PARSER_MODE")}, Embedder: embed, GraphLLM: graphLLM, StorageRoot: cfg.StorageRoot, MaxBytes: cfg.MaxUploadBytes, Log: log}, Knowledge: knowledge, Learning: learning, Recommendations: service.RecommendationService{Store: store}, RAG: service.RAGService{KAGEnabled: cfg.AssistantMode == "kag", Vision: &service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}, Store: store, Embedder: embed, LLM: llm, Knowledge: knowledge, Learning: learning, TopK: cfg.RAGTopK, MinScore: cfg.RAGMinScore, Log: log}, Config: cfg, Log: log}
+	var webSearch service.WebSearcher
+	if key := strings.TrimSpace(os.Getenv("WEB_SEARCH_API_KEY")); key != "" && !cfg.DemoMode {
+		webSearch = service.BraveSearch{APIKey: key}
+	}
+	srv := &httpapi.Server{QuestionAI: service.QuestionAI{Text: *llm, Vision: service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}}, Platform: store, Store: store, Auth: service.AuthService{Store: store, Secret: []byte(cfg.JWTSecret), TTL: cfg.JWTTTL}, Documents: &service.DocumentService{EmbeddingSpace: cfg.EmbeddingSpace(), Store: store, Parser: service.Parser{Endpoint: os.Getenv("DOCUMENT_PARSER_URL"), Token: os.Getenv("DOCUMENT_PARSER_TOKEN"), Mode: os.Getenv("DOCUMENT_PARSER_MODE")}, Embedder: embed, GraphLLM: graphLLM, StorageRoot: cfg.StorageRoot, MaxBytes: cfg.MaxUploadBytes, Log: log}, Knowledge: knowledge, Learning: learning, Recommendations: service.RecommendationService{Store: store}, RAG: service.RAGService{Web: webSearch, KAGEnabled: cfg.AssistantMode == "kag", Vision: &service.OpenAILLM{BaseURL: os.Getenv("VISION_BASE_URL"), APIKey: os.Getenv("VISION_API_KEY"), Model: os.Getenv("VISION_MODEL")}, Store: store, Embedder: embed, LLM: llm, Knowledge: knowledge, Learning: learning, TopK: cfg.RAGTopK, MinScore: cfg.RAGMinScore, Log: log}, Config: cfg, Log: log}
 	srv.Generator = service.QuestionGenerator{Store: store, Embedder: embed, Model: *llm, MinScore: cfg.RAGMinScore}
 	if os.Getenv("APP_ROLE") == "worker" {
 		workerCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

@@ -16,6 +16,7 @@ import (
 )
 
 type RAGService struct {
+	Web        WebSearcher
 	KAGEnabled bool
 	Vision     *OpenAILLM
 	Store      domain.Store
@@ -53,6 +54,21 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			return domain.ChatResult{}, e
 		}
 		history = boundedHistory(history)
+	}
+	type webResponse struct {
+		results []WebResult
+		err     error
+	}
+	var web <-chan webResponse
+	if s.Web != nil {
+		searchCtx, cancel := context.WithTimeout(ctx, webSearchTimeout)
+		defer cancel()
+		result := make(chan webResponse, 1)
+		web = result
+		go func() {
+			results, err := s.Web.Search(searchCtx, question)
+			result <- webResponse{results, err}
+		}()
 	}
 	retrievalQuestion := contextualQuestion(question, history)
 	evidenceQuestion := retrievalQuestion
@@ -161,11 +177,6 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	chunks = append(chunks, s.intentEvidence(ctx, uid, intentScopes, evidenceQuestion)...)
 	if trace != nil {
 		trace.Paths = focusedPaths(evidenceQuestion, trace.Paths)
-	}
-	if trace != nil && emit != nil {
-		if e := emit("reasoning", trace); e != nil {
-			return domain.ChatResult{}, e
-		}
 	}
 	if store, ok := s.Store.(interface {
 		ExpandTextbookContext(context.Context, string, string, []domain.Chunk) ([]domain.Chunk, error)
@@ -327,6 +338,55 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		}
 	}
 
+	if trace == nil {
+		trace = &domain.RetrievalTrace{Mode: "rag", Paths: []domain.KnowledgePath{}, Subquestions: []string{question}}
+	}
+	trace.WebStatus = "disabled"
+	if web != nil {
+		select {
+		case <-ctx.Done():
+			return domain.ChatResult{}, ctx.Err()
+		case result := <-web:
+			trace.WebStatus = "no_usable_results"
+			if result.err != nil {
+				trace.WebStatus = "failed"
+				s.warn("web search failed", "error", result.err)
+			}
+			seenURLs := map[string]bool{}
+			for _, item := range result.results {
+				if !trustedWebURL(item.URL) || seenURLs[item.URL] || !evidenceRelated(evidenceQuestion, item.Title+" "+item.Text) {
+					continue
+				}
+				body := strings.Join(completeSourceSentences(item.Text), "\n")
+				body = focusedProtocolEvidence(evidenceQuestion, body, item.Title)
+				if body == "" {
+					continue
+				}
+				runes := []rune(body)
+				if len(runes) > 900 {
+					body = strings.Join(completeSourceSentences(string(runes[:900])), "\n")
+				}
+				if body == "" {
+					continue
+				}
+				seenURLs[item.URL] = true
+				location := "网页检索摘录 · " + item.Title
+				citations = append(citations, domain.Citation{WebURL: item.URL, ChunkID: item.URL, DocumentTitle: item.Title, Location: location, LocationQuality: "web_excerpt", Excerpt: body})
+				sourceContents = append(sourceContents, body)
+				fmt.Fprintf(&evidence, "[%d] %s\n%s\n\n", len(citations), location, body)
+				trace.WebStatus = "results"
+				if len(seenURLs) == 3 {
+					break
+				}
+			}
+		}
+	}
+	if emit != nil {
+		if err := emit("reasoning", trace); err != nil {
+			return domain.ChatResult{}, err
+		}
+	}
+
 	catalog := buildAnswerFacts(question, sourceContents, citations, dependencies)
 	modelEvidence := catalog.JSON()
 	generation := &domain.GenerationTrace{Facts: len(catalog.Facts), Stage: "retrieval", FailureCode: "no_usable_evidence"}
@@ -444,6 +504,9 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 					}
 					answer = notice + "，以下为教材中可核对的完整原句（不是模型生成答案）：\n\n" + fallback
 					citations = originalSources
+				} else if tcpReliabilityOnly(question) && len(originalSources) > 0 && !tcpReliabilityOffTopic(fallback) {
+					answer = "当前检索片段不足以完整解释TCP的可靠传输机制。以下是可核对的原文摘录：\n\n" + fallback
+					citations = originalSources
 				} else {
 					answer = "本次未能生成通过教材依据与完整性核验的整理回答。检索到的原文来源保留在下方；需补充完整教材上下文后再回答。"
 					if comparisonTargets(question) != nil {
@@ -550,6 +613,9 @@ func (s RAGService) figureEvidence(ctx context.Context, uid, question string, ci
 	notes := ""
 	seen := map[string]bool{}
 	for i, c := range citations {
+		if c.WebURL != "" {
+			continue
+		}
 		key := fmt.Sprintf("%s:%d", c.DocumentID, c.Page)
 		if seen[key] {
 			continue

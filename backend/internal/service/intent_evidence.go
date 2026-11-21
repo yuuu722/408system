@@ -118,6 +118,8 @@ func generationFailureLabel(code string) string {
 		return "模型已完成整理，但依据核验请求失败"
 	case "invalid_review_format":
 		return "模型已完成整理，但核验结果格式无效"
+	case "knowledge_base_priority":
+		return "回答遗漏了有关的知识库依据"
 	case "unsupported_claim":
 		return "模型已完成整理，但核验认为正文存在原文未支持的结论"
 	case "unsupported_or_invalid_review":
@@ -152,6 +154,8 @@ func repairAnswerGuidance(code, q string) string {
 		return "补齐本题要求的原因、机制或比较双方；不要重复定义代替解释。"
 	case "missing_premise":
 		return "保留所用事实的全部适用条件和必要前提。"
+	case "knowledge_base_priority":
+		return "先使用能够回答本题的知识库事实和对应编号，再引用网页事实补充仍缺的细节。没有网页依据时保留教材能回答的部分。"
 	case "unsupported_claim":
 		return "删除事实中没有支持的结论，不扩写模型常识，允许只回答有依据的部分并说明范围。"
 	case "incomplete_claim":
