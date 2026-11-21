@@ -40,13 +40,28 @@ func TestTCPMechanismKeepsAnchoredContinuationAndCompleteQuotes(t *testing.T) {
 	require.NotEmpty(t, focusedProtocolEvidence("TCP与UDP有何区别？", "TCP提供可靠传输。UDP不保证可靠交付。"))
 }
 func TestProtocolGraphPathsDoNotDriftAndAreDeduplicated(t *testing.T) {
-	tcp := domain.GraphNode{ID: "t", Name: "TCP可靠传输与拥塞控制"}
+	tcp := domain.GraphNode{ID: "t", Name: "TCP 可靠传输"}
+	ack := domain.GraphNode{ID: "ack", Name: "TCP 累计确认"}
+	congestion := domain.GraphNode{ID: "cwnd", Name: "TCP 拥塞控制"}
 	layer := domain.GraphNode{ID: "l", Name: "传输层"}
 	udp := domain.GraphNode{ID: "u", Name: "UDP与传输层端口"}
 	ip := domain.GraphNode{ID: "i", Name: "IPv4与子网划分"}
-	p := domain.KnowledgePath{Nodes: []domain.GraphNode{tcp, layer}, Edges: []domain.GraphEdge{{RelationType: "part_of"}}}
-	paths := []domain.KnowledgePath{p, p, {Nodes: []domain.GraphNode{layer, tcp}, Edges: p.Edges}, {Nodes: []domain.GraphNode{udp, layer, tcp}}, {Nodes: []domain.GraphNode{layer, ip}}}
+	p := domain.KnowledgePath{Nodes: []domain.GraphNode{tcp, ack}, Edges: []domain.GraphEdge{{RelationType: "part_of"}}}
+	paths := []domain.KnowledgePath{p, p, {Nodes: []domain.GraphNode{ack, tcp}, Edges: p.Edges}, {Nodes: []domain.GraphNode{udp, layer, tcp}}, {Nodes: []domain.GraphNode{layer, ip}}, {Nodes: []domain.GraphNode{tcp, layer, ip}}, {Nodes: []domain.GraphNode{tcp, congestion}}}
 	result := focusedPaths("TCP 如何实现可靠传输？", paths)
 	require.Len(t, result, 1)
 	require.Equal(t, p.Nodes, result[0].Nodes)
+}
+
+func TestTCPReliabilityRejectsQuotedCongestionExercise(t *testing.T) {
+	q := "TCP 如何实现可靠传输？"
+	mechanism := "TCP 使用字节序号、累计确认和超时重传实现可靠传输。"
+	exercise := "TCP 的拥塞窗口初始值为 8，当拥塞窗口上升到 12 时网络发生了超时，TCP 使用慢开始和拥塞避免。TCP 选用了窗口扩大选项。"
+	require.True(t, adequateCoverage(q, mechanism, nil))
+	require.False(t, adequateCoverage(q, mechanism+exercise, nil))
+	facts := buildAnswerFacts(q, []string{mechanism + exercise}, []domain.Citation{{}}, nil)
+	require.NotEmpty(t, facts.Facts)
+	for _, fact := range facts.Facts {
+		require.False(t, tcpReliabilityOffTopic(fact.Text))
+	}
 }

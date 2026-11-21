@@ -20,7 +20,7 @@ func answerAspects(text string) (problem, mechanism bool) {
 	return
 }
 func adequateCoverage(q, answer string, contents []string) bool {
-	if tcpReliabilityQuestion(q) && !tcpMechanismCoverage(answer) {
+	if tcpReliabilityQuestion(q) && (!tcpMechanismCoverage(answer) || tcpReliabilityOnly(q) && tcpReliabilityOffTopic(answer)) {
 		return false
 	}
 

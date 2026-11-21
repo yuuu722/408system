@@ -136,6 +136,21 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	points, e := store.ListKnowledgePoints(ctx)
 	require.NoError(t, e)
 	require.GreaterOrEqual(t, len(points), 50)
+	var directory domain.KnowledgeGraph
+	graphBody := call("GET", "/api/v1/knowledge-bases/"+public.ID+"/graph", token, nil, 200)
+	require.NoError(t, json.Unmarshal(graphBody, &directory))
+	require.GreaterOrEqual(t, len(directory.Nodes), 240)
+	names := domain.DirectoryNames(points)
+	present := map[string]bool{}
+	for _, node := range directory.Nodes {
+		require.True(t, domain.DirectoryGraphNode(node, names), node.Name)
+		present[node.Name] = true
+	}
+	require.True(t, present["哈夫曼树"])
+	require.True(t, present["TCP 可靠传输"])
+	require.True(t, present["TCP 拥塞控制"])
+	require.True(t, present["TCP 累计确认"])
+	require.False(t, present["TCP 可靠传输与拥塞控制"])
 	var point domain.KnowledgePoint
 	for _, p := range points {
 		if p.Code == "OS.VIRTUAL" {

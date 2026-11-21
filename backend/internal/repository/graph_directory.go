@@ -6,9 +6,13 @@ import (
 	"sort"
 )
 
-// Adds only ancestors/curated relations for points already represented in this
-// corpus. No corpus-independent sample graph or inferred causal edge is created.
-func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph) error {
+// CompleteGraphDirectory adds the full curated directory for browsing.
+// Only corpus-linked nodes carry document evidence.
+func (p *Postgres) CompleteGraphDirectory(ctx context.Context, g *domain.KnowledgeGraph) error {
+	return p.attachDirectory(ctx, g, true)
+}
+
+func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph, full bool) error {
 	points, e := p.ListKnowledgePoints(ctx)
 	if e != nil {
 		return e
@@ -18,8 +22,11 @@ func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph
 		byID[pt.ID] = pt
 	}
 	represented := map[string]string{}
-	for _, n := range g.Nodes {
-		if n.KnowledgePointID != "" {
+	for i := range g.Nodes {
+		n := &g.Nodes[i]
+		if point, ok := byID[n.KnowledgePointID]; ok && domain.FormalGraphNode(*n) {
+			n.Name = point.Name
+			n.Description = point.Description
 			if _, ok := represented[n.KnowledgePointID]; !ok {
 				represented[n.KnowledgePointID] = n.ID
 			}
@@ -29,7 +36,6 @@ func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph
 	for id := range represented {
 		seeds = append(seeds, id)
 	}
-	sort.Strings(seeds)
 	visiting := map[string]bool{}
 	var ensure func(string) string
 	ensure = func(id string) string {
@@ -46,6 +52,32 @@ func (p *Postgres) attachDirectory(ctx context.Context, g *domain.KnowledgeGraph
 		g.Nodes = append(g.Nodes, domain.GraphNode{ID: n, Name: pt.Name, Description: pt.Description, KnowledgePointID: pt.ID, Source: "canonical_directory", Confidence: 1, EntityType: "knowledge_point", SubjectState: "directory", SubjectCode: subjectCode(pt.SubjectName)})
 		return n
 	}
+	if full {
+		seeds = seeds[:0]
+		for _, point := range points {
+			ensure(point.ID)
+			seeds = append(seeds, point.ID)
+		}
+	} else {
+		// Expand sections already linked to this corpus, including their
+		// individual concepts. Top-level roots do not seed a whole subject.
+		linked := make(map[string]bool, len(seeds))
+		for _, id := range seeds {
+			linked[id] = byID[id].Level >= 2
+		}
+		for _, point := range points {
+			seen := map[string]bool{}
+			for parent := point.ParentID; parent != "" && !seen[parent]; parent = byID[parent].ParentID {
+				if linked[parent] {
+					ensure(point.ID)
+					seeds = append(seeds, point.ID)
+					break
+				}
+				seen[parent] = true
+			}
+		}
+	}
+	sort.Strings(seeds)
 	edgeKeys := map[string]bool{}
 	for _, r := range g.Edges {
 		if domain.FormalGraphEdge(r) {

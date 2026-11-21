@@ -46,6 +46,9 @@ func (s RAGService) kagCandidates(ctx context.Context, uid, kid, question string
 	if focus := protocolFocus(question); len(focus) > 0 {
 		graphTerms = focus
 	}
+	if tcpReliabilityOnly(question) {
+		graphTerms = []string{"TCP 可靠传输", "TCP 序号", "TCP 累计确认", "TCP 重传", "TCP 校验和", "TCP 按序交付"}
+	}
 	graph, e := store.RetrieveGraphEvidence(graphCtx, uid, kid, graphTerms)
 	cancel()
 	degraded := false

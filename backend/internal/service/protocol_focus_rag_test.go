@@ -88,10 +88,11 @@ type topicGraphStore struct {
 
 func (s *topicGraphStore) RetrieveGraphEvidence(_ context.Context, _ string, _ string, terms []string) (domain.GraphRetrieval, error) {
 	s.seeds = append([]string{}, terms...)
-	tcp := domain.GraphNode{ID: "tcp", Name: "TCP可靠传输与拥塞控制"}
+	tcp := domain.GraphNode{ID: "tcp", Name: "TCP 可靠传输"}
 	udp := domain.GraphNode{ID: "udp", Name: "UDP与传输层端口"}
 	layer := domain.GraphNode{ID: "layer", Name: "传输层"}
-	p := domain.KnowledgePath{Nodes: []domain.GraphNode{tcp, layer}, Edges: []domain.GraphEdge{{RelationType: "part_of"}}}
+	ack := domain.GraphNode{ID: "ack", Name: "TCP 累计确认"}
+	p := domain.KnowledgePath{Nodes: []domain.GraphNode{tcp, ack}, Edges: []domain.GraphEdge{{RelationType: "part_of"}}}
 	return domain.GraphRetrieval{Paths: []domain.KnowledgePath{p, p, {Nodes: []domain.GraphNode{udp, layer, tcp}}}, Terms: []string{"UDP", "HDLC", "传输层"}, Chunks: s.Chunks}, nil
 }
 
@@ -117,7 +118,11 @@ func TestKAGSeedsAndExpandedQueriesStayOnAskedProtocol(t *testing.T) {
 	rag := service.RAGService{KAGEnabled: true, Store: store, Embedder: embed, LLM: editorialLLM{source}, Knowledge: service.KnowledgeService{Store: store}, Learning: service.LearningService{Store: store}, TopK: 3, MinScore: .35}
 	result, e := rag.Chat(ctx, "u", kb.ID, "", "TCP 如何实现可靠传输？")
 	require.NoError(t, e)
-	require.Equal(t, []string{"TCP"}, store.seeds)
+	require.Contains(t, store.seeds, "TCP 累计确认")
+	for _, seed := range store.seeds {
+		require.True(t, strings.HasPrefix(seed, "TCP "))
+		require.NotContains(t, seed, "拥塞")
+	}
 	require.NotNil(t, result.Reasoning)
 	require.Len(t, result.Reasoning.Paths, 1)
 	for _, q := range embed.queries {

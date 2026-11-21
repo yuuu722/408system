@@ -211,7 +211,7 @@ func (p *Postgres) graphProvenance(ctx context.Context, uid, kid string) (domain
 		return graph, e
 	}
 	edgeRows.Close()
-	if e := p.attachDirectory(ctx, &graph); e != nil {
+	if e := p.attachDirectory(ctx, &graph, false); e != nil {
 		return graph, e
 	}
 	return qualityGraph(graph), nil

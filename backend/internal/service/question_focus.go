@@ -70,12 +70,9 @@ func focusedProtocolEvidence(q, content string, scope ...string) string {
 	for _, paragraph := range strings.Split(content, "\n\n") {
 		active := scoped
 		for _, sentence := range completeSourceSentences(paragraph) {
-			if tcpReliabilityQuestion(q) && !strings.Contains(q, "保活") && !strings.Contains(q, "时间等待") {
-				lower := strings.ToLower(sentence)
-				if strings.Contains(sentence, "保活") || strings.Contains(sentence, "时间等待") || strings.Contains(lower, "keepalive") || strings.Contains(lower, "time_wait") {
-					active = false
-					continue
-				}
+			if tcpReliabilityOnly(q) && tcpReliabilityOffTopic(sentence) {
+				active = false
+				continue
 			}
 			anchored := sharesProtocol(focus, sentence)
 			if competingProtocol(focus, sentence) && !anchored {
@@ -112,10 +109,17 @@ func focusedPaths(q string, paths []domain.KnowledgePath) []domain.KnowledgePath
 		vm := virtualMemoryWhy(q)
 		found := len(focus) == 0 && !vm
 		invalid := false
+		reliabilityPath := false
 		ids := []string{}
 		kinds := []string{}
 		for _, n := range p.Nodes {
 			found = found || sharesProtocol(focus, n.Name)
+			for _, mechanism := range []string{"可靠传输", "序号", "确认", "重传", "校验和", "按序交付"} {
+				reliabilityPath = reliabilityPath || strings.Contains(n.Name, mechanism)
+			}
+			if tcpReliabilityOnly(q) && (tcpReliabilityOffTopic(n.Name) || strings.Contains(n.Name, "拥塞控制") || strings.Contains(n.Name, "网络层") || strings.Contains(n.Name, "传输层")) {
+				invalid = true
+			}
 			if vm {
 				found = found || strings.Contains(n.Name, "虚拟内存") || strings.Contains(n.Name, "虚拟存储")
 			}
@@ -129,7 +133,7 @@ func focusedPaths(q string, paths []domain.KnowledgePath) []domain.KnowledgePath
 			}
 			ids = append(ids, key)
 		}
-		if !found || invalid {
+		if !found || invalid || tcpReliabilityOnly(q) && len(p.Nodes) > 1 && !reliabilityPath {
 			continue
 		}
 		reverse := append([]string{}, ids...)
@@ -153,6 +157,24 @@ func focusedPaths(q string, paths []domain.KnowledgePath) []domain.KnowledgePath
 	}
 	return out
 }
+
+// A quoted exercise state or a congestion-control detail is not an
+// explanation of TCP's reliable byte-stream mechanism.
+func tcpReliabilityOffTopic(text string) bool {
+	for _, term := range []string{"拥塞窗口", "慢开始", "慢启动", "拥塞避免", "窗口扩大选项", "窗口缩放", "保活", "时间等待"} {
+		if strings.Contains(text, term) {
+			return true
+		}
+	}
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "cwnd") || strings.Contains(lower, "window scaling") || strings.Contains(lower, "keepalive") || strings.Contains(lower, "time_wait")
+}
+
+func tcpReliabilityOnly(question string) bool {
+	return tcpReliabilityQuestion(question) && !tcpReliabilityOffTopic(question) &&
+		!strings.Contains(question, "拥塞控制")
+}
+
 func tcpReliabilityQuestion(q string) bool {
 	return sharesProtocol([]string{"TCP"}, q) && strings.Contains(q, "可靠") && (strings.Contains(q, "如何") || strings.Contains(q, "怎么") || strings.Contains(q, "实现") || strings.Contains(q, "机制"))
 }
