@@ -66,6 +66,8 @@ func (s DashScopeSearch) Search(ctx context.Context, question string) ([]WebResu
 	instruction := "联网查找能直接回答问题的权威来源，如 RFC、官方文档或大学课程。每句只写一个完整事实，原样保留搜索系统的真实出处引用，每句只对应一个来源。不使用模型记忆，不生成链接或猜测出处，找不到则留空。"
 	if tcpReliabilityOnly(question) {
 		instruction += " 优先查 RFC 9293 与 RFC 6298，分别找字节序号、累计确认、校验和与超时重传的直接依据。不要引用拥塞窗口计算例题。"
+	} else if virtualMemoryWhy(question) {
+		instruction += " 查询大学操作系统课程的 virtual memory、demand paging 与 locality。分别寻找为何不必让整个程序常驻物理内存、按需调页如何利用局部性的证据。"
 	}
 	payload := map[string]any{
 		"model": s.model,
@@ -184,10 +186,17 @@ func webEvidenceRelated(question, title, text string) bool {
 	if evidenceRelated(question, title+" "+text) {
 		return true
 	}
+	lower := strings.ToLower(text)
+	if virtualMemoryWhy(question) && strings.Contains(strings.ToLower(title+" "+text), "virtual memory") {
+		for _, term := range []string{"locality", "demand paging", "loaded on demand", "working set", "physical memory", "局部性", "按需调", "物理内存"} {
+			if strings.Contains(lower, term) {
+				return true
+			}
+		}
+	}
 	if !tcpReliabilityOnly(question) || !sharesProtocol([]string{"TCP"}, title+" "+text) {
 		return false
 	}
-	lower := strings.ToLower(text)
 	for _, term := range []string{"确认号", "累计确认", "重传", "序号", "校验和", "acknowledg", "retransmi", "sequence number", "checksum"} {
 		if strings.Contains(lower, term) {
 			return true

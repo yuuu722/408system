@@ -49,3 +49,10 @@ func TestTCPWebSourceCanExplainOneMissingMechanism(t *testing.T) {
 	require.True(t, webEvidenceRelated(q, "TCP · RFC 9293", "The acknowledgment number is the next sequence number expected."))
 	require.False(t, webEvidenceRelated(q, "HDLC", "The acknowledgment number is the next sequence number expected."))
 }
+
+func TestVirtualMemoryWebEvidenceCanUseEnglishUniversitySources(t *testing.T) {
+	q := "为什么需要虚拟内存？"
+	require.True(t, webEvidenceRelated(q, "Virtual Memory", "Demand paging uses locality to keep only actively used pages in physical memory."))
+	require.False(t, webEvidenceRelated(q, "Virtual Memory", "The next lecture starts at noon."))
+	require.False(t, webEvidenceRelated(q, "CPU Cache", "Caches exploit locality to improve average access time."))
+}
