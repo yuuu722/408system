@@ -10,7 +10,7 @@ import (
 func TestWordPaginationNoticeDoesNotInvalidateQuestionsOrAnswers(t *testing.T) {
 	notice := "Word转换页码：来自服务端排版，不保证与Word/WPS原始页码一致；请下载原文件核对。"
 	for _, warnings := range [][]string{{notice}, {notice, "文字区域解析失败"}} {
-		pages := []TextPage{{Number: 1, Text: "1. 下列哪项正确？\nA. 按需装入\nB. 全部装入\nC. 不用内存\nD. 不用外存", Warnings: warnings}, {Number: 2, Text: "参考答案\n1. A", Warnings: warnings}}
+		pages := []TextPage{{Number: 1, Text: "1. 下列关于按需装入的说法哪项正确？\nA. 按需装入\nB. 全部装入\nC. 不用内存\nD. 不用外存", Warnings: warnings}, {Number: 2, Text: "参考答案\n1. A", Warnings: warnings}}
 		assets := ExtractQuestions(domain.Document{ID: "doc", OriginalFilename: "教材.docx"}, pages, []domain.KnowledgePoint{{ID: "p", Name: "按需装入"}})
 		require.Len(t, assets, 1)
 		if len(warnings) == 1 {
@@ -83,7 +83,7 @@ func TestBracketedExplicitSourceAnswer(t *testing.T) {
 	require.Len(t, assets, 1)
 	require.Equal(t, 0, assets[0].Payload.Answer)
 	require.Equal(t, "source", assets[0].Payload.AnswerOrigin)
-	require.Contains(t, assets[0].Payload.Explanation, "【解析】")
+	require.Equal(t, "采用按需装入。", assets[0].Payload.Explanation)
 	require.Equal(t, "乙", assets[0].Payload.Options[1])
 	entries := ParseAnswerFile([]TextPage{{Number: 1, Text: "1. 【答案】A、B"}})
 	require.Len(t, entries, 1)

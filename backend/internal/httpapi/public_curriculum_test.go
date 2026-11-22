@@ -65,7 +65,7 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	require.NoError(t, migrations.Up(ctx, store.DB))
 	require.NoError(t, migrations.Up(ctx, store.DB))
 	var seeded int
-	require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE seed_key IS NOT NULL`).Scan(&seeded))
+	require.NoError(t, store.DB.QueryRow(ctx, `SELECT count(*) FROM learning_assets WHERE seed_key IS NOT NULL AND seed_key NOT LIKE '408-%-2026:%'`).Scan(&seeded))
 	require.Zero(t, seeded, "fresh installations must contain no sample lessons or exercises")
 	// Historical sample content is an explicit test fixture, never startup data.
 	fixture, e := os.ReadFile("../../migrations/000014_public_curriculum.up.sql")
@@ -78,7 +78,7 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	}
 	store.EmbeddingSpace = "synthetic"
 	root := t.TempDir()
-	rows, e := store.DB.Query(ctx, `SELECT id::text FROM learning_assets WHERE kind='material' AND seed_key IS NOT NULL`)
+	rows, e := store.DB.Query(ctx, `SELECT id::text FROM learning_assets WHERE kind='material' AND seed_key IS NOT NULL AND seed_key NOT LIKE '408-review-2026:%'`)
 	require.NoError(t, e)
 	var fixtures []string
 	for rows.Next() {
@@ -161,13 +161,11 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	// The student has uploaded nothing but can read lessons, practice and receive a plan.
 	assets, e := store.Assets(ctx, student.ID)
 	require.NoError(t, e)
-	require.Len(t, assets, 76)
+	require.Len(t, assets, 124)
 	var question, lesson domain.Asset
-	answers := map[string]int{}
 	for _, a := range assets {
 		require.True(t, a.IsPublic)
 		if a.Kind == "question" {
-			answers[a.ID] = a.Payload.Answer
 			question = a
 		}
 		if a.PointID == point.ID && a.Kind == "material" {
@@ -178,26 +176,34 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	}
 	var exam domain.Assessment
 	require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments", token, map[string]string{"Kind": "diagnostic"}, 200), &exam))
-	require.GreaterOrEqual(t, len(exam.Questions), 12)
-	require.LessOrEqual(t, len(exam.Questions), 48)
-	coveredSubjects := map[string]bool{}
+	require.Len(t, exam.Questions, 24)
+	coveredSubjects := map[string]int{}
 	for _, q := range exam.Questions {
 		for _, p := range points {
 			if p.ID == q.PointID {
-				coveredSubjects[p.SubjectID] = true
+				coveredSubjects[p.SubjectName]++
 			}
 		}
 	}
-	require.Len(t, coveredSubjects, 4)
+	require.Equal(t, map[string]int{"数据结构": 7, "计算机组成原理": 7, "操作系统": 6, "计算机网络": 4}, coveredSubjects)
+	snapshot, e := store.Assessment(ctx, student.ID, exam.ID)
+	require.NoError(t, e)
 	selected := map[string]int{}
-	for _, q := range exam.Questions {
+	for i, q := range exam.Questions {
 		require.Equal(t, -1, q.Payload.Answer)
 		require.Empty(t, q.Payload.Explanation)
-		selected[q.ID] = answers[q.ID]
+		selected[q.ID] = snapshot.Questions[i].Payload.Answer
+		if i == 0 {
+			selected[q.ID] = (selected[q.ID] + 1) % len(q.Payload.Options)
+		}
 	}
 	var result domain.AssessmentResult
 	require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments/"+exam.ID+"/submit", token, map[string]any{"Answers": selected}, 200), &result))
-	require.Equal(t, len(exam.Questions), result.Correct)
+	require.Equal(t, len(exam.Questions)-1, result.Correct)
+	assessmentOverview, e := store.LearningOverview(ctx, student.ID)
+	require.NoError(t, e)
+	require.NotEmpty(t, assessmentOverview.StudyFocus)
+	require.Equal(t, exam.Questions[0].PointID, assessmentOverview.StudyFocus[0].PointID)
 	call("PUT", "/api/v1/exam408/profile", token, domain.Profile{GoalScore: 110, DailyMinutes: 60, ExamDate: "2027-12-01", Stage: "beginner", Preference: "text"}, 200)
 	call("POST", "/api/v1/exam408/tasks/generate", token, nil, 200)
 	tasks, e := store.Tasks(ctx, student.ID)

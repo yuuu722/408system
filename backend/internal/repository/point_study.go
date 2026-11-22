@@ -74,7 +74,10 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 	byAsset := map[string]domain.Asset{}
 	visibleFamilies := map[string]bool{}
 	for _, a := range bank {
-		if a.Kind == "question" && a.Status == "ready" && scope[a.PointID] {
+		if a.Status != "ready" || !scope[a.PointID] || !domain.QuestionMatchesPoint(a, points) {
+			continue
+		}
+		if a.Kind == "question" {
 			byAsset[a.ID] = a
 			visibleFamilies[domain.Family(a)] = true
 		}
@@ -131,7 +134,7 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 			n += 20
 		}
 		if a.PointID == pointID {
-			n += 10
+			n += 40
 		}
 		return n
 	}
@@ -146,7 +149,7 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 		return out, e
 	}
 	for _, a := range questions {
-		if a.ID == preferred {
+		if a.ID == preferred && a.PointID == pointID && domain.HasQuestionExplanation(a.Payload.Explanation) {
 			copy := a
 			out.Example = &copy
 			break
@@ -156,7 +159,7 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 		if out.Example != nil {
 			break
 		}
-		if !pending[domain.Family(a)] && a.Payload.Explanation != "" {
+		if !pending[domain.Family(a)] && domain.HasQuestionExplanation(a.Payload.Explanation) {
 			copy := a
 			out.Example = &copy
 			break

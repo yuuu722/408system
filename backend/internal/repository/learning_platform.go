@@ -42,7 +42,7 @@ func scanAsset(row pgx.Row) (a domain.Asset, err error) {
 const assetCols = `id,kind,COALESCE(point_id::text,''),title,status,revision,payload,is_public`
 
 func (p *Postgres) Assets(ctx context.Context, uid string) ([]domain.Asset, error) {
-	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE (is_public=true OR (user_id=$1 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin'))) AND (NOT is_public OR status='ready' OR EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin')) AND (COALESCE(payload->>'ExtractionKey','')='' OR NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=learning_assets.document_id AND dc.purpose='knowledge')) ORDER BY is_public DESC,updated_at DESC`, uid)
+	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE COALESCE(seed_key,'') NOT LIKE '408-diagnostic-2026:%' AND (is_public=true OR (user_id=$1 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin'))) AND (NOT is_public OR status='ready' OR EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin')) AND (COALESCE(payload->>'ExtractionKey','')='' OR NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=learning_assets.document_id AND dc.purpose='knowledge')) ORDER BY is_public DESC,updated_at DESC`, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (p *Postgres) SaveAsset(ctx context.Context, uid string, a domain.Asset) (d
 	return scanAsset(p.DB.QueryRow(ctx, `UPDATE learning_assets SET kind=$3,point_id=NULLIF($4,'')::uuid,title=$5,payload=$6,status=$8,document_id=NULLIF($9,'')::uuid,revision=revision+1,updated_at=now() WHERE id=$1 AND (user_id=$2 AND is_public=false OR is_public=true AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND role='admin')) AND revision=$7 AND is_public=$10 RETURNING `+assetCols, a.ID, uid, a.Kind, a.PointID, a.Title, raw, a.Revision, a.Status, a.Payload.DocumentID, a.IsPublic))
 }
 func (p *Postgres) Asset(ctx context.Context, uid, aid string) (domain.Asset, error) {
-	return scanAsset(p.DB.QueryRow(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE id=$1 AND (user_id=$2 OR is_public=true)`, aid, uid))
+	return scanAsset(p.DB.QueryRow(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE id=$1 AND COALESCE(seed_key,'') NOT LIKE '408-diagnostic-2026:%' AND (user_id=$2 OR is_public=true)`, aid, uid))
 }
 func (p *Postgres) DeleteAsset(ctx context.Context, uid, aid string) error {
 	tag, err := p.DB.Exec(ctx, `DELETE FROM learning_assets WHERE id=$1 AND (user_id=$2 AND is_public=false OR is_public=true AND EXISTS(SELECT 1 FROM users WHERE id=$2 AND role='admin'))`, aid, uid)
@@ -159,8 +159,19 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 	if kind == "diagnostic" {
 		point = ""
 		assetID = ""
+		blueprint, e := p.syllabusDiagnostic(ctx)
+		if e != nil {
+			return a, e
+		}
+		if len(blueprint) > 0 {
+			if len(blueprint) != 24 {
+				return a, fmt.Errorf("前测套题不完整，请联系管理员")
+			}
+			a.Questions = blueprint
+			return p.saveAssessment(ctx, uid, a)
+		}
 	}
-	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND ($3<>'diagnostic' OR a.payload->>'AnswerOrigin'='source') AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND `+canonicalSnapshotFamilySQL+`=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY CASE WHEN $3='diagnostic' THEN a.point_id ELSE a.subject_id END ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 2000`, uid, point, kind, assetID)
+	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND COALESCE(a.seed_key,'') NOT LIKE '408-diagnostic-2026:%' AND ($3<>'diagnostic' OR a.payload->>'AnswerOrigin'='source') AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND `+canonicalSnapshotFamilySQL+`=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY CASE WHEN $3='diagnostic' THEN a.point_id ELSE a.subject_id END ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 2000`, uid, point, kind, assetID)
 	if err != nil {
 		return a, err
 	}
@@ -198,8 +209,39 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 	if len(a.Questions) == 0 {
 		return a, fmt.Errorf("暂无符合条件的可用题目；复测需要未作答的新题（No available questions）")
 	}
-	raw, _ := json.Marshal(a.Questions)
-	err = p.DB.QueryRow(ctx, `INSERT INTO assessments(user_id,kind,questions) VALUES($1,$2,$3) RETURNING id,created_at`, uid, kind, raw).Scan(&a.ID, &a.CreatedAt)
+	return p.saveAssessment(ctx, uid, a)
+}
+
+func (p *Postgres) syllabusDiagnostic(ctx context.Context) ([]domain.Asset, error) {
+	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets
+		WHERE seed_key LIKE '408-diagnostic-2026:%' AND kind='question' AND status='ready' AND is_public
+		ORDER BY seed_key`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []domain.Asset
+	for rows.Next() {
+		a, e := scanAsset(rows)
+		if e != nil {
+			return nil, e
+		}
+		v := a.Payload
+		if a.PointID == "" || v.AnswerOrigin != "source" || v.Answer < 0 || v.Answer >= len(v.Options) ||
+			domain.QuestionTextIssue(a) != "" || !domain.HasQuestionExplanation(v.Explanation) {
+			return nil, fmt.Errorf("前测套题存在无法验证的题目，请联系管理员")
+		}
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+func (p *Postgres) saveAssessment(ctx context.Context, uid string, a domain.Assessment) (domain.Assessment, error) {
+	raw, err := json.Marshal(a.Questions)
+	if err != nil {
+		return a, err
+	}
+	err = p.DB.QueryRow(ctx, `INSERT INTO assessments(user_id,kind,questions) VALUES($1,$2,$3) RETURNING id,created_at`, uid, a.Kind, raw).Scan(&a.ID, &a.CreatedAt)
 	return RedactAssessment(a), err
 }
 func scanAssessment(row pgx.Row) (a domain.Assessment, err error) {

@@ -115,7 +115,10 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		}
 		updated := repository.LinkSourceAnswer(m.proposal.Asset, m.source, m.proposal.Answer.Page, m.proposal.Answer.Answer, service.AnswerFileText(m.proposal.Answer))
 		if updated.PointID == "" {
-			updated.PointID = service.MatchQuestionPoint(updated.Payload.Stem+"\n"+updated.Payload.Explanation, points)
+			updated.PointID = domain.MatchQuestionPoint(updated.Payload.Stem, points)
+			if updated.PointID == "" && domain.HasQuestionExplanation(updated.Payload.Explanation) {
+				updated.PointID = domain.MatchQuestionPoint(updated.Payload.Explanation, points)
+			}
 			if updated.PointID != "" && strings.HasPrefix(updated.Payload.Issue, "未匹配知识点") {
 				updated.Payload.Issue = ""
 			}

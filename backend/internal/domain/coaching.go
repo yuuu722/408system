@@ -21,7 +21,12 @@ type PointInsight struct {
 	Importance, Priority                                                                  float64
 	Sources                                                                               []FrequencySource
 }
+type StudyFocus struct {
+	PointID, Name, SubjectName, Action string
+}
+
 type LearningOverview struct {
+	StudyFocus   []StudyFocus `json:",omitempty"`
 	Points       []PointInsight
 	Memories     []LearnerMemory
 	NeedsPretest bool

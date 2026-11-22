@@ -61,10 +61,10 @@ func TestContentMatchRequiresFullProblemOptionsAndExplicitAnswerExplanation(t *t
 
 func TestPointAssociationRequiresUniqueTerminology(t *testing.T) {
 	points := []domain.KnowledgePoint{{ID: "general", Name: "内存"}, {ID: "specific", Name: "虚拟内存"}}
-	require.Equal(t, "specific", MatchQuestionPoint("虚拟内存采用按需调入技术", points))
+	require.Equal(t, "specific", domain.MatchQuestionPoint("虚拟内存采用按需调入技术", points))
 	points = append(points, domain.KnowledgePoint{ID: "duplicate", Name: "虚拟内存"})
-	require.Empty(t, MatchQuestionPoint("虚拟内存采用按需调入技术", points))
-	require.Empty(t, MatchQuestionPoint("这是无关内容", points))
+	require.Empty(t, domain.MatchQuestionPoint("虚拟内存采用按需调入技术", points))
+	require.Empty(t, domain.MatchQuestionPoint("这是无关内容", points))
 }
 
 func TestAnswerTableAndSeparateLabelledExplanationMergeWithBothSources(t *testing.T) {
@@ -88,4 +88,13 @@ func TestNumberOnlyPublicationRequiresSameBookEdition(t *testing.T) {
 	require.False(t, SameQuestionBook("2024年408真题题目.pdf", "2025年408真题答案.pdf"))
 	require.False(t, SameQuestionBook("操作系统习题.pdf", "操作系统答案.pdf"))
 	require.False(t, SameQuestionBook("数据结构第2版题册.pdf", "数据结构第3版答案.pdf"))
+}
+
+func TestExtractionKeepsDistractorsOutOfPointMatching(t *testing.T) {
+	pages := []TextPage{{Number: 1, Text: "1. 虚拟内存为什么能按需调入？\nA. 因为程序有局部性 B. 取决于最小生成树\n答案：A\n【解析】程序在一段时间内通常只访问部分地址。"}}
+	points := []domain.KnowledgePoint{{ID: "graph", Name: "最小生成树"}, {ID: "vm", Name: "虚拟内存"}}
+	assets := ExtractQuestions(domain.Document{ID: "d"}, pages, points)
+	require.Len(t, assets, 1)
+	require.Equal(t, "vm", assets[0].PointID)
+	require.Equal(t, "程序在一段时间内通常只访问部分地址。", assets[0].Payload.Explanation)
 }

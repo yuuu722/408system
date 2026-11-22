@@ -155,6 +155,13 @@ func (p *Postgres) LearningUnits(ctx context.Context, uid string) ([]domain.Lear
 	if e != nil {
 		return nil, e
 	}
+	eligible := assets[:0]
+	for _, asset := range assets {
+		if asset.Kind != "question" || domain.QuestionMatchesPoint(asset, points) {
+			eligible = append(eligible, asset)
+		}
+	}
+	assets = eligible
 	names := map[string]string{}
 	for _, v := range points {
 		names[v.ID] = v.Name

@@ -157,7 +157,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		} else if m := inlineAnswer.FindStringSubmatchIndex(body); m != nil {
 			a.Payload.Answer = int(body[m[2]] - 'A')
 			a.Payload.AnswerOrigin = "source"
-			a.Payload.Explanation = strings.TrimSpace(body[m[3]:])
+			a.Payload.Explanation = worksheetExplanation(body[m[3]:])
 			for _, answer := range sourceAnswers {
 				if answer != a.Payload.Answer {
 					a.Payload.Issue = inlineAnswerConflict
@@ -192,18 +192,9 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		if (strings.Contains(body, "如图") || strings.Contains(body, "下图") || strings.Contains(body, "图示")) && len(c.images) == 0 {
 			a.Payload.Issue = "题目引用的图片未提取，请查看原文（Missing figure）"
 		}
-		best := 0
-		for _, p := range points {
-			score := 0
-			for _, key := range append(p.Keywords, p.Name) {
-				if key != "" && strings.Contains(strings.ToLower(body), strings.ToLower(key)) {
-					score++
-				}
-			}
-			if score > best {
-				best = score
-				a.PointID = p.ID
-			}
+		a.PointID = domain.MatchQuestionPoint(a.Payload.Stem, points)
+		if a.PointID == "" && a.Payload.AnswerOrigin == "source" && domain.HasQuestionExplanation(a.Payload.Explanation) {
+			a.PointID = domain.MatchQuestionPoint(a.Payload.Explanation, points)
 		}
 		if sourcequality.SuspectFormula(body) {
 			a.Payload.Issue = "公式或字符疑似OCR错误，保留原页，不自动猜改"
@@ -252,9 +243,9 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			}
 			a.Payload.Answer = pair.Answer.Answer
 			a.Payload.AnswerOrigin = "source"
-			a.Payload.Explanation = AnswerFileText(pair.Answer)
+			a.Payload.Explanation = worksheetExplanation(AnswerFileText(pair.Answer))
 			if a.PointID == "" {
-				a.PointID = MatchQuestionPoint(a.Payload.Stem+"\n"+a.Payload.Explanation, points)
+				a.PointID = domain.MatchQuestionPoint(a.Payload.Explanation, points)
 				if a.PointID != "" && strings.HasPrefix(a.Payload.Issue, "未匹配知识点") {
 					a.Payload.Issue = ""
 				}
@@ -368,4 +359,19 @@ func questionAllOptionMarks(body string) [][]int {
 		out = append(out, m)
 	}
 	return out
+}
+
+// Keep source quotes for citation, and show only the worked part in the
+// explanation when the source makes its boundary explicit.
+func worksheetExplanation(raw string) string {
+	text := strings.TrimSpace(raw)
+	for _, label := range []string{"【解析】", "解析：", "解析:", "解答：", "解答:", "理由：", "理由:"} {
+		if i := strings.Index(text, label); i >= 0 {
+			return strings.TrimSpace(text[i+len(label):])
+		}
+	}
+	if !domain.HasQuestionExplanation(text) {
+		return ""
+	}
+	return text
 }

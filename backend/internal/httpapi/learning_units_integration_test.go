@@ -45,6 +45,8 @@ func TestLearningUnitsSourcesProgressPrivacyAndNewChecks(t *testing.T) {
 	}()
 	require.NoError(t, migrations.Up(ctx, p.DB))
 	require.NoError(t, migrations.Up(ctx, p.DB))
+	_, e = p.DB.Exec(ctx, `DELETE FROM learning_assets WHERE seed_key LIKE '408-%-2026:%'`)
+	require.NoError(t, e)
 	auth := service.AuthService{Store: p, Secret: []byte(strings.Repeat("u", 40)), TTL: time.Hour}
 	admin, _, e := auth.Register(ctx, "unitadmin", "ua@example.invalid", "fixture-password")
 	require.NoError(t, e)

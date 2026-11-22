@@ -48,6 +48,8 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 	}()
 	require.NoError(t, migrations.Up(ctx, store.DB))
 	require.NoError(t, migrations.Up(ctx, store.DB))
+	_, e = store.DB.Exec(ctx, `DELETE FROM learning_assets WHERE seed_key LIKE '408-%-2026:%'`)
+	require.NoError(t, e)
 	auth := service.AuthService{Store: store, Secret: []byte(strings.Repeat("s", 40)), TTL: time.Hour}
 	editor, token, e := auth.Register(ctx, "editor", "editor@example.invalid", "synthetic-password")
 	require.NoError(t, e)
@@ -131,7 +133,7 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 	require.NoError(t, e)
 	require.Len(t, hits, 1)
 
-	pages := []service.TextPage{{Number: 1, Text: "1. 下列关于" + points[0].Name + "的说法哪项正确？\nA. 第一项\nB. 第二项\n答案：A\n解析：合成说明。"}}
+	pages := []service.TextPage{{Number: 1, Text: "1. 下列关于" + points[0].Name + "的说法哪项正确？\nA. 第一项\nB. 第二项\n答案：A\n解析：对照题干条件才能得出以上结论。"}}
 	structure := domain.ParsedDocument{Pages: pages}
 	require.NoError(t, store.SaveDocumentStructure(ctx, editor.ID, d.ID, structure, service.ExtractQuestions(d, pages, points)))
 	var candidates []domain.Asset

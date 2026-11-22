@@ -79,34 +79,6 @@ func MatchQuestionContent(assets []domain.Asset, entries []FileAnswer) []AnswerF
 
 // Fill an unassigned point only when the strongest literal terminology match
 // is unique. This is a rule-based association, never a claimed semantic proof.
-func MatchQuestionPoint(text string, points []domain.KnowledgePoint) string {
-	best := 0
-	id := ""
-	ambiguous := false
-	for _, p := range points {
-		score := 0
-		for _, term := range append(append([]string{}, p.Keywords...), p.Name) {
-			n := len([]rune(term))
-			if n < 2 || !strings.Contains(strings.ToLower(text), strings.ToLower(term)) {
-				continue
-			}
-			if n > score {
-				score = n
-			}
-		}
-		if score > best {
-			best = score
-			id = p.ID
-			ambiguous = false
-		} else if score > 0 && score == best && p.ID != id {
-			ambiguous = true
-		}
-	}
-	if ambiguous {
-		return ""
-	}
-	return id
-}
 
 func hasWorkedAnswerLabel(text string) bool {
 	for _, marker := range []string{"【解析】", "解析：", "解析:", "解答：", "理由："} {

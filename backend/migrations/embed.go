@@ -101,6 +101,9 @@ var unitTeaching string
 //go:embed 000029_atomic_directory.up.sql
 var atomicDirectory string
 
+//go:embed 000030_syllabus_diagnostic.up.sql
+var syllabusDiagnostic string
+
 var all = []migration{
 	{version: 1, name: "initial", sql: initial},
 	{version: 2, name: "operational_indexes", sql: operationalIndexes},
@@ -131,6 +134,7 @@ var all = []migration{
 	{version: 27, name: "learning_units", sql: learningUnits},
 	{version: 28, name: "unit_teaching", sql: unitTeaching},
 	{version: 29, name: "atomic_directory", sql: atomicDirectory},
+	{version: 30, name: "syllabus_diagnostic", sql: syllabusDiagnostic},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

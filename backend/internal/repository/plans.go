@@ -49,9 +49,14 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	if saved != nil {
 		profile = *saved
 	}
-	var previousStrategy string
-	e = tx.QueryRow(ctx, `SELECT strategy FROM daily_plans WHERE user_id=$1 AND plan_date=$2`, uid, planDate()).Scan(&previousStrategy)
+	var previousStrategy, previousBaseline, baseline string
+	e = tx.QueryRow(ctx, `SELECT strategy,COALESCE(baseline_assessment_id::text,'') FROM daily_plans WHERE user_id=$1 AND plan_date=$2`, uid, planDate()).Scan(&previousStrategy, &previousBaseline)
 	if e != nil && nf(e) != ErrNotFound {
+		return e
+	}
+	if e = tx.QueryRow(ctx, `SELECT COALESCE((SELECT id::text FROM assessments
+		WHERE user_id=$1 AND kind='diagnostic' AND result IS NOT NULL AND (result->>'Counted')::int > 0
+		ORDER BY submitted_at DESC,id DESC LIMIT 1),'')`, uid).Scan(&baseline); e != nil {
 		return e
 	}
 	var pid string
@@ -64,6 +69,22 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	// examples, exercises and check. Only upgrade legacy resource-only plans.
 	if previousStrategy != "408-learning-units-v1" {
 		if _, e = tx.Exec(ctx, `UPDATE study_tasks SET superseded=true,plan_id=NULL WHERE user_id=$1 AND plan_id=$2 AND completed_at IS NULL`, uid, pid); e != nil {
+			return e
+		}
+	} else if baseline != "" && baseline != previousBaseline {
+		// A newly completed baseline can replace untouched tasks. Keep completed
+		// tasks and points where the learner has started the current unit.
+		if _, e = tx.Exec(ctx, `UPDATE study_tasks t SET superseded=true,plan_id=NULL
+			FROM learning_assets a WHERE t.user_id=$1 AND t.plan_id=$2 AND t.asset_id=a.id AND t.completed_at IS NULL
+			AND NOT EXISTS (SELECT 1 FROM learning_unit_steps l
+				WHERE l.user_id=$1 AND l.point_id=a.point_id AND l.completed_at>=t.created_at)
+			AND NOT EXISTS (SELECT 1 FROM assessments x, jsonb_array_elements(x.questions) q
+				WHERE x.user_id=$1 AND x.kind<>'diagnostic' AND x.created_at>=t.created_at AND q->>'PointID'=a.point_id::text)`, uid, pid); e != nil {
+			return e
+		}
+		if e = tx.QueryRow(ctx, `UPDATE daily_plans SET budget_minutes=GREATEST($2,
+			(SELECT COALESCE(sum(estimated_minutes),0) FROM study_tasks WHERE plan_id=$1))
+			WHERE id=$1 RETURNING budget_minutes`, pid, profile.DailyMinutes).Scan(&budget); e != nil {
 			return e
 		}
 	} else {
@@ -81,6 +102,11 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 					return err
 				}
 			}
+		}
+	}
+	if baseline != "" && baseline != previousBaseline {
+		if _, e = tx.Exec(ctx, `UPDATE daily_plans SET baseline_assessment_id=$2 WHERE id=$1`, pid, baseline); e != nil {
+			return e
 		}
 	}
 	var allocated int
@@ -169,6 +195,10 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	if e != nil {
 		return e
 	}
+	points, e := p.ListKnowledgePoints(ctx)
+	if e != nil {
+		return e
+	}
 	overview, e := p.LearningOverview(ctx, uid)
 	if e != nil {
 		return e
@@ -180,7 +210,7 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	sourceCounts := map[string]int{}
 	eligibleAssets := []domain.Asset{}
 	for _, a := range assets {
-		if a.Kind == "question" && a.Payload.AnswerOrigin != "source" {
+		if a.Kind == "question" && (a.Payload.AnswerOrigin != "source" || !domain.QuestionMatchesPoint(a, points)) {
 			continue
 		}
 		eligibleAssets = append(eligibleAssets, a)
@@ -189,9 +219,19 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 		}
 	}
 	candidates := domain.PlanCandidates(eligibleAssets, history, profile, time.Now())
+	focus := map[string]string{}
+	for _, item := range overview.StudyFocus {
+		focus[item.PointID] = item.Action
+	}
 	for i := range candidates {
 		v := insight[candidates[i].Asset.PointID]
 		candidates[i].Priority += v.Priority
+		switch focus[v.ID] {
+		case "先补错题":
+			candidates[i].Priority += 25
+		case "再补待测重点":
+			candidates[i].Priority += 10
+		}
 		candidates[i].Reason += fmt.Sprintf(" %s；重要性依据：%s；待确认疑问%d条。", v.State, v.ImportanceBasis, v.Doubts)
 	}
 	sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Priority > candidates[j].Priority })

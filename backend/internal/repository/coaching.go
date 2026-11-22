@@ -168,7 +168,7 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 	available := map[string]int{}
 	seen := map[string]bool{}
 	for _, a := range assets {
-		if a.Kind == "question" && a.Status == "ready" && a.Payload.AnswerOrigin == "source" && !seen[domain.Family(a)] {
+		if a.Status == "ready" && a.Payload.AnswerOrigin == "source" && !seen[domain.Family(a)] && domain.QuestionMatchesPoint(a, points) {
 			available[a.PointID]++
 			seen[domain.Family(a)] = true
 		}
@@ -219,7 +219,10 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 		return out, e
 	}
 	for _, k := range points {
-		v := domain.PointInsight{ID: k.ID, Code: k.Code, Name: k.Name, ParentID: k.ParentID, SubjectID: k.SubjectID, SubjectName: k.SubjectName, Description: k.Description, Tested: tested[k.ID], Correct: correct[k.ID], AvailableQuestions: available[k.ID], SubtreeQuestions: subtreeCounts[k.ID], ExamYears: len(years[k.ID]), CorpusYears: len(corpus[k.SubjectID]), State: "待测", Importance: 1, ImportanceBasis: "目录基础顺序；尚无可靠考频", Sources: []domain.FrequencySource{}}
+		v := domain.PointInsight{ID: k.ID, Code: k.Code, Name: k.Name, ParentID: k.ParentID, SubjectID: k.SubjectID, SubjectName: k.SubjectName, Description: k.Description, Tested: tested[k.ID], Correct: correct[k.ID], AvailableQuestions: available[k.ID], SubtreeQuestions: subtreeCounts[k.ID], ExamYears: len(years[k.ID]), CorpusYears: len(corpus[k.SubjectID]), State: "待测", Importance: float64(max(2, k.SyllabusPriority)), ImportanceBasis: "目录基础优先级；尚无可靠考频", Sources: []domain.FrequencySource{}}
+		if k.SyllabusPriority > 2 {
+			v.ImportanceBasis = "2026 408 考纲覆盖与学习先后（项目设定）"
+		}
 		if v.Tested > 0 {
 			ratio := float64(v.Correct) / float64(v.Tested)
 			v.Accuracy = &ratio
@@ -284,7 +287,7 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 		out.Points = append(out.Points, v)
 	}
 	var n int
-	e = p.DB.QueryRow(ctx, `SELECT count(*) FROM assessments WHERE user_id=$1 AND kind='diagnostic' AND result IS NOT NULL`, uid).Scan(&n)
+	e = p.DB.QueryRow(ctx, `SELECT count(*) FROM assessments WHERE user_id=$1 AND kind='diagnostic' AND result IS NOT NULL AND (result->>'Counted')::int > 0`, uid).Scan(&n)
 	out.NeedsPretest = n == 0
 	sort.SliceStable(out.Points, func(i, j int) bool {
 		if out.Points[i].Priority == out.Points[j].Priority {
@@ -292,6 +295,31 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 		}
 		return out.Points[i].Priority > out.Points[j].Priority
 	})
+	if e == nil && !out.NeedsPretest {
+		// Weak evidence, uncovered priorities, then retention. Show only actionable
+		// points so the roadmap and daily scheduler can use the same resources.
+		for _, category := range []string{"先补错题", "再补待测重点", "巩固与复测"} {
+			added := 0
+			for _, point := range out.Points {
+				if point.AvailableQuestions == 0 || added == 4 {
+					continue
+				}
+				action := ""
+				switch {
+				case point.Tested > point.Correct:
+					action = "先补错题"
+				case point.Tested == 0 && point.Importance >= 3:
+					action = "再补待测重点"
+				case point.Tested > 0:
+					action = "巩固与复测"
+				}
+				if action == category {
+					out.StudyFocus = append(out.StudyFocus, domain.StudyFocus{PointID: point.ID, Name: point.Name, SubjectName: point.SubjectName, Action: action})
+					added++
+				}
+			}
+		}
+	}
 	return out, e
 }
 func (p *Postgres) SaveCoachSession(ctx context.Context, uid, kid, point, teacher string, a domain.Assessment, lesson domain.ChatResult) (domain.CoachSession, error) {

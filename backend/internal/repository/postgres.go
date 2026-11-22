@@ -294,14 +294,14 @@ func (p *Postgres) ListSubjects(ctx context.Context) (out []domain.Subject, err 
 	return out, rows.Err()
 }
 func (p *Postgres) ListKnowledgePoints(ctx context.Context) (out []domain.KnowledgePoint, err error) {
-	rows, err := p.DB.Query(ctx, `SELECT k.id,k.subject_id,COALESCE(k.parent_id::text,''),k.code,k.name,k.description,k.keywords,k.level,k.sort_order,s.name FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id ORDER BY s.sort_order,k.sort_order`)
+	rows, err := p.DB.Query(ctx, `SELECT k.id,k.subject_id,COALESCE(k.parent_id::text,''),k.code,k.name,k.description,k.keywords,k.level,k.sort_order,k.syllabus_priority,s.name FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id ORDER BY s.sort_order,k.sort_order`)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var k domain.KnowledgePoint
-		if err = rows.Scan(&k.ID, &k.SubjectID, &k.ParentID, &k.Code, &k.Name, &k.Description, &k.Keywords, &k.Level, &k.SortOrder, &k.SubjectName); err != nil {
+		if err = rows.Scan(&k.ID, &k.SubjectID, &k.ParentID, &k.Code, &k.Name, &k.Description, &k.Keywords, &k.Level, &k.SortOrder, &k.SyllabusPriority, &k.SubjectName); err != nil {
 			return
 		}
 		out = append(out, k)
@@ -309,7 +309,7 @@ func (p *Postgres) ListKnowledgePoints(ctx context.Context) (out []domain.Knowle
 	return out, rows.Err()
 }
 func (p *Postgres) KnowledgePoint(ctx context.Context, kid string) (k domain.KnowledgePoint, err error) {
-	err = p.DB.QueryRow(ctx, `SELECT k.id,k.subject_id,COALESCE(k.parent_id::text,''),k.code,k.name,k.description,k.keywords,k.level,k.sort_order,s.name FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id WHERE k.id=$1`, kid).Scan(&k.ID, &k.SubjectID, &k.ParentID, &k.Code, &k.Name, &k.Description, &k.Keywords, &k.Level, &k.SortOrder, &k.SubjectName)
+	err = p.DB.QueryRow(ctx, `SELECT k.id,k.subject_id,COALESCE(k.parent_id::text,''),k.code,k.name,k.description,k.keywords,k.level,k.sort_order,k.syllabus_priority,s.name FROM exam408_knowledge_points k JOIN exam408_subjects s ON s.id=k.subject_id WHERE k.id=$1`, kid).Scan(&k.ID, &k.SubjectID, &k.ParentID, &k.Code, &k.Name, &k.Description, &k.Keywords, &k.Level, &k.SortOrder, &k.SyllabusPriority, &k.SubjectName)
 	return k, nf(err)
 }
 func (p *Postgres) PointRelations(ctx context.Context, kid string) (out []domain.PointRelation, err error) {

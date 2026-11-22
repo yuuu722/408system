@@ -9,7 +9,7 @@ router.beforeEach(async to=>{
  if(signed&&!auth.user){try{await auth.load()}catch{auth.logout();return '/login'}}
  if(to.meta.admin&&auth.user?.role!=='admin')return '/exam408'
  if(to.path==='/exam408/assessment'&&to.query.tab==='weakness'){const {tab,...query}=to.query;return {path:'/exam408/weakness',query,hash:to.hash,replace:true}}
- if((to.path==='/exam408'||to.path==='/login')&&auth.user?.role==='admin')return '/exam408/admin'
+ if((to.path==='/exam408'||to.path==='/login'||to.path==='/exam408/tasks')&&auth.user?.role==='admin')return '/exam408/admin'
  if(to.path==='/login'&&signed)return '/exam408'
  if(to.path==='/exam408'&&auth.user?.role!=='admin'){try{const {data}=await api.get('/exam408/learning/overview');if(data.NeedsPretest)return '/exam408/assessment'}catch{/* keep dashboard available when optional overview fails */}}
 })

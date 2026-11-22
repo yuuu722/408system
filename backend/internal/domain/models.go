@@ -39,7 +39,7 @@ type Subject struct {
 type KnowledgePoint struct {
 	ID, SubjectID, ParentID, Code, Name, Description, SubjectName string
 	Keywords                                                      []string
-	Level, SortOrder                                              int
+	Level, SortOrder, SyllabusPriority                            int
 	Children                                                      []KnowledgePoint `json:"children,omitempty"`
 }
 type PointRelation struct{ ID, FromPointID, ToPointID, RelationType string }
