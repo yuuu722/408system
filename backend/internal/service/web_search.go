@@ -50,7 +50,8 @@ func NewDashScopeSearch(baseURL, apiKey, model string) WebSearcher {
 	}
 }
 
-var dashScopeRef = regexp.MustCompile(`\[ref_([0-9]+)\]`)
+var dashScopeRef = regexp.MustCompile(`\[(?:ref_)?([0-9]+)\]`)
+var dashScopeRefGroup = regexp.MustCompile(`\[(?:ref_)?[0-9]+\](?:[ \t]*\[(?:ref_)?[0-9]+\])*`)
 
 func (s DashScopeSearch) Search(ctx context.Context, question string) ([]WebResult, error) {
 	client := s.client
@@ -62,10 +63,14 @@ func (s DashScopeSearch) Search(ctx context.Context, question string) ([]WebResu
 	if len(query) > 800 {
 		query = query[:800]
 	}
+	instruction := "联网查找能直接回答问题的权威来源，如 RFC、官方文档或大学课程。每句只写一个完整事实，原样保留搜索系统的真实出处引用，每句只对应一个来源。不使用模型记忆，不生成链接或猜测出处，找不到则留空。"
+	if tcpReliabilityOnly(question) {
+		instruction += " 优先查 RFC 9293 与 RFC 6298，分别找字节序号、累计确认、校验和与超时重传的直接依据。不要引用拥塞窗口计算例题。"
+	}
 	payload := map[string]any{
 		"model": s.model,
 		"input": map[string]any{"messages": []map[string]string{
-			{"role": "system", "content": "联网查找能直接回答问题的权威来源，如 RFC、官方文档或大学课程。每行只写一句完整的事实，准确保留搜索系统提供的真实出处引用。每句只对应一个来源。不使用模型记忆，不生成链接或猜测出处，找不到则留空。"},
+			{"role": "system", "content": instruction},
 			{"role": "user", "content": string(query)},
 		}},
 		"parameters": map[string]any{
@@ -125,18 +130,30 @@ func dashScopeWebResults(body io.Reader) ([]WebResult, error) {
 		results = append(results, WebResult{Title: html.UnescapeString(source.Title), URL: source.URL})
 	}
 	for _, line := range strings.Split(data.Output.Choices[0].Message.Content, "\n") {
-		refs := dashScopeRef.FindAllStringSubmatch(line, -1)
-		if len(refs) != 1 {
-			continue
-		}
-		index, err := strconv.Atoi(refs[0][1])
-		position, known := positions[index]
-		if err != nil || !known {
-			continue
-		}
-		text := strings.TrimSpace(dashScopeRef.ReplaceAllString(line, ""))
-		text = strings.TrimLeft(text, "-* ")
-		if text != "" {
+		start := 0
+		for _, group := range dashScopeRefGroup.FindAllStringIndex(line, -1) {
+			refs := dashScopeRef.FindAllStringSubmatch(line[group[0]:group[1]], -1)
+			text := strings.TrimSpace(line[start:group[0]])
+			start = group[1]
+			// A generated sentence can have repeated markers for the same
+			// source. Distinct sources remain ambiguous at this granularity.
+			ambiguous := false
+			for _, ref := range refs[1:] {
+				ambiguous = ambiguous || ref[1] != refs[0][1]
+			}
+			index, err := strconv.Atoi(refs[0][1])
+			position, known := positions[index]
+			if err != nil || !known || ambiguous {
+				continue
+			}
+			text = strings.TrimLeft(text, "-* 。！？； ")
+			if text == "" {
+				continue
+			}
+			if start < len(line) && strings.HasPrefix(line[start:], "。") && !completeAnswerText(text) {
+				text += "。"
+				start += len("。")
+			}
 			results[position].Text += text + "\n"
 		}
 	}
@@ -157,6 +174,22 @@ func trustedWebURL(raw string) bool {
 	host := strings.ToLower(u.Hostname())
 	for _, domain := range []string{"rfc-editor.org", "ietf.org", "ieee.org", "acm.org", "w3.org", "kernel.org", "docs.python.org", "docs.oracle.com", "learn.microsoft.com", "edu", "edu.cn", "ac.uk"} {
 		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	return false
+}
+
+func webEvidenceRelated(question, title, text string) bool {
+	if evidenceRelated(question, title+" "+text) {
+		return true
+	}
+	if !tcpReliabilityOnly(question) || !sharesProtocol([]string{"TCP"}, title+" "+text) {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, term := range []string{"确认号", "累计确认", "重传", "序号", "校验和", "acknowledg", "retransmi", "sequence number", "checksum"} {
+		if strings.Contains(lower, term) {
 			return true
 		}
 	}

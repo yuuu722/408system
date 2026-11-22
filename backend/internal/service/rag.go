@@ -354,7 +354,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			}
 			seenURLs := map[string]bool{}
 			for _, item := range result.results {
-				if !trustedWebURL(item.URL) || seenURLs[item.URL] || !evidenceRelated(evidenceQuestion, item.Title+" "+item.Text) {
+				if !trustedWebURL(item.URL) || seenURLs[item.URL] || !webEvidenceRelated(evidenceQuestion, item.Title, item.Text) {
 					continue
 				}
 				body := strings.Join(completeSourceSentences(item.Text), "\n")
