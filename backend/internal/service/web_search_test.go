@@ -77,6 +77,16 @@ func TestAnswerCombinesKnowledgeAndWebAndFallsBackWhenSearchFails(t *testing.T) 
 				require.Len(t, result.Sources, 2)
 				require.Equal(t, "https://www.rfc-editor.org/rfc/rfc9293.html", result.Sources[1].WebURL)
 			}
+			if !fail {
+				messageCount := len(store.Messages)
+				lesson, err := rag.PointLesson(ctx, "u", kb.ID, "TCP 可靠传输", "direct")
+				require.NoError(t, err)
+				require.Contains(t, search.query, "TCP 可靠传输")
+				require.Equal(t, "results", lesson.Reasoning.WebStatus)
+				require.Equal(t, "book", lesson.Sources[0].DocumentID)
+				require.Empty(t, lesson.ConversationID)
+				require.Len(t, store.Messages, messageCount)
+			}
 		})
 	}
 }

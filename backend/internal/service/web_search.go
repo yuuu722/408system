@@ -187,7 +187,7 @@ func webEvidenceRelated(question, title, text string) bool {
 		return true
 	}
 	lower := strings.ToLower(text)
-	if virtualMemoryWhy(question) && strings.Contains(strings.ToLower(title+" "+text), "virtual memory") {
+	if (virtualMemoryWhy(question) || strings.HasPrefix(question, "请讲解虚拟内存")) && strings.Contains(strings.ToLower(title+" "+text), "virtual memory") {
 		for _, term := range []string{"locality", "demand paging", "loaded on demand", "working set", "physical memory", "局部性", "按需调", "物理内存"} {
 			if strings.Contains(lower, term) {
 				return true

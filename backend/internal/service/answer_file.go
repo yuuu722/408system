@@ -219,7 +219,7 @@ func MatchAnswerFile(assets []domain.Asset, answers []FileAnswer, qsection, asec
 		return section + "#" + number
 	}
 	for _, a := range assets {
-		if a.Kind != "question" || a.Payload.QuestionNumber == "" || a.Payload.ReviewStatus == "published" || (qsection != "" && a.Payload.SectionKey != qsection) {
+		if a.Kind != "question" || a.Payload.QuestionNumber == "" || (qsection != "" && a.Payload.SectionKey != qsection) {
 			continue
 		}
 		qs[key(a.Payload.SectionKey, a.Payload.QuestionNumber)]++
@@ -237,7 +237,7 @@ func MatchAnswerFile(assets []domain.Asset, answers []FileAnswer, qsection, asec
 	}
 	out := []AnswerFileProposal{}
 	for _, a := range assets {
-		if a.Payload.QuestionNumber == "" || a.Payload.ReviewStatus == "published" || (qsection != "" && a.Payload.SectionKey != qsection) {
+		if a.Kind != "question" || a.Payload.QuestionNumber == "" || a.Payload.ReviewStatus == "published" || (qsection != "" && a.Payload.SectionKey != qsection) {
 			continue
 		}
 		k := key(a.Payload.SectionKey, a.Payload.QuestionNumber)

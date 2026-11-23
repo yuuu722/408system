@@ -55,3 +55,30 @@ func consolidateAnswerEntries(entries []FileAnswer) []FileAnswer {
 func EquivalentFileAnswers(a, b FileAnswer) bool {
 	return !a.Blocked && !b.Blocked && a.Answer == b.Answer && questionIdentityText(AnswerFileText(a)) == questionIdentityText(AnswerFileText(b))
 }
+
+// Only an explicit, agreeing answer key can defer to a worked explanation.
+// Multiple differing worked explanations still require source review.
+func PreferredFileAnswer(answers []FileAnswer) (int, bool) {
+	if len(answers) == 0 || answers[0].Blocked {
+		return 0, false
+	}
+	best := 0
+	for i, answer := range answers[1:] {
+		selected := answers[best]
+		if EquivalentFileAnswers(selected, answer) {
+			continue
+		}
+		if answer.Blocked || answer.Answer < 0 || answer.Answer != selected.Answer {
+			return 0, false
+		}
+		selectedWorked := domain.HasQuestionExplanation(AnswerFileText(selected))
+		answerWorked := domain.HasQuestionExplanation(AnswerFileText(answer))
+		if selectedWorked && answerWorked {
+			return 0, false
+		}
+		if answerWorked {
+			best = i + 1
+		}
+	}
+	return best, true
+}

@@ -2,15 +2,16 @@ package repository
 
 import (
 	"context"
-	"github.com/local/exam408-assistant/backend/internal/domain"
 	"sort"
 	"strings"
+
+	"github.com/local/exam408-assistant/backend/internal/domain"
 )
 
 // Reuse validated resources for every directory point, including parent nodes.
 // Neither catalog text nor question options are invented as teaching evidence.
 func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.PointStudy, error) {
-	out := domain.PointStudy{Ancestors: []domain.KnowledgePoint{}, Children: []domain.KnowledgePoint{}, Knowledge: []domain.Citation{}, Exercises: []domain.Asset{}, Mistakes: []domain.PointMistake{}, Missing: []string{}}
+	out := domain.PointStudy{Ancestors: []domain.KnowledgePoint{}, Children: []domain.KnowledgePoint{}, Related: []domain.KnowledgePoint{}, Knowledge: []domain.Citation{}, Exercises: []domain.Asset{}, Mistakes: []domain.PointMistake{}, Missing: []string{}}
 	points, e := p.ListKnowledgePoints(ctx)
 	if e != nil {
 		return out, e
@@ -37,6 +38,22 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 		}
 		out.Ancestors = append([]domain.KnowledgePoint{v}, out.Ancestors...)
 	}
+	relations, e := p.PointRelations(ctx, pointID)
+	if e != nil {
+		return out, e
+	}
+	related := map[string]bool{pointID: true}
+	for _, relation := range relations {
+		id := relation.ToPointID
+		if id == pointID {
+			id = relation.FromPointID
+		}
+		if point, ok := byID[id]; ok && !related[id] {
+			out.Related = append(out.Related, point)
+			related[id] = true
+		}
+	}
+	sort.SliceStable(out.Related, func(i, j int) bool { return out.Related[i].Code < out.Related[j].Code })
 	scope := domain.PointScope(points, pointID)
 	out.PointNames = map[string]string{}
 	for id := range scope {
@@ -77,16 +94,13 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 		if a.Status != "ready" || !scope[a.PointID] || !domain.QuestionMatchesPoint(a, points) {
 			continue
 		}
-		if a.Kind == "question" {
-			byAsset[a.ID] = a
-			visibleFamilies[domain.Family(a)] = true
-		}
-		if a.Kind != "question" || a.Status != "ready" || a.Payload.AnswerOrigin != "source" || !scope[a.PointID] || families[domain.Family(a)] {
+		byAsset[a.ID] = a
+		visibleFamilies[domain.Family(a)] = true
+		if a.Payload.AnswerOrigin != "source" || families[domain.Family(a)] {
 			continue
 		}
 		families[domain.Family(a)] = true
 		questions = append(questions, a)
-		byAsset[a.ID] = a
 		out.SubtreeQuestions++
 		if a.PointID == pointID {
 			out.DirectQuestions++
@@ -118,8 +132,8 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 					continue
 				}
 				latest[family] = true
-				if !r.Correct && scope[q.PointID] && len(out.Mistakes) < 5 {
-					if _, ok := byAsset[q.ID]; ok || visibleFamilies[family] {
+				if !r.Correct && scope[q.PointID] && len(out.Mistakes) < 8 {
+					if _, ok := byAsset[q.ID]; ok || visibleFamilies[family] || a.Kind == "diagnostic" && strings.Contains(q.Payload.Source, "项目原创诊断题") {
 						out.Mistakes = append(out.Mistakes, domain.PointMistake{AssessmentID: a.ID, Question: q, Result: r, SubmittedAt: submitted[a.ID]})
 					}
 				}
@@ -177,7 +191,7 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 		}
 	}
 	for _, a := range questions {
-		if !used[domain.Family(a)] && !examples[domain.Family(a)] && len(out.Exercises) < 3 {
+		if !used[domain.Family(a)] && !examples[domain.Family(a)] && len(out.Exercises) < 6 {
 			a.Payload.Answer = -1
 			a.Payload.Explanation = ""
 			a.Payload.Evidence = nil

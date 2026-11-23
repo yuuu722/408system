@@ -45,7 +45,7 @@ async function recognizeImage(){
 const status = ref({ mode: 'unavailable', enabled: false, message: '' })
 async function load() {
  loading.value=true;error.value=''
- try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();const capabilities=(await api.get('/system/capabilities')).data;versionWarning.value=capabilities.release==='2026.11.22.1'?'':'前端与服务端版本不一致，最新功能尚未完整部署。请管理员拉取源码并重建 backend、worker 和 frontend。';active.value=bases.value[0]?.ID||''
+ try { status.value=await learningApi.assistantStatus();bases.value=(await learningApi.bases()).filter(b=>auth.user?.role!=='admin'||b.IsPublic);history.value=await foundation.conversations();const capabilities=(await api.get('/system/capabilities')).data;versionWarning.value=capabilities.release==='2026.11.23.1'?'':'前端与服务端版本不一致，最新功能尚未完整部署。请管理员拉取源码并重建 backend、worker 和 frontend。';active.value=bases.value[0]?.ID||''
  const saved=history.value.find(c=>c.ID===sessionStorage.getItem('408_conversation'));if(saved)await selectConversation(saved.ID)
  if(typeof route.query.question==='string'){reset();question.value=route.query.question}
  try{const overview=await coaching.overview();const pref=overview.Memories.find(m=>m.Key==='teacher');if(pref&&teachers.some(t=>t.id===pref.Content))teacher.value=pref.Content}catch{/* answering remains usable */}
@@ -81,6 +81,16 @@ async function send(){
 }
 onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
 
+function distinctPaths(paths:{Nodes:{Name:string}[]}[]){
+ const seen=new Set<string>()
+ return paths.filter(path=>{
+  const names=path.Nodes.map(node=>node.Name)
+  const forward=JSON.stringify(names),backward=JSON.stringify([...names].reverse())
+  if(!names.length||seen.has(forward)||seen.has(backward))return false
+  seen.add(forward)
+  return true
+ }).slice(0,8)
+}
 </script>
 <template>
  <section class="assistant-workspace">
@@ -110,7 +120,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
      <article v-for="(m,i) in messages" :key="i" class="thread-turn" :class="m.role">
       <div v-if="m.role==='user'" class="user-bubble">{{m.content}}</div>
       <template v-else><div class="assistant-avatar" aria-hidden="true">✦</div><div class="assistant-response">
-       <details v-if="m.reasoning||m.understanding" class="retrieval-details"><summary>检索过程 <span v-if="m.reasoning?.WebStatus==='results'">知识库＋联网</span><span v-else-if="m.reasoning?.Mode==='rag-degraded'" class="degraded-badge">图谱暂不可用</span><span v-else-if="m.reasoning?.Paths?.length">图谱＋文档</span><span v-else>文档检索</span></summary><p v-if="m.understanding">{{m.understanding.intent}}<span v-if="m.understanding.knowledge_points?.length"> · {{m.understanding.knowledge_points.join('、')}}</span></p><template v-if="m.reasoning"><p v-if="m.reasoning.Notice">{{m.reasoning.Notice}}</p><p v-if="m.reasoning.WebStatus==='results'">已取得可供核对的联网摘要，优先采用库内教材依据。</p><p v-else-if="m.reasoning.WebStatus==='no_usable_results'">已联网搜索，未找到可用摘录。</p><p v-else-if="m.reasoning.WebStatus==='failed'">联网搜索失败，继续使用知识库证据。</p><p v-else-if="m.reasoning.WebStatus==='disabled'">联网搜索尚未配置。</p><p>检索任务：{{m.reasoning.Subquestions.join('；')}}</p><ul v-if="m.reasoning.Paths?.length"><li v-for="(path,n) in m.reasoning.Paths.slice(0,8)" :key="n">{{path.Nodes.map(n=>n.Name).join(' ↔ ')}}</li></ul></template></details>
+       <details v-if="m.reasoning||m.understanding" class="retrieval-details"><summary>检索过程 <span v-if="m.reasoning?.WebStatus==='results'">知识库＋联网</span><span v-else-if="m.reasoning?.Mode==='rag-degraded'" class="degraded-badge">图谱暂不可用</span><span v-else-if="m.reasoning?.Paths?.length">图谱＋文档</span><span v-else>文档检索</span></summary><p v-if="m.understanding">{{m.understanding.intent}}<span v-if="m.understanding.knowledge_points?.length"> · {{m.understanding.knowledge_points.join('、')}}</span></p><template v-if="m.reasoning"><p v-if="m.reasoning.Notice">{{m.reasoning.Notice}}</p><p v-if="m.reasoning.WebStatus==='results'">已取得可供核对的联网摘要，优先采用库内教材依据。</p><p v-else-if="m.reasoning.WebStatus==='no_usable_results'">已联网搜索，未找到可用摘录。</p><p v-else-if="m.reasoning.WebStatus==='failed'">联网搜索失败，继续使用知识库证据。</p><p v-else-if="m.reasoning.WebStatus==='disabled'">联网搜索尚未配置。</p><p>检索任务：{{m.reasoning.Subquestions.join('；')}}</p><ul v-if="m.reasoning.Paths?.length"><li v-for="(path,n) in distinctPaths(m.reasoning.Paths)" :key="n">{{path.Nodes.map(n=>n.Name).join(' ↔ ')}}</li></ul></template></details>
        <details v-if="auth.user?.role==='admin'&&m.generation" class="retrieval-details"><summary>生成诊断</summary><p>模型请求：{{m.generation.Attempted?'已发起':'未发起'}} · 返回文本：{{m.generation.ProviderReturned?'是':'否'}} · 原文核验：{{m.generation.Verified?'通过':'未通过'}}</p><p>整理轮数 {{m.generation.Attempts}} · 可引用事实 {{m.generation.Facts}}</p><p v-if="!m.generation.Verified">{{m.generation.Notice}} <code>{{m.generation.FailureCode}}</code></p></details><div class="response-text"><SafeAnswer :text="m.content" :citations="m.sources?.length??0" @cite="n=>m.sources?.[n]&&source(m.sources[n]!)"/></div>
        <span v-if="busy&&i===messages.length-1&&!m.content" class="thinking-indicator">{{stage||'正在查找资料…'}}<i /></span>
        <p v-if="m.incomplete" class="incomplete-note">{{m.failure||'连接中断，回答未完成，请重试。'}}</p>
@@ -127,7 +137,7 @@ onMounted(load);onBeforeUnmount(()=>{controller.value?.abort();clearImage()})
      <div v-if="imageFile" class="attachment-preview"><img :src="imageURL" alt="待识别题目"/><div><strong>{{imageFile.name}}</strong><p>{{recognized?'识别完成，请核对下方题干和公式':'识别图片后核对题干，再发送问题'}}</p><button :disabled="recognizing||recognized||busy" @click="recognizeImage">{{recognizing?'识别中…':recognized?'已识别':'识别题目'}}</button></div><button class="icon-button" aria-label="移除图片" :disabled="recognizing||busy" @click="clearImage">×</button></div>
      <p v-for="warning in imageWarnings" :key="warning" class="image-warning">{{warning}}</p>
      <form class="chat-composer" @submit.prevent="send"><label class="sr-only" for="question">向助教提问或核对图片识别文字</label><textarea id="question" v-model="question" rows="2" :disabled="!active||busy||recognizing||loading" placeholder="向 408 助教提问，或添加题目图片…" @input="resizeInput" @keydown.enter="onEnter"/><div class="composer-tools"><label class="attach-control" title="添加题目图片"><span>＋</span><span class="attach-label">添加图片</span><input type="file" accept="image/png,image/jpeg" aria-label="添加题目图片" :disabled="busy||recognizing||loading||!active" @change="chooseImage"/></label><span class="composer-scope">{{bases.find(b=>b.ID===active)?.IsPublic?'教材优先':'公共教材＋个人资料'}}</span><button v-if="busy" type="button" class="send-control stop" aria-label="停止生成" @click="controller?.abort()">■</button><button v-else class="send-control" aria-label="发送问题" :disabled="!active||recognizing||!question.trim()||!status.enabled||loading||!!imageFile&&!recognized">↑</button></div></form>
-     <div class="composer-foot"><span>回答附原文出处，请核对公式与推导。Shift＋Enter 换行</span><small title="界面版本">2026.11.22.1</small></div>
+     <div class="composer-foot"><span>回答附原文出处，请核对公式与推导。Shift＋Enter 换行</span><small title="界面版本">2026.11.23.1</small></div>
     </div>
    </div>
    <div v-if="copyNotice" class="copy-toast" role="status">{{copyNotice}}</div>

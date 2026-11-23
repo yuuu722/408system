@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"errors"
-	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"github.com/local/exam408-assistant/backend/internal/service"
 	"net/http"
@@ -30,7 +29,7 @@ func (s *Server) unitTeachingRoutes(mux *http.ServeMux) {
 				s.fail(w, e)
 				return
 			}
-			key := u.Steps[0].ResourceKey + ":coherent-v1"
+			key := u.Steps[0].ResourceKey + ":coherent-v2"
 			if !generate {
 				result, e := s.Platform.UnitLesson(r.Context(), uid(r), u.PointID, key)
 				s.reply(w, map[string]any{"Lesson": result}, e)
@@ -53,8 +52,7 @@ func (s *Server) unitTeachingRoutes(mux *http.ServeMux) {
 						ctx = service.WithLearnerContext(ctx, profile.Stage, memories)
 					}
 				}
-				question := fmt.Sprintf("请为学习单元“%s”给出连贯完整的知识复习讲解，学习目标：%s。按概念与适用条件、原理与逻辑、易混点与小结组织成完整段落，不能只抄分块或罗列原句。仅讲有教材证据支持的内容，缺少依据的部分明确说明，不编造例子或公式；每段完整结束，来源统一放在正文后。", u.Name, u.Goal)
-				return s.RAG.Chat(ctx, uid(r), doc.KnowledgeBaseID, "", question)
+				return s.RAG.PointLesson(ctx, uid(r), doc.KnowledgeBaseID, u.Name, "encouraging")
 			})
 			if e != nil {
 				var requestError *domain.RequestError

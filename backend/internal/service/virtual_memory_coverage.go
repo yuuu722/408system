@@ -31,7 +31,7 @@ func virtualMemoryAnswerIssue(q, answer string, contents []string) string {
 		return "virtual_memory_term"
 	}
 	for _, sentence := range strings.FieldsFunc(answer, func(r rune) bool { return strings.ContainsRune("。；！？", r) }) {
-		for _, claim := range []string{"避免了内存资源的浪费", "完全避免内存浪费", "完全消除内存浪费", "彻底解决内存不足"} {
+		for _, claim := range []string{"避免了内存资源的浪费", "完全避免内存浪费", "完全消除内存浪费", "彻底解决内存不足", "避免了内存被长期无效占用", "所有页面都写入对换区", "所有换出的页面都写入对换区", "总是换出到磁盘对换区"} {
 			if strings.Contains(sentence, claim) && !strings.Contains(sentence, "不能") && !strings.Contains(sentence, "无法") && !strings.Contains(sentence, "并非") && !strings.Contains(sentence, "并不") {
 				return "virtual_memory_overclaim"
 			}

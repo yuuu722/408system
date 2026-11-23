@@ -1,14 +1,15 @@
 package httpapi
 
 import (
+	"net/http"
+	"strings"
+
 	"github.com/local/exam408-assistant/backend/internal/domain"
 	"github.com/local/exam408-assistant/backend/internal/repository"
 	"github.com/local/exam408-assistant/backend/internal/service"
-	"net/http"
-	"strings"
 )
 
-// Resolve differently named answer files only by exact complete problem content.
+// Link by complete problem content, or by unique section and number in verified companion files.
 func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) {
 	d, e := s.Store.Document(r.Context(), uid(r), r.PathValue("id"))
 	if e != nil {
@@ -35,13 +36,15 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	need := []domain.Asset{}
+	eligible := map[string]bool{}
 	for _, a := range rows {
-		if (a.Payload.Issue == "" || strings.HasPrefix(a.Payload.Issue, "未匹配知识点")) && a.Payload.ExtractionKey != "" && !domain.KeepSourceAnswer(a, -1) {
+		if a.Payload.ReviewStatus != "published" && (a.Payload.Issue == "" || strings.HasPrefix(a.Payload.Issue, "未匹配知识点")) && a.Payload.ExtractionKey != "" && !domain.KeepSourceAnswer(a, -1) {
 			need = append(need, a)
+			eligible[a.ID] = true
 		}
 	}
 	if len(need) == 0 {
-		s.reply(w, map[string]any{"Resolved": 0}, nil)
+		s.reply(w, map[string]any{"Resolved": 0, "Ambiguous": 0, "Unmatched": 0}, nil)
 		return
 	}
 	docs, e := s.Store.ListDocuments(r.Context(), uid(r), d.KnowledgeBaseID)
@@ -70,13 +73,13 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		entries := service.ParseDocumentAnswers(ad.OriginalFilename, ap.Pages)
 		proposals := service.MatchQuestionContent(need, entries)
 		if service.SameQuestionBook(d.OriginalFilename, ad.OriginalFilename) || service.CompanionStudyBooks(d.OriginalFilename, parsed.Pages, ad.OriginalFilename, ap.Pages) {
-			numbered := service.MatchAnswerFile(need, entries, "", "")
+			numbered := service.MatchAnswerFile(rows, entries, "", "")
 			existing := map[string]bool{}
 			for _, p := range proposals {
 				existing[p.Asset.ID] = true
 			}
 			for _, p := range numbered {
-				if !existing[p.Asset.ID] {
+				if eligible[p.Asset.ID] && !existing[p.Asset.ID] {
 					proposals = append(proposals, p)
 				}
 			}
@@ -86,9 +89,6 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		}
 		parsedHash := repository.ParsedFingerprint(ap)
 		for _, pair := range proposals {
-			if domain.KeepSourceAnswer(pair.Asset, pair.Answer.Answer) {
-				continue
-			}
 			matches[pair.Asset.ID] = append(matches[pair.Asset.ID], match{ad, parsedHash, pair})
 		}
 	}
@@ -101,15 +101,17 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 	proofs := map[string]match{}
 	ambiguous := 0
 	for _, choices := range matches {
-		m := choices[0]
-		conflict := false
-		for _, other := range choices[1:] {
-			if !service.EquivalentFileAnswers(m.proposal.Answer, other.proposal.Answer) {
-				conflict = true
-				break
-			}
+		answers := make([]service.FileAnswer, 0, len(choices))
+		for _, choice := range choices {
+			answers = append(answers, choice.proposal.Answer)
 		}
-		if conflict {
+		best, ok := service.PreferredFileAnswer(answers)
+		if !ok {
+			ambiguous++
+			continue
+		}
+		m := choices[best]
+		if domain.KeepSourceAnswer(m.proposal.Asset, m.proposal.Answer.Answer) {
 			ambiguous++
 			continue
 		}
@@ -135,10 +137,10 @@ func (s *Server) resolveQuestionAnswers(w http.ResponseWriter, r *http.Request) 
 		m := proofs[id]
 		applied, err := s.Platform.ApplyAnswerFile(r.Context(), uid(r), d, m.source, updates, repository.ParsedFingerprint(parsed), m.parsedHash)
 		if err != nil {
-			s.reply(w, map[string]any{"Resolved": count, "Ambiguous": ambiguous}, err)
+			s.reply(w, map[string]any{"Resolved": count, "Ambiguous": ambiguous, "Unmatched": len(need) - len(matches)}, err)
 			return
 		}
 		count += applied
 	}
-	s.reply(w, map[string]any{"Resolved": count, "Ambiguous": ambiguous}, nil)
+	s.reply(w, map[string]any{"Resolved": count, "Ambiguous": ambiguous, "Unmatched": len(need) - len(matches)}, nil)
 }

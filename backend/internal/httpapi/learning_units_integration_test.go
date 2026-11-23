@@ -279,7 +279,7 @@ func TestLearningUnitsSourcesProgressPrivacyAndNewChecks(t *testing.T) {
 
 	t.Run("coherent lesson cache is verified owner scoped and invalidated by source changes", func(t *testing.T) {
 		calls := 0
-		key := u.Steps[0].ResourceKey + ":coherent-v1"
+		key := u.Steps[0].ResourceKey + ":coherent-v2"
 		result := domain.ChatResult{Answer: "本节先讲清定义和条件，再解释原理与逻辑，最后总结适用范围。", Sources: []domain.Citation{{DocumentID: doc.ID, Excerpt: point.Name + "的定义与适用条件在此。"}}, Generation: &domain.GenerationTrace{Verified: true}}
 		first, e := p.BuildUnitLesson(ctx, learner.ID, point.ID, key, func() (domain.ChatResult, error) { calls++; return result, nil })
 		require.NoError(t, e)

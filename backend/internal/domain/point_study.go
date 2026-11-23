@@ -12,7 +12,7 @@ type PointStudy struct {
 	PreferredKnowledgeBaseID          string
 	PointNames                        map[string]string
 	Point                             KnowledgePoint
-	Ancestors, Children               []KnowledgePoint
+	Ancestors, Children, Related      []KnowledgePoint
 	Knowledge                         []Citation
 	Example                           *Asset
 	Exercises                         []Asset

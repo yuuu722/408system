@@ -56,3 +56,27 @@ func TestAnswerFileFullWidthNumbersAndWhitespaceKeepOriginalQuote(t *testing.T) 
 	require.Equal(t, "2", answers[1].Number)
 	require.Equal(t, 1, answers[1].Answer)
 }
+
+func TestAnswerFilePrefersConsistentWorkedSolution(t *testing.T) {
+	key := FileAnswer{Answer: 1, Quote: "1. B"}
+	solution := FileAnswer{Answer: 1, Quote: "1. B\n解析：操作系统在缺页时调入所需页面。"}
+	idx, ok := PreferredFileAnswer([]FileAnswer{key, solution})
+	require.True(t, ok)
+	require.Equal(t, 1, idx)
+
+	conflicting := FileAnswer{Answer: 2, Quote: "1. C"}
+	_, ok = PreferredFileAnswer([]FileAnswer{key, solution, conflicting})
+	require.False(t, ok)
+
+	otherWork := FileAnswer{Answer: 1, Quote: "1. B\n解析：页面调入后会更新页表中的状态。"}
+	_, ok = PreferredFileAnswer([]FileAnswer{key, solution, otherWork})
+	require.False(t, ok)
+}
+
+func TestAnswerFilePublishedDuplicateStillBlocksNumberedPair(t *testing.T) {
+	pending := domain.Asset{Kind: "question", Payload: domain.AssetPayload{QuestionNumber: "1", SectionKey: "第一章"}}
+	published := pending
+	published.Payload.ReviewStatus = "published"
+	answers := []FileAnswer{{Number: "1", Section: "第一章", Answer: 0}}
+	require.Empty(t, MatchAnswerFile([]domain.Asset{pending, published}, answers, "", ""))
+}

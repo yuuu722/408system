@@ -3,6 +3,17 @@ import {computed} from 'vue'
 import type {PointInsight} from '@/api/coaching'
 const props=defineProps<{points:PointInsight[];parent?:string;subject:string;depth?:number;selected?:string}>(),emit=defineEmits<{select:[id:string]}>()
 const children=computed(()=>props.points.filter(p=>p.SubjectID===props.subject&&(p.ParentID===(props.parent??'')||(!props.parent&&p.ParentID&&!props.points.some(a=>a.ID===p.ParentID)))).sort((a,b)=>a.Code.localeCompare(b.Code)))
+const selectedPath=computed(()=>{
+ const parents=new Map(props.points.map(p=>[p.ID,p.ParentID]))
+ const path=new Set<string>()
+ for(let id=props.selected;id&&!path.has(id);id=parents.get(id))path.add(id)
+ return path
+})
+function selectPoint(event:MouseEvent,id:string){
+ const branch=(event.currentTarget as HTMLElement).closest('details')
+ if(branch)branch.open=true
+ emit('select',id)
+}
 </script>
-<template><ul class="mind-branch"><li v-for="p in children" :key="p.ID"><details :open="(depth??0)<1"><summary><button type="button" :class="{weak:p.State==='需要补强'||p.State==='待复查（有错题）',important:p.Importance>=3,selected:p.ID===selected}" :aria-pressed="p.ID===selected" @click.prevent="emit('select',p.ID)">{{p.Name}} <small>{{p.State}} · {{p.AvailableQuestions?`${p.AvailableQuestions}个本点题组`:(p.SubtreeQuestions??0)>0?`含下级${p.SubtreeQuestions}个题组`:'题目待补充'}}</small><span class="importance" :title="p.ImportanceBasis">{{'●'.repeat(Math.round(p.Importance))}}</span></button></summary><KnowledgeMindMap v-if="(depth??0)<8" :points="points" :parent="p.ID" :subject="subject" :depth="(depth??0)+1" :selected="selected" @select="emit('select',$event)"/></details></li></ul></template>
+<template><ul class="mind-branch"><li v-for="p in children" :key="p.ID"><details :open="(depth??0)<1||selectedPath.has(p.ID)"><summary><button type="button" :class="{weak:p.State==='需要补强'||p.State==='待复查（有错题）',important:p.Importance>=3,selected:p.ID===selected}" :aria-pressed="p.ID===selected" @click.prevent="selectPoint($event,p.ID)">{{p.Name}} <small>{{p.State}} · {{p.AvailableQuestions?`${p.AvailableQuestions}个本点题组`:(p.SubtreeQuestions??0)>0?`含下级${p.SubtreeQuestions}个题组`:'题目待补充'}}</small><span class="importance" :title="p.ImportanceBasis">{{'●'.repeat(Math.round(p.Importance))}}</span></button></summary><KnowledgeMindMap v-if="(depth??0)<8" :points="points" :parent="p.ID" :subject="subject" :depth="(depth??0)+1" :selected="selected" @select="emit('select',$event)"/></details></li></ul></template>
 <style scoped>.mind-branch{list-style:none;padding-left:18px;border-left:2px solid #dbeafe;margin:10px 0}.mind-branch>li{padding:6px 0}.mind-branch button{background:#f8fafc;border:1px solid #dbeafe;border-radius:12px;padding:10px;text-align:left;color:#26374c;cursor:pointer}.mind-branch small{display:block;color:#64748b}.mind-branch .weak{border-color:#f59e0b}.mind-branch .important{box-shadow:inset 3px 0 #2563eb}.mind-branch .selected{border-color:#2563eb;background:#eff6ff;outline:2px solid #93c5fd}.mind-branch:empty{display:none}.mind-branch button{max-width:100%;overflow-wrap:anywhere}.importance{color:#2563eb;font-size:9px}</style>

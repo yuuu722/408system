@@ -176,7 +176,7 @@ func tcpReliabilityOnly(question string) bool {
 }
 
 func tcpReliabilityQuestion(q string) bool {
-	return sharesProtocol([]string{"TCP"}, q) && strings.Contains(q, "可靠") && (strings.Contains(q, "如何") || strings.Contains(q, "怎么") || strings.Contains(q, "实现") || strings.Contains(q, "机制"))
+	return sharesProtocol([]string{"TCP"}, q) && strings.Contains(q, "可靠") && (strings.Contains(q, "如何") || strings.Contains(q, "怎么") || strings.Contains(q, "实现") || strings.Contains(q, "机制") || strings.HasPrefix(q, "请讲解"))
 }
 
 // This is a minimum coverage check, not a correctness proof or generated answer.

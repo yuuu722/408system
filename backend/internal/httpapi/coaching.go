@@ -142,7 +142,7 @@ func (s *Server) startCoach(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if asset == "" {
-		s.fail(w, &domain.RequestError{Status: 409, Message: "该知识点暂无未作答的可靠检查题，可先通过智能答疑学习，或选择其他知识点。"})
+		s.fail(w, &domain.RequestError{Status: 409, Message: "该知识点暂无未作答的可靠检查题，可以在本页先看知识讲解，或选择其他知识点。"})
 		return
 	}
 	teachingCtx := service.WithTeacher(r.Context(), in.Teacher)
@@ -155,13 +155,13 @@ func (s *Server) startCoach(w http.ResponseWriter, r *http.Request) {
 		}
 		teachingCtx = service.WithLearnerContext(teachingCtx, stage, memories)
 	}
-	lesson, e := s.RAG.Chat(teachingCtx, uid(r), in.KnowledgeBaseID, "", name+"是什么？")
+	lesson, e := s.RAG.PointLesson(teachingCtx, uid(r), in.KnowledgeBaseID, name, in.Teacher)
 	if e != nil {
 		s.fail(w, e)
 		return
 	}
 	if lesson.Generation == nil || !lesson.Generation.Verified || len(lesson.Sources) == 0 {
-		s.fail(w, &domain.RequestError{Status: 422, Message: "当前教材证据或模型讲解未通过核验，请在智能答疑核对资料后重试；未生成新的检查题。"})
+		s.fail(w, &domain.RequestError{Status: 422, Message: "当前教材证据或模型讲解未通过核验，请切换资料范围或核对教材后重试；未生成新的检查题。"})
 		return
 	}
 	a, e := s.Platform.CreateAssessment(r.Context(), uid(r), "practice", in.PointID, asset)

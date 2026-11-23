@@ -41,6 +41,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if scopeErr != nil {
 		return domain.ChatResult{}, scopeErr
 	}
+	pointLesson, _ := ctx.Value(pointLessonKey{}).(bool)
 	var history []domain.Message
 	cs, hasHistory := s.Store.(domain.ConversationStore)
 	if cid != "" && hasHistory {
@@ -239,7 +240,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 		return questionFocusScore(question, chunks[i]) > questionFocusScore(question, chunks[j])
 	})
 	chunks = balanceWhyEvidence(evidenceQuestion, chunks, s.MinScore)
-	if cid == "" {
+	if cid == "" && !pointLesson {
 		title := []rune(question)
 		if len(title) > 40 {
 			title = title[:40]
@@ -249,7 +250,7 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 			return domain.ChatResult{}, err
 		}
 	}
-	if !hasHistory {
+	if !hasHistory && !pointLesson {
 		if err = s.Store.SaveMessage(ctx, uid, cid, "user", question, nil); err != nil {
 			return domain.ChatResult{}, err
 		}
@@ -553,10 +554,16 @@ func (s RAGService) ChatStream(ctx context.Context, uid, kid, cid, question stri
 	if ctx.Err() != nil {
 		return domain.ChatResult{}, ctx.Err()
 	}
-	if hasHistory {
+	if hasHistory && !pointLesson {
 		if err = cs.SaveTurn(ctx, uid, cid, question, answer, citations); err != nil {
 			return domain.ChatResult{}, err
 		}
+	}
+	if pointLesson {
+		if !generation.Verified {
+			generation.Notice = generationFailureLabel(generation.FailureCode)
+		}
+		return domain.ChatResult{Answer: answer, Sources: citations, Generation: generation, Reasoning: trace, KnowledgePoints: detected}, nil
 	}
 	points, detectErr := s.Knowledge.Detect(ctx, question+" "+evidence.String())
 	if detectErr != nil {
