@@ -105,6 +105,37 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 	})
 	points, e := store.ListKnowledgePoints(ctx)
 	require.NoError(t, e)
+	t.Run("asset page filters before paging and enforces visibility", func(t *testing.T) {
+		_, err := store.DB.Exec(ctx, `INSERT INTO learning_assets(user_id,kind,point_id,title,payload,status,is_public)
+			VALUES ($1,'question',$3,'分页 A','{}','ready',true),
+			       ($1,'question',$3,'分页 B','{}','ready',true),
+			       ($1,'question',$3,'分页 C','{}','unavailable',true),
+			       ($2,'question',$3,'分页 D','{}','ready',false)`, user.ID, other.ID, points[0].ID)
+		require.NoError(t, err)
+		defer func() {
+			_, err := store.DB.Exec(ctx, `DELETE FROM learning_assets WHERE title LIKE '分页 %'`)
+			require.NoError(t, err)
+		}()
+		path := "/api/v1/exam408/assets/page?kind=question&search=" + url.QueryEscape("分页") + "&limit=1&point=" + points[0].ID
+		var first, second repository.AssetPage
+		require.NoError(t, json.Unmarshal(call("GET", path, token, nil, 200), &first))
+		require.NoError(t, json.Unmarshal(call("GET", path+"&page=2", token, nil, 200), &second))
+		require.Equal(t, 2, first.Total)
+		require.Len(t, first.Items, 1)
+		require.Len(t, second.Items, 1)
+		require.NotEqual(t, first.Items[0].ID, second.Items[0].ID)
+		_, err = store.DB.Exec(ctx, `INSERT INTO learning_assets(user_id,kind,point_id,title,payload,status,is_public)
+			SELECT $1,'question',$2,'分页 批量 '||i,jsonb_build_object('Stem',repeat('题干 ',100),'Options',jsonb_build_array('A','B')),'ready',true
+			FROM generate_series(1,21605) i`, user.ID, points[0].ID)
+		require.NoError(t, err)
+		started := time.Now()
+		body := call("GET", "/api/v1/exam408/assets/page?kind=question", token, nil, 200)
+		var large repository.AssetPage
+		require.NoError(t, json.Unmarshal(body, &large))
+		require.Equal(t, 21607, large.Total)
+		require.Len(t, large.Items, 30)
+		t.Logf("21,607 rows: first page %d bytes in %s", len(body), time.Since(started))
+	})
 	t.Run("empty and validation", func(t *testing.T) {
 		require.JSONEq(t, "[]", string(call("GET", "/api/v1/exam408/assets", token, nil, 200)))
 		call("POST", "/api/v1/exam408/assessments", token, map[string]string{"Kind": "diagnostic"}, 400)

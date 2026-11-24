@@ -156,8 +156,9 @@ func (p *Postgres) LearningUnits(ctx context.Context, uid string) ([]domain.Lear
 		return nil, e
 	}
 	eligible := assets[:0]
+	matcher := domain.NewQuestionPointMatcher(points)
 	for _, asset := range assets {
-		if asset.Kind != "question" || domain.QuestionMatchesPoint(asset, points) {
+		if asset.Kind != "question" || matcher.MatchesAsset(asset) {
 			eligible = append(eligible, asset)
 		}
 	}

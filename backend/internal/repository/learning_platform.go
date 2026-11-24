@@ -42,7 +42,11 @@ func scanAsset(row pgx.Row) (a domain.Asset, err error) {
 const assetCols = `id,kind,COALESCE(point_id::text,''),title,status,revision,payload,is_public`
 
 func (p *Postgres) Assets(ctx context.Context, uid string) ([]domain.Asset, error) {
-	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE COALESCE(seed_key,'') NOT LIKE '408-diagnostic-2026:%' AND (is_public=true OR (user_id=$1 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin'))) AND (NOT is_public OR status='ready' OR EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin')) AND (COALESCE(payload->>'ExtractionKey','')='' OR NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=learning_assets.document_id AND dc.purpose='knowledge')) ORDER BY is_public DESC,updated_at DESC`, uid)
+	return p.assetsForPoints(ctx, uid, nil)
+}
+
+func (p *Postgres) assetsForPoints(ctx context.Context, uid string, points []string) ([]domain.Asset, error) {
+	rows, err := p.DB.Query(ctx, `SELECT `+assetCols+` FROM learning_assets WHERE COALESCE(seed_key,'') NOT LIKE '408-diagnostic-2026:%' AND (is_public=true OR (user_id=$1 AND NOT EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin'))) AND (NOT is_public OR status='ready' OR EXISTS(SELECT 1 FROM users WHERE id=$1 AND role='admin')) AND (COALESCE(payload->>'ExtractionKey','')='' OR NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=learning_assets.document_id AND dc.purpose='knowledge')) AND ($2::text[] IS NULL OR point_id=ANY($2::text[]::uuid[])) ORDER BY is_public DESC,updated_at DESC`, uid, points)
 	if err != nil {
 		return nil, err
 	}

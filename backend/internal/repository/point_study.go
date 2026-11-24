@@ -82,16 +82,21 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 			return out, e
 		}
 	}
-	bank, e := p.Assets(ctx, uid)
+	pointIDs := make([]string, 0, len(scope))
+	for id := range scope {
+		pointIDs = append(pointIDs, id)
+	}
+	bank, e := p.assetsForPoints(ctx, uid, pointIDs)
 	if e != nil {
 		return out, e
 	}
+	matcher := domain.NewQuestionPointMatcher(points)
 	questions := []domain.Asset{}
 	families := map[string]bool{}
 	byAsset := map[string]domain.Asset{}
 	visibleFamilies := map[string]bool{}
 	for _, a := range bank {
-		if a.Status != "ready" || !scope[a.PointID] || !domain.QuestionMatchesPoint(a, points) {
+		if a.Status != "ready" || !scope[a.PointID] || !matcher.MatchesAsset(a) {
 			continue
 		}
 		byAsset[a.ID] = a

@@ -3,31 +3,58 @@ package domain
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
+type questionPointTerm struct {
+	text   string
+	weight int
+}
+type questionPointTerms struct {
+	id    string
+	terms []questionPointTerm
+}
+type QuestionPointMatcher []questionPointTerms
+
+func NewQuestionPointMatcher(points []KnowledgePoint) QuestionPointMatcher {
+	matcher := make(QuestionPointMatcher, 0, len(points))
+	for _, p := range points {
+		item := questionPointTerms{id: p.ID}
+		for _, term := range append(append([]string{}, p.Keywords...), p.Name) {
+			n := utf8.RuneCountInString(term)
+			if n < 2 {
+				continue
+			}
+			weight := n * 2
+			if term == p.Name {
+				weight++
+			}
+			item.terms = append(item.terms, questionPointTerm{text: questionPointText(term), weight: weight})
+		}
+		matcher = append(matcher, item)
+	}
+	return matcher
+}
+
 func MatchQuestionPoint(text string, points []KnowledgePoint) string {
+	return NewQuestionPointMatcher(points).Match(text)
+}
+
+func (matcher QuestionPointMatcher) Match(text string) string {
 	best := 0
 	bestStart, bestEnd := -1, -1
 	id := ""
 	ambiguous := false
 	lower := questionPointText(text)
-	for _, p := range points {
+	for _, p := range matcher {
 		score := 0
 		start, end := -1, -1
-		for _, term := range append(append([]string{}, p.Keywords...), p.Name) {
-			n := len([]rune(term))
-			normalized := questionPointText(term)
-			offset := questionTermIndex(lower, normalized)
-			if n < 2 || offset < 0 {
+		for _, term := range p.terms {
+			if term.weight <= score {
 				continue
 			}
-			// A canonical name wins a same-length collision with an alias.
-			weight := n * 2
-			if term == p.Name {
-				weight++
-			}
-			if weight > score {
-				score, start, end = weight, offset, offset+len(normalized)
+			if offset := questionTermIndex(lower, term.text); offset >= 0 {
+				score, start, end = term.weight, offset, offset+len(term.text)
 			}
 		}
 		// For two equally specific overlapping names, prefer the one
@@ -36,9 +63,9 @@ func MatchQuestionPoint(text string, points []KnowledgePoint) string {
 		if score > best || score == best && overlap && start < bestStart {
 			best = score
 			bestStart, bestEnd = start, end
-			id = p.ID
+			id = p.id
 			ambiguous = false
-		} else if score > 0 && score == best && p.ID != id && (!overlap || start == bestStart) {
+		} else if score > 0 && score == best && p.id != id && (!overlap || start == bestStart) {
 			ambiguous = true
 		}
 	}
@@ -90,16 +117,16 @@ func questionTermIndex(text, term string) int {
 
 // QuestionMatchesPoint keeps curated assignments and requires an extracted
 // assignment to be recoverable from the stem, never from distractors alone.
-func QuestionMatchesPoint(a Asset, points []KnowledgePoint) bool {
+func (matcher QuestionPointMatcher) MatchesAsset(a Asset) bool {
 	if a.Kind != "question" || a.PointID == "" || QuestionTextIssue(a) != "" {
 		return false
 	}
 	if a.Payload.QuestionOrigin != "extracted" {
 		return true
 	}
-	match := MatchQuestionPoint(a.Payload.Stem, points)
+	match := matcher.Match(a.Payload.Stem)
 	if match == "" && a.Payload.AnswerOrigin == "source" && HasQuestionExplanation(a.Payload.Explanation) {
-		match = MatchQuestionPoint(a.Payload.Explanation, points)
+		match = matcher.Match(a.Payload.Explanation)
 	}
 	return match == a.PointID
 }

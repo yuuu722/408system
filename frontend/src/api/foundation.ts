@@ -13,10 +13,24 @@ export interface StudyTask { PlanDate?:string;EstimatedMinutes?:number;DurationS
 export interface DailyPlan {ID:string;Date:string;Strategy:string;BudgetMinutes:number;AllocatedMinutes:number}
 export interface Conversation { ID:string;KnowledgeBaseID:string;Title:string;UpdatedAt:string }
 export interface SavedMessage { ID:string;Role:'user'|'assistant';Content:string;Citations:ChatResult['Sources'] }
+export interface AssetPageQuery {page?:number;limit?:number;kind?:string;point?:string;search?:string;review?:string;children?:boolean}
+export interface AssetPage {Items:Asset[];Total:number;Counts:{All:number;Ready:number;UniqueReady:number;Repair:number;NoAnswer:number;Pending:number}}
+const assetPages=new Map<string,{time:number;request:Promise<AssetPage>}>()
+export function clearAssetPages(){assetPages.clear()}
 export const foundation = {
- async assets():Promise<Asset[]> {const rows=(await api.get('/exam408/assets')).data;return Array.isArray(rows)?rows.map(normalizeAsset):[]},
- async saveAsset(a:Asset):Promise<Asset>{return normalizeAsset((await (a.ID?api.put(`/exam408/assets/${a.ID}`,a):api.post('/exam408/assets',a))).data)},
- removeAsset:(id:string)=>api.delete(`/exam408/assets/${id}`),
+ async assetPage(params:AssetPageQuery, scope:string):Promise<AssetPage>{
+  const key=JSON.stringify([scope,params])
+  const cached=assetPages.get(key)
+  if(cached&&Date.now()-cached.time<45000)return cached.request
+  if(assetPages.size>=20)assetPages.delete(assetPages.keys().next().value!)
+  const request=api.get<AssetPage>('/exam408/assets/page',{params}).then(({data})=>({...data,Items:data.Items.map(normalizeAsset)}))
+  const entry={time:Date.now(),request}
+  assetPages.set(key,entry)
+  request.catch(()=>{if(assetPages.get(key)===entry)assetPages.delete(key)})
+  return request
+ },
+ async saveAsset(a:Asset):Promise<Asset>{const {data}=await (a.ID?api.put(`/exam408/assets/${a.ID}`,a):api.post('/exam408/assets',a));clearAssetPages();return normalizeAsset(data)},
+ removeAsset:async(id:string)=>{await api.delete(`/exam408/assets/${id}`);clearAssetPages()},
  async studySummary():Promise<StudySummary>{return (await api.get('/exam408/study-summary')).data},
  async profile():Promise<Profile|null>{return (await api.get('/exam408/profile')).data},
  saveProfile:(p:Profile)=>api.put('/exam408/profile',p),
@@ -29,7 +43,7 @@ export const foundation = {
  async radar():Promise<RadarSubject[]>{return (await api.get('/exam408/radar')).data??[]},
  async tasks():Promise<StudyTask[]>{return (await api.get('/exam408/tasks')).data??[]},
  async dailyPlan():Promise<DailyPlan>{return (await api.get('/exam408/tasks/plan')).data},
- async generatePractice(input:{RequestID:string;KnowledgeBaseID:string;PointID:string;ParentAssetID:string;Count:number;AllowUngrounded:boolean}):Promise<Asset[]>{return (await api.post('/exam408/practice/generate',input)).data??[]},
+ async generatePractice(input:{RequestID:string;KnowledgeBaseID:string;PointID:string;ParentAssetID:string;Count:number;AllowUngrounded:boolean}):Promise<Asset[]>{const {data}=await api.post('/exam408/practice/generate',input);clearAssetPages();return data??[]},
  generate:()=>api.post('/exam408/tasks/generate'),
  complete:(id:string)=>api.post(`/exam408/tasks/${id}/complete`),
  async conversations():Promise<Conversation[]>{return (await api.get('/conversations')).data??[]},

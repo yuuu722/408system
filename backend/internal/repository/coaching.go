@@ -165,10 +165,11 @@ func (p *Postgres) LearningOverview(ctx context.Context, uid string) (domain.Lea
 	if e != nil {
 		return out, e
 	}
+	matcher := domain.NewQuestionPointMatcher(points)
 	available := map[string]int{}
 	seen := map[string]bool{}
 	for _, a := range assets {
-		if a.Status == "ready" && a.Payload.AnswerOrigin == "source" && !seen[domain.Family(a)] && domain.QuestionMatchesPoint(a, points) {
+		if a.Status == "ready" && a.Payload.AnswerOrigin == "source" && !seen[domain.Family(a)] && matcher.MatchesAsset(a) {
 			available[a.PointID]++
 			seen[domain.Family(a)] = true
 		}

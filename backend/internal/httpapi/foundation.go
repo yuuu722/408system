@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/local/exam408-assistant/backend/internal/domain"
+	"github.com/local/exam408-assistant/backend/internal/repository"
 	"github.com/local/exam408-assistant/backend/internal/service"
 	"mime"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -113,6 +115,25 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 			return
 		}
 		s.reply(w, in, s.Platform.SaveProfile(r.Context(), uid(r), in))
+	})
+	register("GET /api/v1/exam408/assets/page", func(w http.ResponseWriter, r *http.Request) {
+		user, err := s.Store.UserByID(r.Context(), uid(r))
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		q := r.URL.Query()
+		page, _ := strconv.Atoi(q.Get("page"))
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		if limit < 1 {
+			limit = 30
+		}
+		result, err := s.Platform.ListAssetPage(r.Context(), uid(r), repository.AssetPageFilter{
+			Kind: q.Get("kind"), Point: q.Get("point"), Search: strings.TrimSpace(q.Get("search")),
+			Review: q.Get("review"), Children: q.Get("children") == "true", Admin: user.Role == "admin",
+			Personal: s.Config.PersonalKBEnabled, Page: min(max(1, page), 100000), Limit: min(limit, 100),
+		})
+		s.reply(w, result, err)
 	})
 	register("GET /api/v1/exam408/assets", func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.Platform.Assets(r.Context(), uid(r))

@@ -209,8 +209,9 @@ func (p *Postgres) GenerateTasks(ctx context.Context, uid string) error {
 	}
 	sourceCounts := map[string]int{}
 	eligibleAssets := []domain.Asset{}
+	matcher := domain.NewQuestionPointMatcher(points)
 	for _, a := range assets {
-		if a.Kind == "question" && (a.Payload.AnswerOrigin != "source" || !domain.QuestionMatchesPoint(a, points)) {
+		if a.Kind == "question" && (a.Payload.AnswerOrigin != "source" || !matcher.MatchesAsset(a)) {
 			continue
 		}
 		eligibleAssets = append(eligibleAssets, a)
