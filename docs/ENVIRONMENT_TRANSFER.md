@@ -51,3 +51,27 @@ code .
 脚本具备校验值、目标防覆盖、同架构限制、数据卷只读导出和恢复后的私有项目隔离。自动测试覆盖路径/清单拒绝、只读快照、坏备份不写入及真实Docker四卷往返；Windows Docker Desktop还需在实际设备上验收。文件校验用于发现损坏，不是签名验证，请只导入你信任的人提供的私人备份。
 
 验证补记：18项Python脚本测试通过；隔离Docker实测完整导出/恢复后，PostgreSQL测试行、Neo4j测试节点、Redis键值、上传文件均读回，且源服务恢复启动、目标项目/数据卷独立。测试使用合成数据；未在用户Windows机器执行实际备份。
+
+## 只共享公共资料和已解析成果
+
+更新源码后，可以从正在运行的本机项目直接导出。保持 Docker Desktop 和项目服务运行，在项目根目录执行：
+
+```powershell
+py -3 .\scripts\transfer-public-library.py export --output "D:\408-shared.zip"
+```
+
+或者使用自己生成的完整备份作为离线输入。脚本只在临时隔离的数据库里打开备份，不修改原件：
+
+```powershell
+py -3 .\scripts\transfer-public-library.py export --backup "D:\408-transfer" --output "D:\408-shared.zip"
+```
+
+发送共享 ZIP 和支持导入的源码。包包含公开资料的原件、保留的原页版本和解析、向量、公共题库和图谱证据。数据库关联改用接收方内置的系统所有者。脚本不打包账号、密码哈希、私有知识库、个人学习记录、运行配置、镜像或模型密钥。若公共题目引用私人或已删除的文档，导出会停止，请先核对该题的原文来源。公开文件和公开字段本身也会随包发送。
+
+接收方从同一版或兼容的更新源码启动干净实例，等后台就绪，在项目根目录运行：
+
+```powershell
+py -3 .\scripts\transfer-public-library.py import --package "D:\408-shared.zip"
+```
+
+Linux 环境把命令换成 `python3 scripts/transfer-public-library.py import --package /path/to/408-shared.zip`。共享 ZIP 通过 PostgreSQL 恢复公开数据，Neo4j 由正常图谱同步链路重建。导入前检查嵌入模型与源实例的向量空间兼容。接收方自行注册账号、配置问答模型和密钥。只导入可信来源的包，重复导入已有文档会遇到主键冲突。导入数据库采用单事务。若文件复制后数据库步骤失败，单独创建的上传目录可能保留，以保护提交结果不确定时的引用。
