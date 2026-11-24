@@ -5,7 +5,7 @@ import type { ChatResult,Citation } from './types'
 
 export interface Asset { IsPublic?:boolean; ID:string;Kind:'question'|'video'|'material';PointID:string;Title:string;Status:string;Revision:number;Payload:{ReviewStatus?:string;EstimatedMinutes?:number;DifficultyOrigin?:string;QuestionOrigin?:string;FamilyID?:string;ParentAssetID?:string;Evidence?:Citation[];VariantSources?:Citation[];AnswerOrigin?:string;Issue?:string;ExtractionKey?:string;Images?:string[];Stem:string;Options:string[];Answer:number;Explanation:string;Source:string;URL:string;DocumentID:string;Page:number;StartSeconds:number;EndSeconds:number;Difficulty:number} }
 export interface Profile { DisplayName?:string;Bio?:string; GoalScore:number;DailyMinutes:number;ExamDate:string;Stage:string;Preference:string }
-export interface StudySummary {Assessments:number;Submitted:number;Unsubmitted:number;UncountedAttempts:number;ValidFamilies:number;CorrectFamilies:number;CoveredPoints:number;TotalPoints:number;Accuracy:number|null;Notice:string;Subjects:RadarSubject[];Recent:{ID:string;Kind:string;CreatedAt:string;SubmittedAt:string|null;Total:number;Counted:number;Correct:number}[]}
+export interface StudySummary {NeedsPretest?:boolean;Assessments:number;Submitted:number;Unsubmitted:number;UncountedAttempts:number;ValidFamilies:number;CorrectFamilies:number;CoveredPoints:number;TotalPoints:number;Accuracy:number|null;Notice:string;Subjects:RadarSubject[];Recent:{ID:string;Kind:string;CreatedAt:string;SubmittedAt:string|null;Total:number;Counted:number;Correct:number}[]}
 export interface Result { Total:number;Correct:number;Counted?:number;Items:{AnswerOrigin?:string;Confirmation?:string;Counted?:boolean;ID:string;PointID:string;Selected:number;Answer:number;Correct:boolean;Explanation:string}[] }
 export interface Assessment { ID:string;Kind:string;Questions:Asset[];Result:Result|null;CreatedAt:string }
 export interface RadarSubject { ID:string;Name:string;Tested:number;Correct:number;CoveredPoints:number;TotalPoints:number;Accuracy:number|null }
@@ -31,7 +31,7 @@ export const foundation = {
  },
  async saveAsset(a:Asset):Promise<Asset>{const {data}=await (a.ID?api.put(`/exam408/assets/${a.ID}`,a):api.post('/exam408/assets',a));clearAssetPages();return normalizeAsset(data)},
  removeAsset:async(id:string)=>{await api.delete(`/exam408/assets/${id}`);clearAssetPages()},
- async studySummary():Promise<StudySummary>{return (await api.get('/exam408/study-summary')).data},
+ async studySummary(timeout?:number):Promise<StudySummary>{return (await api.get('/exam408/study-summary',{timeout})).data},
  async profile():Promise<Profile|null>{return (await api.get('/exam408/profile')).data},
  saveProfile:(p:Profile)=>api.put('/exam408/profile',p),
  async assessments():Promise<Assessment[]>{return (await api.get('/exam408/assessments')).data??[]},
@@ -42,7 +42,7 @@ export const foundation = {
  async structure(id:string,revision=''):Promise<ParsedDocument>{return (await api.get(`/documents/${id}/structure`,{params:{revision}})).data},
  async radar():Promise<RadarSubject[]>{return (await api.get('/exam408/radar')).data??[]},
  async tasks():Promise<StudyTask[]>{return (await api.get('/exam408/tasks')).data??[]},
- async dailyPlan():Promise<DailyPlan>{return (await api.get('/exam408/tasks/plan')).data},
+ async dailyPlan(timeout?:number):Promise<DailyPlan>{return (await api.get('/exam408/tasks/plan',{timeout})).data},
  async generatePractice(input:{RequestID:string;KnowledgeBaseID:string;PointID:string;ParentAssetID:string;Count:number;AllowUngrounded:boolean}):Promise<Asset[]>{const {data}=await api.post('/exam408/practice/generate',input);clearAssetPages();return data??[]},
  generate:()=>api.post('/exam408/tasks/generate'),
  complete:(id:string)=>api.post(`/exam408/tasks/${id}/complete`),

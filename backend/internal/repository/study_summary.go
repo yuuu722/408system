@@ -16,6 +16,7 @@ type StudyAttempt struct {
 	Correct     int
 }
 type StudySummary struct {
+	NeedsPretest      bool
 	Assessments       int
 	Submitted         int
 	Unsubmitted       int
@@ -34,7 +35,7 @@ type StudySummary struct {
 // effective answer per question family; raw attempt totals are named separately.
 func (p *Postgres) StudySummary(ctx context.Context, uid string) (StudySummary, error) {
 	out := StudySummary{Recent: []StudyAttempt{}, Notice: "正确率按题族最近有效作答计算，不等于考试成绩预测。浏览、提问和自评不计入掌握度；少量题目仅供观察，未测科目保持待测。覆盖率仅针对当前已录入知识点目录。"}
-	err := p.DB.QueryRow(ctx, `SELECT count(*),count(*) FILTER(WHERE result IS NOT NULL),count(*) FILTER(WHERE result IS NULL),COALESCE(sum((SELECT count(*) FROM jsonb_array_elements(COALESCE(a.result->'Items','[]'::jsonb)) item WHERE COALESCE((item->>'Counted')::boolean,false)=false)),0) FROM assessments a WHERE user_id=$1`, uid).Scan(&out.Assessments, &out.Submitted, &out.Unsubmitted, &out.UncountedAttempts)
+	err := p.DB.QueryRow(ctx, `SELECT count(*) FILTER (WHERE kind='diagnostic' AND result IS NOT NULL AND (result->>'Counted')::int > 0)=0,count(*),count(*) FILTER(WHERE result IS NOT NULL),count(*) FILTER(WHERE result IS NULL),COALESCE(sum((SELECT count(*) FROM jsonb_array_elements(COALESCE(a.result->'Items','[]'::jsonb)) item WHERE COALESCE((item->>'Counted')::boolean,false)=false)),0) FROM assessments a WHERE user_id=$1`, uid).Scan(&out.NeedsPretest, &out.Assessments, &out.Submitted, &out.Unsubmitted, &out.UncountedAttempts)
 	if err != nil {
 		return out, err
 	}
