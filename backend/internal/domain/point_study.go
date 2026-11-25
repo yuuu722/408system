@@ -14,6 +14,7 @@ type PointStudy struct {
 	Point                             KnowledgePoint
 	Ancestors, Children, Related      []KnowledgePoint
 	Knowledge                         []Citation
+	Teachings                         []Asset
 	Example                           *Asset
 	Exercises                         []Asset
 	Mistakes                          []PointMistake

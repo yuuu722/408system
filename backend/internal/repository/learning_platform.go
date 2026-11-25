@@ -175,7 +175,36 @@ func (p *Postgres) CreateAssessment(ctx context.Context, uid, kind, point string
 			return p.saveAssessment(ctx, uid, a)
 		}
 	}
-	rows, err := p.DB.Query(ctx, `WITH eligible AS (SELECT a.*,k.subject_id,row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text) ORDER BY a.created_at,a.id) family_rank FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id WHERE (a.user_id=$1 OR a.is_public=true) AND a.kind='question' AND a.status='ready' AND COALESCE(a.seed_key,'') NOT LIKE '408-diagnostic-2026:%' AND ($3<>'diagnostic' OR a.payload->>'AnswerOrigin'='source') AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4) AND ($3<>'retest' OR NOT EXISTS(SELECT 1 FROM assessments t,jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND t.result IS NOT NULL AND `+canonicalSnapshotFamilySQL+`=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)))) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public FROM eligible a WHERE family_rank=1 ORDER BY row_number() OVER(PARTITION BY CASE WHEN $3='diagnostic' THEN a.point_id ELSE a.subject_id END ORDER BY a.created_at,a.id),a.subject_id,a.id LIMIT 2000`, uid, point, kind, assetID)
+	rows, err := p.DB.Query(ctx, `WITH exposed AS MATERIALIZED (
+		SELECT DISTINCT `+canonicalSnapshotFamilySQL+` AS family FROM assessments t
+		CROSS JOIN LATERAL jsonb_array_elements(t.questions) q WHERE t.user_id=$1 AND $4=''
+	), latest AS (
+		SELECT DISTINCT ON (`+canonicalEventFamilySQL+`) knowledge_point_id,event_type
+		FROM exam408_learning_events WHERE user_id=$1 AND $4='' AND event_type IN ('quiz_correct','quiz_wrong')
+		AND metadata ? 'question_id' ORDER BY `+canonicalEventFamilySQL+`,created_at DESC,id DESC
+	), weakness AS (
+		SELECT knowledge_point_id,count(*) FILTER (WHERE event_type='quiz_wrong') missed
+		FROM latest GROUP BY knowledge_point_id
+	), eligible AS (
+		SELECT a.*,k.subject_id,k.syllabus_priority,e.family IS NULL AS unseen,
+			COALESCE(w.missed,0) AS missed,
+			row_number() OVER(PARTITION BY COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)
+				ORDER BY (a.payload->>'AnswerOrigin'='source') DESC NULLS LAST,a.created_at,a.id) family_rank
+		FROM learning_assets a JOIN exam408_knowledge_points k ON k.id=a.point_id
+		LEFT JOIN exposed e ON e.family=COALESCE(NULLIF(a.payload->>'FamilyID',''),a.id::text)
+		LEFT JOIN weakness w ON w.knowledge_point_id=a.point_id
+		WHERE (a.user_id=$1 OR a.is_public) AND a.kind='question' AND a.status='ready'
+		AND COALESCE(a.seed_key,'') NOT LIKE '408-diagnostic-2026:%'
+		AND ($4<>'' OR a.payload->>'AnswerOrigin'='source')
+		AND ($2='' OR a.point_id::text=$2) AND ($4='' OR a.id::text=$4)
+		AND ($3<>'retest' OR e.family IS NULL)
+		AND NOT EXISTS(SELECT 1 FROM document_catalog dc WHERE dc.document_id=a.document_id
+			AND dc.purpose='knowledge' AND COALESCE(a.payload->>'ExtractionKey','')<>'')
+	) SELECT a.id,a.kind,COALESCE(a.point_id::text,''),a.title,a.status,a.revision,a.payload,a.is_public
+	FROM eligible a WHERE family_rank=1
+	ORDER BY row_number() OVER(PARTITION BY CASE WHEN $3='diagnostic' THEN a.point_id ELSE a.subject_id END
+		ORDER BY (missed>0) DESC,unseen DESC,syllabus_priority DESC,created_at,id),a.subject_id,a.id
+	LIMIT 2000`, uid, point, kind, assetID)
 	if err != nil {
 		return a, err
 	}

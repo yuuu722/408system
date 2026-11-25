@@ -1,4 +1,4 @@
-import {api} from './client'
+import {api,readPage} from './client'
 import type {Assessment} from './foundation'
 import type {ChatResult} from './types'
 export interface Memory {Key:string;PointID:string;Kind:'preference'|'goal'|'doubt';Content:string;Resolved:boolean;UpdatedAt?:string}
@@ -9,7 +9,7 @@ export interface Overview {StudyFocus?:StudyFocus[];Points:PointInsight[];Memori
 export interface CoachSession {KnowledgeBaseID:string;Feedback?:ChatResult;ID:string;PointID:string;Teacher:string;Assessment:Assessment;Lesson:ChatResult;CreatedAt:string}
 export const teachers=[{id:'encouraging',name:'轻松鼓励老师',hint:'耐心讲清，循序练习，不因答错否定你。'},{id:'socratic',name:'循序引导老师',hint:'重视前提、步骤和检查问题。'},{id:'direct',name:'重点直讲老师',hint:'先抓关键概念、适用条件和易错点。'}]
 export const coaching={
- overview:async():Promise<Overview>=>(await api.get('/exam408/learning/overview')).data,
+ overview:async():Promise<Overview>=>readPage<Overview>('/exam408/learning/overview'),
  memory:(m:Memory)=>api.put(`/exam408/learning/memories/${encodeURIComponent(m.Key)}`,m),
  forget:(key:string)=>api.delete(`/exam408/learning/memories/${encodeURIComponent(key)}`),
  sessions:async():Promise<CoachSession[]>=>(await api.get('/exam408/coaching')).data??[],
@@ -18,5 +18,5 @@ export const coaching={
  source:(v:FrequencySource)=>api.post('/admin/frequency-sources',v)
 }
 
-export interface PointStudy {PreferredKnowledgeBaseID?:string;PointNames?:Record<string,string>;Point:import('./types').KnowledgePoint;Ancestors:import('./types').KnowledgePoint[];Children:import('./types').KnowledgePoint[];Related?:import('./types').KnowledgePoint[];Knowledge:import('./types').Citation[];Example:import('./foundation').Asset|null;Exercises:import('./foundation').Asset[];Mistakes:{AssessmentID:string;Question:import('./foundation').Asset;Result:{Selected:number;Answer:number;Explanation:string;AnswerOrigin?:string;Confirmation?:string};SubmittedAt:string}[];DirectQuestions:number;SubtreeQuestions:number;Missing:string[]}
-export const pointStudyApi={lesson:async(id:string,KnowledgeBaseID:string,Teacher:string):Promise<ChatResult>=>(await api.post(`/exam408/knowledge-points/${encodeURIComponent(id)}/lesson`,{KnowledgeBaseID,Teacher},{timeout:240000})).data,load:async(id:string):Promise<PointStudy>=>(await api.get(`/exam408/knowledge-points/${encodeURIComponent(id)}/study`)).data}
+export interface PointStudy {PreferredKnowledgeBaseID?:string;PointNames?:Record<string,string>;Point:import('./types').KnowledgePoint;Ancestors:import('./types').KnowledgePoint[];Children:import('./types').KnowledgePoint[];Related?:import('./types').KnowledgePoint[];Knowledge:import('./types').Citation[];Teachings?:import('./foundation').Asset[];Example:import('./foundation').Asset|null;Exercises:import('./foundation').Asset[];Mistakes:{AssessmentID:string;Question:import('./foundation').Asset;Result:{Selected:number;Answer:number;Explanation:string;AnswerOrigin?:string;Confirmation?:string};SubmittedAt:string}[];DirectQuestions:number;SubtreeQuestions:number;Missing:string[]}
+export const pointStudyApi={lesson:async(id:string,KnowledgeBaseID:string,Teacher:string):Promise<ChatResult>=>(await api.post(`/exam408/knowledge-points/${encodeURIComponent(id)}/lesson`,{KnowledgeBaseID,Teacher},{timeout:240000})).data,load:async(id:string):Promise<PointStudy>=>readPage<PointStudy>(`/exam408/knowledge-points/${encodeURIComponent(id)}/study`)}

@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, readPage } from './client'
 import { asList, normalizeDashboard } from './normalize'
 import type { ChatResult, Dashboard, Document, KnowledgeBase, KnowledgeGraph, KnowledgePoint, LearningEvent, Mastery, Recommendation, Subject } from './types'
 
@@ -7,8 +7,8 @@ const id = encodeURIComponent
 export const learningApi = {
   async assistantStatus() { return (await api.get<{mode: 'unavailable' | 'demo' | 'model'; enabled: boolean; message: string}>('/exam408/assistant/status')).data },
   async dashboard() { return normalizeDashboard((await api.get<Dashboard>('/exam408/dashboard')).data) },
-  bases: () => list<KnowledgeBase>('/knowledge-bases'),
-  async graph(base: string, candidates = false) { return (await api.get<KnowledgeGraph>(`/knowledge-bases/${id(base)}/graph`, {params:{view:candidates?'candidates':undefined}})).data },
+  bases: async () => asList(await readPage<KnowledgeBase[]|null>('/knowledge-bases')),
+  async graph(base: string, candidates = false) { return readPage<KnowledgeGraph>(`/knowledge-bases/${id(base)}/graph`, {view:candidates?'candidates':undefined}) },
   async createBase(name: string, description: string) { return (await api.post<KnowledgeBase>('/knowledge-bases', { name, description })).data },
   documents: (base: string) => list<Document>(`/knowledge-bases/${id(base)}/documents`),
   async upload(base: string, file: File, resourceType: string) {
@@ -19,7 +19,7 @@ export const learningApi = {
   reprocess: (document: string) => api.post(`/documents/${id(document)}/reprocess`),
   mapPoint: (document: string, point: string) => api.post(`/documents/${id(document)}/knowledge-points/${id(point)}`),
   subjects: () => list<Subject>('/exam408/subjects'),
-  points: () => list<KnowledgePoint>('/exam408/knowledge-points'),
+  points: async () => asList(await readPage<KnowledgePoint[]|null>('/exam408/knowledge-points')),
   async point(point: string) {
     const { data } = await api.get<{ knowledge_point: KnowledgePoint; resources: Document[] | null; mastery: Mastery | null; recent_events: LearningEvent[] | null }>(`/exam408/knowledge-points/${id(point)}`)
     return { ...data, resources: asList(data.resources), recent_events: asList(data.recent_events) }

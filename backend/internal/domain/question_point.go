@@ -121,7 +121,7 @@ func (matcher QuestionPointMatcher) MatchesAsset(a Asset) bool {
 	if a.Kind != "question" || a.PointID == "" || QuestionTextIssue(a) != "" {
 		return false
 	}
-	if a.Payload.QuestionOrigin != "extracted" {
+	if a.Payload.QuestionOrigin != "extracted" || a.Payload.ReviewedPointID == a.PointID && a.Payload.ReviewStatus == "published" {
 		return true
 	}
 	match := matcher.Match(a.Payload.Stem)

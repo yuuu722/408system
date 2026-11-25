@@ -1,4 +1,4 @@
-import { api } from './client'
+import { api, readPage } from './client'
 import {normalizeAsset} from '@/lib/assetData'
 import { errorMessage } from './errors'
 import type { ChatResult,Citation } from './types'
@@ -34,13 +34,14 @@ export const foundation = {
  async studySummary(timeout?:number):Promise<StudySummary>{return (await api.get('/exam408/study-summary',{timeout})).data},
  async profile():Promise<Profile|null>{return (await api.get('/exam408/profile')).data},
  saveProfile:(p:Profile)=>api.put('/exam408/profile',p),
- async assessments():Promise<Assessment[]>{return (await api.get('/exam408/assessments')).data??[]},
+ async assessments():Promise<Assessment[]>{return (await readPage<Assessment[]>('/exam408/assessments'))??[]},
+ async assessment(id:string):Promise<Assessment>{return (await api.get('/exam408/assessments/'+encodeURIComponent(id))).data},
  async start(kind:string,point='',asset=''):Promise<Assessment>{return (await api.post('/exam408/assessments',{Kind:kind,PointID:point,AssetID:asset})).data},
  async submit(id:string,answers:Record<string,number>):Promise<Result>{return (await api.post(`/exam408/assessments/${id}/submit`,{Answers:answers})).data},
  async confirm(aid:string,qid:string,decision:string):Promise<Result>{return (await api.post(`/exam408/assessments/${aid}/questions/${qid}/confirm`,{Decision:decision})).data},
  async infer(aid:string,qid:string):Promise<Result>{return (await api.post(`/exam408/assessments/${aid}/questions/${qid}/infer`)).data},
  async structure(id:string,revision=''):Promise<ParsedDocument>{return (await api.get(`/documents/${id}/structure`,{params:{revision}})).data},
- async radar():Promise<RadarSubject[]>{return (await api.get('/exam408/radar')).data??[]},
+ async radar():Promise<RadarSubject[]>{return await readPage<RadarSubject[]>('/exam408/radar')??[]},
  async tasks():Promise<StudyTask[]>{return (await api.get('/exam408/tasks')).data??[]},
  async dailyPlan(timeout?:number):Promise<DailyPlan>{return (await api.get('/exam408/tasks/plan',{timeout})).data},
  async generatePractice(input:{RequestID:string;KnowledgeBaseID:string;PointID:string;ParentAssetID:string;Count:number;AllowUngrounded:boolean}):Promise<Asset[]>{const {data}=await api.post('/exam408/practice/generate',input);clearAssetPages();return data??[]},
@@ -71,7 +72,7 @@ export interface ParsedDocument {State?:string;RevisionID?:string;Engine:string;
 export interface UnitStep {Key:'knowledge'|'example'|'practice'|'check';Title:string;ResourceKey:string;Notice:string;Minutes:number;Available:boolean;Completed:boolean}
 export interface LearningUnit {PointID:string;Name:string;Goal:string;Reason:string;Date:string;PlanID:string;ScheduledMinutes:number;EstimatedMinutes:number;Knowledge:Citation[];Materials?:Asset[];Example:Asset|null;Practice:Asset[];Steps:UnitStep[];CheckAssessmentID:string}
 export const unitApi={
- list:async():Promise<LearningUnit[]> => (await api.get('/exam408/learning-units')).data??[],
+ list:async():Promise<LearningUnit[]> => (await readPage<LearningUnit[]>('/exam408/learning-units'))??[],
  mark:(point:string,step:UnitStep)=>api.put(`/exam408/learning-units/${point}/steps/${step.Key}`,{ResourceKey:step.ResourceKey,Completed:!step.Completed}),
  check:async(point:string):Promise<Assessment>=>(await api.post(`/exam408/learning-units/${point}/check`)).data
 }

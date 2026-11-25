@@ -24,6 +24,7 @@ const inlineAnswerConflict = "题内答案与同章节答案表存在冲突"
 // Deliberately bounded to numbered single-choice questions. It never invents missing options or source answers.
 func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.KnowledgePoint) []domain.Asset {
 	pages = questionReadingPages(pages)
+	matcher := domain.NewQuestionPointMatcher(points)
 	type candidate struct {
 		number, body, section string
 		page                  int
@@ -192,9 +193,9 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 		if (strings.Contains(body, "如图") || strings.Contains(body, "下图") || strings.Contains(body, "图示")) && len(c.images) == 0 {
 			a.Payload.Issue = "题目引用的图片未提取，请查看原文（Missing figure）"
 		}
-		a.PointID = domain.MatchQuestionPoint(a.Payload.Stem, points)
+		a.PointID = matcher.Match(a.Payload.Stem)
 		if a.PointID == "" && a.Payload.AnswerOrigin == "source" && domain.HasQuestionExplanation(a.Payload.Explanation) {
-			a.PointID = domain.MatchQuestionPoint(a.Payload.Explanation, points)
+			a.PointID = matcher.Match(a.Payload.Explanation)
 		}
 		if sourcequality.SuspectFormula(body) {
 			a.Payload.Issue = "公式或字符疑似OCR错误，保留原页，不自动猜改"
@@ -245,7 +246,7 @@ func ExtractQuestions(d domain.Document, pages []TextPage, points []domain.Knowl
 			a.Payload.AnswerOrigin = "source"
 			a.Payload.Explanation = worksheetExplanation(AnswerFileText(pair.Answer))
 			if a.PointID == "" {
-				a.PointID = domain.MatchQuestionPoint(a.Payload.Explanation, points)
+				a.PointID = matcher.Match(a.Payload.Explanation)
 				if a.PointID != "" && strings.HasPrefix(a.Payload.Issue, "未匹配知识点") {
 					a.Payload.Issue = ""
 				}

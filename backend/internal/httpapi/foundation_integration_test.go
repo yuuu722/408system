@@ -179,6 +179,12 @@ func TestFoundationDatabaseAndHTTP(t *testing.T) {
 		asset.Payload.Answer = 1
 		require.NoError(t, json.Unmarshal(call("PUT", "/api/v1/exam408/assets/"+asset.ID, token, asset, 200), &asset))
 		require.Equal(t, "ready", asset.Status)
+		var open domain.Assessment
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/exam408/assessments/"+exam.ID, token, nil, 200), &open))
+		require.Len(t, open.Questions, 1)
+		require.Equal(t, -1, open.Questions[0].Payload.Answer)
+		require.Empty(t, open.Questions[0].Payload.Explanation)
+		call("GET", "/api/v1/exam408/assessments/"+exam.ID, otherToken, nil, 404)
 		call("POST", "/api/v1/exam408/assessments/"+exam.ID+"/submit", otherToken, map[string]any{"Answers": map[string]int{asset.ID: 0}}, 404)
 		var result domain.AssessmentResult
 		require.NoError(t, json.Unmarshal(call("POST", "/api/v1/exam408/assessments/"+exam.ID+"/submit", token, map[string]any{"Answers": map[string]int{asset.ID: 0}}, 200), &result))

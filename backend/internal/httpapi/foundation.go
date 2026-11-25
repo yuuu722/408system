@@ -171,6 +171,10 @@ func (s *Server) foundationRoutes(mux *http.ServeMux) {
 		v, e := s.Platform.Assessments(r.Context(), uid(r))
 		s.reply(w, v, e)
 	})
+	register("GET /api/v1/exam408/assessments/{id}", func(w http.ResponseWriter, r *http.Request) {
+		a, err := s.Platform.Assessment(r.Context(), uid(r), r.PathValue("id"))
+		s.reply(w, repository.RedactAssessment(a), err)
+	})
 	register("POST /api/v1/exam408/assessments", func(w http.ResponseWriter, r *http.Request) {
 		var in struct{ Kind, PointID, AssetID string }
 		if !s.input(w, r, &in) {
@@ -241,6 +245,7 @@ func (s *Server) saveAsset(w http.ResponseWriter, r *http.Request) {
 		a.IsPublic = true
 	}
 	a.Payload.Issue = ""
+	a.Payload.ReviewedPointID = ""
 	a.Payload.ExtractionKey = ""
 	a.Payload.ContentHash = ""
 	a.Payload.DifficultyOrigin = "user"
@@ -258,6 +263,10 @@ func (s *Server) saveAsset(w http.ResponseWriter, r *http.Request) {
 			a.Payload.ReviewStatus = "pending"
 		}
 		a.Payload.ExtractionKey = old.Payload.ExtractionKey
+		if old.IsPublic && a.IsPublic && a.Kind == "question" && a.Payload.ReviewStatus == "published" {
+			// Saving a public question requires an administrator in SaveAsset.
+			a.Payload.ReviewedPointID = a.PointID
+		}
 		a.Payload.QuestionOrigin = old.Payload.QuestionOrigin
 		a.Payload.FamilyID = old.Payload.FamilyID
 		a.Payload.Evidence = old.Payload.Evidence

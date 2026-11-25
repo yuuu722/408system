@@ -106,6 +106,43 @@ func GraphView(graph KnowledgeGraph, candidates bool, names map[string]string) K
 			filtered = append(filtered, node)
 		}
 	}
+	if !candidates {
+		best := map[string]GraphNode{}
+		for _, node := range filtered {
+			current, ok := best[node.KnowledgePointID]
+			if !ok || current.EvidenceDocumentID == "" && node.EvidenceDocumentID != "" {
+				best[node.KnowledgePointID] = node
+			}
+		}
+		ids := map[string]string{}
+		unique := make([]GraphNode, 0, len(best))
+		for _, node := range filtered {
+			selected := best[node.KnowledgePointID]
+			ids[node.ID] = selected.ID
+			if node.ID == selected.ID {
+				unique = append(unique, node)
+			}
+		}
+		type edgeKey struct{ from, to, kind string }
+		seen := map[edgeKey]int{}
+		links := make([]GraphEdge, 0, len(edges))
+		for _, edge := range edges {
+			edge.FromEntityID, edge.ToEntityID = ids[edge.FromEntityID], ids[edge.ToEntityID]
+			if edge.FromEntityID == edge.ToEntityID {
+				continue
+			}
+			key := edgeKey{edge.FromEntityID, edge.ToEntityID, edge.RelationType}
+			if index, ok := seen[key]; ok {
+				if links[index].EvidenceDocumentID == "" && edge.EvidenceDocumentID != "" {
+					links[index] = edge
+				}
+				continue
+			}
+			seen[key] = len(links)
+			links = append(links, edge)
+		}
+		filtered, edges = unique, links
+	}
 	graph.Nodes, graph.Edges = filtered, edges
 	return graph
 }

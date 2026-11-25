@@ -59,14 +59,14 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 	for id := range scope {
 		out.PointNames[id] = byID[id].Name
 	}
-	out.Knowledge, e = p.unitKnowledge(ctx, uid, out.Point.Name, out.Point.Keywords...)
+	out.Knowledge, e = p.unitKnowledge(ctx, uid, subjectCode(out.Point.SubjectName), out.Point.Name, out.Point.Keywords...)
 	if e != nil {
 		return out, e
 	}
 	// Try a few direct child concepts when an overview heading has no literal paragraph.
 	if len(out.Knowledge) == 0 {
 		for _, child := range out.Children {
-			refs, err := p.unitKnowledge(ctx, uid, child.Name, child.Keywords...)
+			refs, err := p.unitKnowledge(ctx, uid, subjectCode(child.SubjectName), child.Name, child.Keywords...)
 			if err != nil {
 				return out, err
 			}
@@ -96,6 +96,9 @@ func (p *Postgres) PointStudy(ctx context.Context, uid, pointID string) (domain.
 	byAsset := map[string]domain.Asset{}
 	visibleFamilies := map[string]bool{}
 	for _, a := range bank {
+		if a.Kind == "material" && a.Status == "ready" && a.PointID == pointID && a.IsPublic && len(out.Teachings) < 3 {
+			out.Teachings = append(out.Teachings, a)
+		}
 		if a.Status != "ready" || !scope[a.PointID] || !matcher.MatchesAsset(a) {
 			continue
 		}

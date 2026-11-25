@@ -1,22 +1,41 @@
 <script setup lang="ts">
 import {ref} from 'vue'
-import {useRouter} from 'vue-router'
-import {unitApi,openDocument,type LearningUnit,type UnitStep} from '@/api/foundation'
+import {foundation,unitApi,openDocument,type Assessment,type Asset,type LearningUnit,type UnitStep} from '@/api/foundation'
 import {messageOf} from '@/api/client'
 import UnitKnowledgeLesson from '@/components/UnitKnowledgeLesson.vue'
 import ExampleExercise from '@/components/ExampleExercise.vue'
-const props=defineProps<{unit:LearningUnit;compact?:boolean}>(),emit=defineEmits<{refresh:[]}>(),router=useRouter()
+import SafeAnswer from '@/components/SafeAnswer.vue'
+import InlineAssessment from '@/components/InlineAssessment.vue'
+const props=defineProps<{unit:LearningUnit;compact?:boolean}>(),emit=defineEmits<{refresh:[]}>()
+const practice=ref<Assessment|null>(null),retest=ref<Assessment|null>(null)
 const busy=ref(false),error=ref(''),knowledgeReady=ref(false)
 async function mark(step:UnitStep){busy.value=true;error.value='';try{await unitApi.mark(props.unit.PointID,step);emit('refresh')}catch(e){error.value=messageOf(e)}finally{busy.value=false}}
 function resourceURL(raw:string){try{const u=new URL(raw,window.location.origin);return ['https:','http:'].includes(u.protocol)?u.href:''}catch{return ''}}
 async function openMaterial(id:string,page:number){busy.value=true;error.value='';try{await openDocument(id,page)}catch(e){error.value=messageOf(e)}finally{busy.value=false}}
-async function check(){busy.value=true;error.value='';try{const assessment=await unitApi.check(props.unit.PointID);await router.push({path:'/exam408/assessment',query:{assessment:assessment.ID}})}catch(e){error.value=messageOf(e)}finally{busy.value=false}}
+async function openPractice(q:Asset){
+ busy.value=true;error.value=''
+ try{practice.value=await foundation.start('practice',q.PointID,q.ID)}catch(e){error.value=messageOf(e)}finally{busy.value=false}
+}
+async function check(existing=false){
+ busy.value=true;error.value=''
+ try{retest.value=existing?await foundation.assessment(props.unit.CheckAssessmentID):await unitApi.check(props.unit.PointID)}
+ catch(e){error.value=messageOf(e)}finally{busy.value=false}
+}
 </script>
 <template><article class="unit" :id="'unit-'+unit.PointID"><header class="unit-head"><div><h2>{{unit.Name}}</h2><p>{{unit.Goal}}</p></div><span class="pill">今日 {{unit.ScheduledMinutes}} 分钟</span></header><p class="reason">{{unit.Reason}}</p><p class="muted">完整单元预计 {{unit.EstimatedMinutes}} 分钟，知识复习 → 例题讲解 → 独立练习 → 新题复测。{{unit.ScheduledMinutes<unit.EstimatedMinutes?'今日预算不足以完成整个单元，可以分次完成，阅读与例题进度会保留。':''}}</p><ol class="unit-steps"><li v-for="step in unit.Steps" :key="step.Key"><div class="step-head"><b>{{step.Title}}</b><span>{{step.Completed?'已完成':step.Available?'待学习':'资料待补充'}} · 约{{step.Minutes}}分钟</span></div><p v-if="step.Notice" class="muted">{{step.Notice}}</p>
 <template v-if="!compact">
-<template v-if="step.Key==='knowledge'"><UnitKnowledgeLesson v-if="step.Available" :point-id="unit.PointID" :resource-key="step.ResourceKey" :sources="unit.Knowledge" @ready="knowledgeReady=$event"/><div v-for="m in unit.Materials??[]" :key="m.ID"><b>补充学习资源：{{m.Title}}</b><a v-if="m.Payload.URL&&resourceURL(m.Payload.URL)" class="secondary" :href="resourceURL(m.Payload.URL)" target="_blank" rel="noopener noreferrer">打开资源</a><button v-if="m.Payload.DocumentID" class="secondary" :disabled="busy" @click="openMaterial(m.Payload.DocumentID,m.Payload.Page)">查看学习资料</button></div><div class="unit-actions"><button v-if="step.Available" class="secondary" :disabled="busy||(!knowledgeReady&&!step.Completed)" @click="mark(step)">{{step.Completed?'撤回阅读完成':'我已复习本节内容'}}</button></div></template>
+<template v-if="step.Key==='knowledge'"><UnitKnowledgeLesson v-if="step.Available" :point-id="unit.PointID" :resource-key="step.ResourceKey" :sources="unit.Knowledge" @ready="knowledgeReady=$event"/><div v-for="m in unit.Materials??[]" :key="m.ID"><b>{{m.Title}}</b><SafeAnswer v-if="m.Kind==='material'&&m.Payload.Stem" :text="m.Payload.Stem+'\n\n'+m.Payload.Explanation"/><a v-if="m.Payload.URL&&resourceURL(m.Payload.URL)" class="secondary" :href="resourceURL(m.Payload.URL)" target="_blank" rel="noopener noreferrer">打开资源</a><button v-if="m.Payload.DocumentID" class="secondary" :disabled="busy" @click="openMaterial(m.Payload.DocumentID,m.Payload.Page)">查看学习资料</button></div><div class="unit-actions"><button v-if="step.Available" class="secondary" :disabled="busy||(!knowledgeReady&&!step.Completed)" @click="mark(step)">{{step.Completed?'撤回阅读完成':'我已复习本节内容'}}</button></div></template>
 <template v-else-if="step.Key==='example'&&unit.Example"><ExampleExercise :point-id="unit.PointID" :question="unit.Example" @answered="emit('refresh')"/></template>
-<template v-else-if="step.Key==='practice'"><p>先独立作答，提交后再看答案与解析；这些题组与例题不同。</p><RouterLink v-for="q in unit.Practice" :key="q.ID" class="secondary" :to="{path:'/exam408/assessment',query:{point:unit.PointID,asset:q.ID}}">练习：{{q.Title}}</RouterLink></template>
-<template v-else-if="step.Key==='check'"><p>用未接触的新题检查迁移能力。若仍有错误，回到知识和例题环节补学。</p><RouterLink v-if="unit.CheckAssessmentID" class="secondary" :to="{path:'/exam408/assessment',query:{assessment:unit.CheckAssessmentID}}">查看或继续本次复测</RouterLink><button v-if="!unit.CheckAssessmentID||step.Completed" class="secondary" :disabled="busy||!step.Available" @click="check">{{unit.CheckAssessmentID?'再做一道新题':'开始新题复测'}}</button></template>
-</template></li></ol><p class="muted">知识阅读由你确认；例题、练习、复测以实际有效作答记录完成。完成步骤不等于已掌握。</p><RouterLink v-if="compact" class="primary" :to="{path:'/exam408/tasks',hash:'#unit-'+unit.PointID}">进入完整学习单元 →</RouterLink><p v-if="error" class="notice error" role="alert">{{error}}</p></article></template>
+<template v-else-if="step.Key==='practice'">
+<button v-for="q in unit.Practice" :key="q.ID" class="secondary" :disabled="busy" @click="openPractice(q)">练习：{{q.Title}}</button>
+<InlineAssessment v-if="practice" :assessment="practice" label="独立练习" @submitted="practice=$event;emit('refresh')"/>
+</template>
+<template v-else-if="step.Key==='check'">
+<p>使用未接触的新题族检查本知识点。</p>
+<button v-if="unit.CheckAssessmentID" class="secondary" :disabled="busy" @click="check(true)">查看本次复测</button>
+<button v-if="!unit.CheckAssessmentID||step.Completed" class="secondary" :disabled="busy||!step.Available" @click="check()">开始新题复测</button>
+<InlineAssessment v-if="retest" :assessment="retest" label="新题复测" @submitted="retest=$event;emit('refresh')"/>
+</template>
+</template></li></ol><p class="muted">知识阅读由你确认；例题、练习、复测以实际有效作答记录完成。完成步骤不等于已掌握。</p><RouterLink v-if="compact" class="primary" :to="{path:'/exam408/tasks',hash:'#unit-'+unit.PointID}">进入完整学习单元 →</RouterLink><p v-if="busy" role="status">正在处理当前操作…</p>
+<p v-if="error" class="notice error" role="alert">{{error}}</p></article></template>
 <style scoped>.unit{padding:22px;border:1px solid #dce6f4;border-radius:14px;margin:16px 0;background:#fff;overflow-wrap:anywhere}.unit-head,.step-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}.unit-head h2{margin:0}.unit-head p{margin-bottom:8px}.unit-steps{padding-left:22px}.unit-steps li{padding:16px 0;border-bottom:1px solid #edf2f7}.step-head span{font-size:12px;color:#64748b}.unit-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.unit .secondary{margin:6px 8px 6px 0;max-width:100%}.unit img{max-width:100%;max-height:420px;object-fit:contain}.question,.source-text{white-space:pre-wrap}.knowledge-source{padding:12px;margin:8px 0;background:#f8fafc;border-radius:10px}.knowledge-source summary{cursor:pointer;color:#2563eb}.source-text{font-size:14px;line-height:1.9}@media(max-width:600px){.unit{padding:16px}.unit-head,.step-head{flex-direction:column;gap:8px}}</style>

@@ -5,6 +5,7 @@ import "time"
 type AssetPayload struct {
 	QuestionNumber, SectionKey                 string
 	ReviewStatus                               string
+	ReviewedPointID                            string `json:",omitempty"`
 	ParentAssetID                              string
 	GeneratorModel, GeneratedAt                string
 	ContentHash                                string

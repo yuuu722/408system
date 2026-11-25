@@ -9,14 +9,17 @@ import { foundation,type Assessment,type RadarSubject } from '@/api/foundation'
 import { messageOf } from '@/api/client'
 const activeSource=ref<Citation|null>(null)
 const route=useRoute(),error=ref(''),notice=ref(''),busy=ref(false),history=ref<Assessment[]>([]),current=ref<Assessment|null>(null),answers=ref<Record<string,number>>({}),radar=ref<RadarSubject[]>([])
+const mode=ref('diagnostic')
+const modeNames:Record<string,string>={diagnostic:'初始诊断',practice:'日常练习',retest:'新题复测'}
+const hasBroadSample=(s:RadarSubject)=>s.Tested>=12&&s.CoveredPoints>=Math.ceil(s.TotalPoints/2)
 let routeRequest=0
-const completeRadar=computed(()=>radar.value.length===4&&radar.value.every(s=>s.Accuracy!==null))
+const completeRadar=computed(()=>radar.value.length===4&&radar.value.every(s=>s.Accuracy!==null&&hasBroadSample(s)))
 function xy(i:number,score:number){const a=i*Math.PI/2-Math.PI/2;return [150+Math.cos(a)*score*90,150+Math.sin(a)*score*90]}
 const polygon=computed(()=>radar.value.map((s,i)=>xy(i,s.Accuracy??0).join(',')).join(' '))
 async function load(){[history.value,radar.value]=await Promise.all([foundation.assessments(),foundation.radar()])}
 async function action(fn:()=>Promise<void>){const request=routeRequest;busy.value=true;error.value='';notice.value='';try{await fn()}catch(e){if(request===routeRequest)error.value=messageOf(e)}finally{if(request===routeRequest)busy.value=false}}
-async function start(kind:string){const request=routeRequest,point=typeof route.query.point==='string'?route.query.point:'',asset=kind==='practice'&&typeof route.query.asset==='string'?route.query.asset:'';await action(async()=>{const next=await foundation.start(kind,point,asset);if(request!==routeRequest)return;current.value=next;answers.value={};await load()})}
-function resume(a:Assessment){current.value=a;answers.value=Object.fromEntries((a.Result?.Items??[]).map(item=>[item.ID,item.Selected]));error.value=''}
+async function start(kind:string){mode.value=kind;const request=routeRequest,point=typeof route.query.point==='string'?route.query.point:'',asset=kind==='practice'&&typeof route.query.asset==='string'?route.query.asset:'';await action(async()=>{const next=await foundation.start(kind,point,asset);if(request!==routeRequest)return;current.value=next;answers.value={};void load().catch(()=>{})})}
+function resume(a:Assessment){mode.value=a.Kind;current.value=a;answers.value=Object.fromEntries((a.Result?.Items??[]).map(item=>[item.ID,item.Selected]));error.value=''}
 async function submit(){
  const assessment=current.value
  if(!assessment)return
@@ -42,17 +45,20 @@ async function confirmAnswer(qid:string,decision:string){const assessment=curren
 function answerLetter(value:number|undefined){return value===undefined||value<0?'暂无法确定':String.fromCharCode(65+value)}
 watch(()=>[route.query.assessment,route.query.asset,route.query.point],async()=>{
  const id=++routeRequest,assessment=route.query.assessment,asset=route.query.asset,point=route.query.point
- current.value=null;answers.value={};error.value='';notice.value='';busy.value=true
- try{
-  const [records,scores]=await Promise.all([foundation.assessments(),foundation.radar()])
+ current.value=null;answers.value={};error.value='';notice.value=''
+ busy.value=typeof assessment==='string'||typeof asset==='string'
+ void Promise.allSettled([foundation.assessments(),foundation.radar()]).then(([records,scores])=>{
   if(id!==routeRequest)return
-  history.value=records;radar.value=scores
+  if(records.status==='fulfilled')history.value=records.value
+  if(scores.status==='fulfilled')radar.value=scores.value
+ })
+ try{
   if(typeof assessment==='string'){
-   const found=records.find(a=>a.ID===assessment)
-   if(found)resume(found);else notice.value='该测评未在最近记录中找到，请从测评历史中选择。'
+   const found=await foundation.assessment(assessment)
+   if(id===routeRequest)resume(found)
   }else if(typeof asset==='string'){
    const next=await foundation.start('practice',typeof point==='string'?point:'',asset)
-   if(id===routeRequest)current.value=next
+   if(id===routeRequest){mode.value='practice';current.value=next}
   }
  }catch(e){if(id===routeRequest)error.value=messageOf(e)}finally{if(id===routeRequest)busy.value=false}
 },{immediate:true})
@@ -61,9 +67,9 @@ watch(()=>[route.query.assessment,route.query.asset,route.query.point],async()=>
 <template><div><header class="page-head"><div><h1>前测、练习与报告</h1><p>问卷了解目标，答题结果形成学情。未测科目保持“待测”。</p></div></header><div v-if="error" class="notice error" role="alert">{{error}}</div><div v-if="notice" class="notice" role="status">{{notice}}</div>
 <p class="muted">学习目标与每日预算统一在 <RouterLink to="/exam408/settings">个人中心</RouterLink> 设置；<RouterLink to="/exam408/weakness">薄弱点复习</RouterLink>与<RouterLink to="/exam408/statistics">学情统计</RouterLink>分别从顶部独立入口与本板块上方的统计分区进入。</p>
 <StudyPlanPreview v-if="current?.Result&&!busy" :assessed="true" :refresh-key="current.ID"/>
-<section class="card section"><h2>四科答题表现</h2><div class="grid two-col"><svg viewBox="0 0 300 300" role="img" aria-label="四科答题表现雷达图，未测科目无分数" style="max-width:340px;width:100%"><polygon points="150,60 240,150 150,240 60,150" fill="#f1f5f9" stroke="#cbd5e1"/><polygon points="150,105 195,150 150,195 105,150" fill="none" stroke="#cbd5e1"/><path d="M150 60V240 M60 150H240" stroke="#cbd5e1"/><polygon v-if="completeRadar" :points="polygon" fill="#2563eb33" stroke="#2563eb"/><template v-for="(s,i) in radar" :key="s.ID"><circle v-if="s.Accuracy!==null" :cx="xy(i,s.Accuracy)[0]" :cy="xy(i,s.Accuracy)[1]" r="5" fill="#2563eb"/><text :x="xy(i,1.32)[0]" :y="xy(i,1.32)[1]" text-anchor="middle" font-size="10">{{s.Name}}</text></template><text v-if="!radar.some(s=>s.Tested)" x="150" y="155" text-anchor="middle" fill="#64748b">暂无测评数据</text></svg><div><p v-for="s in radar" :key="s.ID">{{s.Name}}：<b>{{s.Accuracy===null?'待测':Math.round(s.Accuracy*100)+'%'}}</b><br/><small>已测 {{s.Tested}} 个题族 · 覆盖 {{s.CoveredPoints}} / {{s.TotalPoints}} 个已录入知识点</small></p><p class="muted">资料答案判分和用户确认结果计入学情；AI推断未确认时不计入。同题及其变式归为一组，按每组最近有效结果统计。目录覆盖不代表已经测过全部知识点。</p></div></div></section>
-<section class="card section"><h2>开始学习检查</h2><p>前测包含 24 道考纲范围内的原创单选题，覆盖四科核心知识点；日常练习最多12题。仅使用当前可用单选题。无可用题目时不会生成试卷或分数；每组最多选一题，复测使用未作答的新题族。</p><div class="toolbar-actions"><button class="primary" :disabled="busy" @click="start('diagnostic')">初始诊断</button><button class="secondary" :disabled="busy" @click="start('practice')">日常练习</button><button class="secondary" :disabled="busy" @click="start('retest')">新题复测</button></div></section>
-<form v-if="current" class="card section" @submit.prevent="submit"><h2>{{current.Result?'测评报告':'答题'}} · {{current.Questions.length}}题</h2><p v-if="current.Result">计入学情 {{current.Result.Counted??current.Result.Total}} / {{current.Result.Total}} 题，其中正确 {{current.Result.Correct}} 题</p><fieldset v-for="(q,n) in current.Questions" :key="q.ID" class="question-card"><legend>{{n+1}}. {{q.Title}}</legend><p style="white-space:pre-wrap">{{q.Payload.Stem}}</p><img v-for="(img,k) in q.Payload.Images??[]" :key="k" :src="img" alt="题目关联原图" style="max-width:100%;max-height:420px;object-fit:contain" /><label v-for="(o,i) in q.Payload.Options" :key="i" class="answer-option"><input v-model="answers[q.ID]" :name="q.ID" type="radio" :value="i" :disabled="!!current.Result||busy" required />{{String.fromCharCode(65+i)}}. {{o}}</label><label v-if="!current.Result" class="answer-option"><input v-model="answers[q.ID]" :name="q.ID" type="radio" :value="-1" :disabled="busy" required />未掌握 / 不确定</label><div v-if="current.Result" class="notice">
+<section class="card section"><h2>四科答题表现</h2><div class="grid two-col"><svg viewBox="0 0 300 300" role="img" aria-label="四科答题表现雷达图，未测科目无分数" style="max-width:340px;width:100%"><polygon points="150,60 240,150 150,240 60,150" fill="#f1f5f9" stroke="#cbd5e1"/><polygon points="150,105 195,150 150,195 105,150" fill="none" stroke="#cbd5e1"/><path d="M150 60V240 M60 150H240" stroke="#cbd5e1"/><polygon v-if="completeRadar" :points="polygon" fill="#2563eb33" stroke="#2563eb"/><template v-for="(s,i) in radar" :key="s.ID"><circle v-if="s.Accuracy!==null&&hasBroadSample(s)" :cx="xy(i,s.Accuracy)[0]" :cy="xy(i,s.Accuracy)[1]" r="5" fill="#2563eb"/><text :x="xy(i,1.32)[0]" :y="xy(i,1.32)[1]" text-anchor="middle" font-size="10">{{s.Name}}</text></template><text v-if="!radar.some(s=>s.Tested)" x="150" y="155" text-anchor="middle" fill="#64748b">暂无测评数据</text></svg><div><p v-for="s in radar" :key="s.ID">{{s.Name}}：<b>{{s.Tested===0?'待测':hasBroadSample(s)?'已有较广作答记录':'样本有限'}}</b><br/><small>已测题族答对 {{s.Correct}} / {{s.Tested}} · 覆盖 {{s.CoveredPoints}} / {{s.TotalPoints}} 个已录入知识点</small></p><p class="muted">每个题族按最近一次有效作答统计。用错题和未测知识点决定下一步练什么。雷达只在四科均达到至少 12 个题族且覆盖一半目录后显示轮廓，点位表示样本内正确率。</p></div></div></section>
+<section class="card section"><h2>开始学习检查</h2><p>初始诊断用 24 道原创题抽查四科核心考点。日常练习最多 12 题，优先补错题所在知识点，再兼顾未见题和考纲重点。新题复测只从未见题族选题。提交后更新错题与作答统计。</p><div class="toolbar-actions"><button v-for="(label,key) in modeNames" :key="key" :class="mode===key?'primary':'secondary'" :aria-pressed="mode===key" :disabled="busy" @click="start(key)">{{label}}</button></div></section>
+<form v-if="current" class="card section" @submit.prevent="submit"><h2>{{modeNames[current.Kind]??'练习'}} · {{current.Result?'测评报告':'答题'}} · {{current.Questions.length}}题</h2><p v-if="current.Result">计入学情 {{current.Result.Counted??current.Result.Total}} / {{current.Result.Total}} 题，其中正确 {{current.Result.Correct}} 题</p><fieldset v-for="(q,n) in current.Questions" :key="q.ID" class="question-card"><legend>{{n+1}}. {{q.Title}}</legend><p style="white-space:pre-wrap">{{q.Payload.Stem}}</p><img v-for="(img,k) in q.Payload.Images??[]" :key="k" :src="img" alt="题目关联原图" style="max-width:100%;max-height:420px;object-fit:contain" /><label v-for="(o,i) in q.Payload.Options" :key="i" class="answer-option"><input v-model="answers[q.ID]" :name="q.ID" type="radio" :value="i" :disabled="!!current.Result||busy" required />{{String.fromCharCode(65+i)}}. {{o}}</label><label v-if="!current.Result" class="answer-option"><input v-model="answers[q.ID]" :name="q.ID" type="radio" :value="-1" :disabled="busy" required />未掌握 / 不确定</label><div v-if="current.Result" class="notice">
 <template v-if="!current.Result.Items[n]?.AnswerOrigin||current.Result.Items[n]?.AnswerOrigin==='source'"><b>{{current.Result.Items[n]?.Correct?'回答正确':'需要复习'}}</b><p>依据资料或个人提供的答案判分</p></template>
 <template v-else><b>AI辅助判断 · 可能存在错误</b><p>AI参考结果默认不计入掌握度、雷达和薄弱点。请确认你自己的本次作答是否正确。</p><button v-if="current.Result.Items[n]?.AnswerOrigin!=='ai'" type="button" class="secondary" :disabled="busy" @click="infer(q.ID)">获取 AI 参考答案与解析</button><p>当前确认：{{current.Result.Items[n]?.Confirmation==='correct'?'正确':current.Result.Items[n]?.Confirmation==='wrong'?'错误':'不确定 / 未确认'}} · {{current.Result.Items[n]?.Counted?'已计入学情':'不计入学情'}}</p><div class="toolbar-actions"><button type="button" class="secondary" :disabled="busy" @click="confirmAnswer(q.ID,'correct')">我的作答正确</button><button type="button" class="secondary" :disabled="busy" @click="confirmAnswer(q.ID,'wrong')">我的作答错误</button><button type="button" class="secondary" :disabled="busy" @click="confirmAnswer(q.ID,'uncertain')">不确定（撤回计分）</button></div></template>
 <p>你的答案：{{(current.Result.Items[n]?.Selected??-1)<0?'未掌握 / 不确定':answerLetter(current.Result.Items[n]?.Selected)}} · 参考答案：{{answerLetter(current.Result.Items[n]?.Answer)}}</p><SafeAnswer v-if="current.Result.Items[n]?.Explanation" :text="current.Result.Items[n]?.Explanation??''"/><p v-else class="muted">当前只有答案，暂无可核对的解题解析。</p><button v-for="(e,j) in q.Payload.Evidence??[]" :key="e.ChunkID" type="button" class="secondary" @click="activeSource=e">知识依据 {{j+1}}（不代表本题标准答案）</button><small>题目来源：{{q.Payload.Source}}</small></div></fieldset><button v-if="!current.Result" class="primary" :disabled="busy">提交并查看报告</button></form>
