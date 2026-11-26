@@ -46,6 +46,11 @@ export function subjectGroups(nodes: GraphNode[], edges: GraphEdge[], points: Kn
   return groups
 }
 
+export function isCrossSubject(edge: GraphEdge, groups: Map<string, number>) {
+  const from = groups.get(edge.FromEntityID), to = groups.get(edge.ToEntityID)
+  return from !== undefined && to !== undefined && from < 4 && to < 4 && from !== to
+}
+
 export function graphSubset(nodes: GraphNode[], edges: GraphEdge[], groups: Map<string, number>, query: string, group: number, limit = 600) {
   const needle = query.trim().toLocaleLowerCase()
   const matching = nodes.filter(n => (group < 0 || groups.get(n.ID) === group) &&
@@ -75,10 +80,24 @@ export function graphSubset(nodes: GraphNode[], edges: GraphEdge[], groups: Map<
       }
       return result
     })
-    ordered = []
+    // Reserve both ends together so the default overview actually draws
+    // the inter-subject edge. Keep space for the ordinary subject clusters.
+    const priority = new Set<string>()
+    const budget = Math.min(limit, Math.max(2, Math.floor(limit / 3)))
+    if (limit >= 8) for (const edge of edges) {
+      if (!isCrossSubject(edge, groups) || !byID.has(edge.FromEntityID) || !byID.has(edge.ToEntityID)) continue
+      const pair = [edge.FromEntityID, edge.ToEntityID]
+      if (priority.size + pair.filter(id => !priority.has(id)).length > budget) continue
+      pair.forEach(id => priority.add(id))
+    }
+    ordered = [...priority].map(id => byID.get(id)!)
     for (let offset = 0; ordered.length < Math.max(0, limit); offset++) {
       let added = false
-      for (const bucket of buckets) if (bucket[offset] && ordered.length < limit) { ordered.push(bucket[offset]!); added = true }
+      for (const bucket of buckets) if (bucket[offset] && ordered.length < limit) {
+        const node = bucket[offset]!
+        if (!priority.has(node.ID)) ordered.push(node)
+        added = true
+      }
       if (!added) break
     }
   }

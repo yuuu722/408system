@@ -104,6 +104,12 @@ var atomicDirectory string
 //go:embed 000030_syllabus_diagnostic.up.sql
 var syllabusDiagnostic string
 
+//go:embed 000031_syllabus_study_branches.up.sql
+var syllabusStudyBranches string
+
+//go:embed 000032_cross_subject_study.up.sql
+var crossSubjectStudy string
+
 var all = []migration{
 	{version: 1, name: "initial", sql: initial},
 	{version: 2, name: "operational_indexes", sql: operationalIndexes},
@@ -135,6 +141,8 @@ var all = []migration{
 	{version: 28, name: "unit_teaching", sql: unitTeaching},
 	{version: 29, name: "atomic_directory", sql: atomicDirectory},
 	{version: 30, name: "syllabus_diagnostic", sql: syllabusDiagnostic},
+	{version: 31, name: "syllabus_study_branches", sql: syllabusStudyBranches},
+	{version: 32, name: "cross_subject_study", sql: crossSubjectStudy},
 }
 
 func Up(ctx context.Context, db *pgxpool.Pool) error {

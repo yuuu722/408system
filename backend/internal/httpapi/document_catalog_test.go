@@ -684,6 +684,25 @@ func TestCatalogAndQuestionReviewWorkflow(t *testing.T) {
 		require.True(t, found)
 	})
 
+	t.Run("formal graph endpoint includes cross-subject directory relations", func(t *testing.T) {
+		var graph domain.KnowledgeGraph
+		require.NoError(t, json.Unmarshal(call("GET", "/api/v1/knowledge-bases/"+kb.ID+"/graph", stoken, nil, 200), &graph))
+		codes := map[string]string{}
+		for _, point := range points {
+			codes[point.ID] = point.Code
+		}
+		nodeCodes := map[string]string{}
+		for _, node := range graph.Nodes {
+			nodeCodes[node.ID] = codes[node.KnowledgePointID]
+		}
+		pairs := map[string]bool{}
+		for _, edge := range graph.Edges {
+			pairs[nodeCodes[edge.FromEntityID]+":"+nodeCodes[edge.ToEntityID]] = true
+		}
+		require.True(t, pairs["DS.GRAPHAPP.DIJKSTRA:CN.ROUTE.OSPF"])
+		require.True(t, pairs["CO.RAM.TLB:OS.PAGING.ADDR"])
+	})
+
 	t.Run("confirmed subject survives newer unclassified evidence and cross-subject is explicit", func(t *testing.T) {
 		sourceDocs := []domain.Document{}
 		for i := 0; i < 3; i++ {

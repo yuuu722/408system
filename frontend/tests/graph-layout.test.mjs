@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { subjectGroups, graphSubset, createGraphLayout, stepGraphLayout } from '../src/lib/graphLayout.ts'
+import { subjectGroups, graphSubset, isCrossSubject, createGraphLayout, stepGraphLayout } from '../src/lib/graphLayout.ts'
 const node = (ID, point = '') => ({ ID, Name: ID, Description: '', KnowledgePointID: point })
 const edge = (a, b) => ({ ID: a + b, FromEntityID: a, ToEntityID: b, RelationType: 'related' })
 const points = [{ ID: 'ds', SubjectName: '数据结构' }, { ID: 'os', SubjectName: '操作系统' }]
@@ -74,4 +74,16 @@ test('confirmed multi-subject source is cross-subject, not an unclassified orpha
  const nodes=[{...node('cross'),SubjectState:'cross_subject',SubjectCodes:['os','co']},node('unknown')]
  const groups=subjectGroups(nodes,[],[])
  assert.equal(groups.get('cross'),4);assert.equal(groups.get('unknown'),5)
+})
+
+test('bounded overview keeps both endpoints of known cross-subject relations', () => {
+  const left = Array.from({ length: 60 }, (_, i) => node('a' + i))
+  const right = Array.from({ length: 60 }, (_, i) => node('b' + i))
+  const nodes = [...left, ...right]
+  const groups = new Map(nodes.map(n => [n.ID, n.ID.startsWith('a') ? 0 : 3]))
+  const edges = [...left.slice(1, 50).map(n=>edge('a0', n.ID)), ...right.slice(1, 50).map(n=>edge('b0', n.ID)),
+    edge('a59', 'b59')]
+  const overview = graphSubset(nodes, edges, groups, '', -1, 16)
+  assert.equal(overview.nodes.length, 16)
+  assert.deepEqual(overview.edges.filter(e=>isCrossSubject(e, groups)).map(e=>e.ID), ['a59b59'])
 })

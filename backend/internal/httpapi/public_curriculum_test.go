@@ -161,7 +161,7 @@ func TestPublicCurriculumEndToEnd(t *testing.T) {
 	// The student has uploaded nothing but can read lessons, practice and receive a plan.
 	assets, e := store.Assets(ctx, student.ID)
 	require.NoError(t, e)
-	require.Len(t, assets, 124)
+	require.Len(t, assets, 128)
 	var question, lesson domain.Asset
 	for _, a := range assets {
 		require.True(t, a.IsPublic)
