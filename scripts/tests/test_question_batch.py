@@ -93,6 +93,30 @@ class BatchTests(unittest.TestCase):
             self.assertLess(api.calls.index('/documents/q/resolve-answers'),api.calls.index('/documents/q/publish-verified'))
             self.assertFalse(any('assets/' in x for x in api.calls), 'never force client-supplied ready flags')
 
+    def test_exact_file_scope_keeps_answer_lookup_and_skips_global_writes(self):
+        class API:
+            def __init__(self): self.calls=[]
+            def request(self,method,route,body=None):
+                self.calls.append(route)
+                if route.endswith('/answer-file'):
+                    assert body['AnswerDocumentID']==A['ID']
+                    return {'Matches':[]}
+                if route.endswith('/repair-question-layout'): return {'Attempted':0}
+                if route.endswith('/organize'): return {'candidates':1}
+                if route.endswith('/resolve-answers'): return {'Resolved':1}
+                if route.endswith('/publish-verified'): return {'Published':0}
+                if route.endswith('/question-inventory'): return []
+                raise AssertionError(route)
+
+        other=dict(Q, ID='unselected', OriginalFilename='另一套真题.pdf')
+        with tempfile.TemporaryDirectory() as tmp:
+            api=API()
+            report=m.execute(api,'kb',[Q,A,other],{},[(Q,A,'','')],True,Path(tmp),
+                             auto_publish=True,filenames=[Q['OriginalFilename']])
+            self.assertEqual(len(report['Documents']),1)
+            self.assertIn('/documents/q/answer-file',api.calls)
+            self.assertFalse(any('unselected' in route or 'deduplicate' in route for route in api.calls))
+
     def test_layout_batches_precede_extraction_and_resume_without_full_reprocess(self):
         class API:
             def __init__(self): self.calls=[]; self.repairs=0

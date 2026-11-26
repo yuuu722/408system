@@ -211,7 +211,7 @@ def collect_diagnostics(api, kb, docs, folder, summary=None):
     return actual, sum(bool(d.get('Error')) for d in diagnostics['Documents'])
 
 
-def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
+def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False, filenames=()):
     by_id = {d['ID']: d for d in docs}
     pairs, unresolved = pairer.choose_pairs(docs, catalogs)
     explicit = {q['ID'] for q, _, _, _ in manual}
@@ -222,8 +222,19 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
         # Let the server inspect every uploaded parse, promoting knowledge-only
         # documents to both only if real complete choice questions are found.
         selected = {d['ID'] for d in docs if not syllabus_document(d)}
+    if filenames:
+        selected = set()
+        for name in filenames:
+            matches = [d for d in docs if d['OriginalFilename'] == name]
+            if len(matches) != 1:
+                raise ValueError(f'题目文件名必须在所选库内唯一：{name}（找到 {len(matches)} 份）')
+            d = matches[0]
+            if syllabus_document(d) or not question_document(d, catalogs):
+                raise ValueError(f'请选择题目原文件：{name}')
+            selected.add(d['ID'])
+        plans = [plan for plan in plans if plan[0]['ID'] in selected]
     report = {'KnowledgeBaseID': kb, 'Apply': apply, 'Documents': [], 'Pairs': [],
-              'ManualReviewFiles': unresolved, 'Questions': [], 'AuditCompleted': False,
+              'SelectedFilenames': list(filenames), 'ManualReviewFiles': unresolved, 'Questions': [], 'AuditCompleted': False,
               'Notice': '完整仅表示结构字段齐备；自动发布另须服务端重建题干选项与原文资料答案解析，不编造内容。', 'AutoPublish': auto_publish}
     save_report(folder, report)
     if auto_publish and apply:
@@ -260,6 +271,8 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
                 'Status': d.get('Status'), 'Action': '保留知识库用途'}
         if auto_publish and syllabus_document(d):
             item['Action'] = '考试大纲不作题库，保留知识库用途'
+        if filenames and d['ID'] not in selected:
+            continue
         report['Documents'].append(item)
         if d['ID'] in selected:
             if d.get('Status') != 'ready':
@@ -335,14 +348,15 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
             except RuntimeError as exc:
                 item['Error'] = str(exc)
             save_report(folder, report)
-    if auto_publish and apply:
+    if auto_publish and apply and not filenames:
         report['Deduplication'] = api.request('POST', f'/knowledge-bases/{kb}/deduplicate-questions', {})
         save_report(folder, report)
     try:
         inventory = api.request('GET', f'/knowledge-bases/{kb}/question-inventory') or []
         excluded_docs = {d['ID']: d for d in docs if auto_publish and syllabus_document(d)}
         report['ExcludedNonQuestionRecords'] = audit(inventory, excluded_docs)
-        rows = audit(inventory, {key: value for key, value in by_id.items() if key not in excluded_docs})
+        rows = audit(inventory, {key: value for key, value in by_id.items()
+                                 if key not in excluded_docs and (not filenames or key in selected)})
     except RuntimeError as exc:
         report['AuditError'] = str(exc)
         save_report(folder, report)
@@ -363,7 +377,7 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False):
                          'ExcludedSyllabusRecords': len(report['ExcludedNonQuestionRecords']),
                          'UniqueAvailable': len({r['FamilyID'] or r['AssetID'] for r in rows if r['Status']=='ready'})}
     save_report(folder, report)
-    if auto_publish:
+    if auto_publish and not filenames:
         actual, errors = collect_diagnostics(api, kb, docs, folder, report['Summary'])
         report['DiagnosticsPath'] = str(actual.resolve())
         report['DiagnosticsErrors'] = errors
@@ -375,14 +389,15 @@ def main():
     parser = argparse.ArgumentParser(description='本机已上传公共资料：复用解析抽题、配对答案、逐题检查；不重传；仅必要页局部恢复版面/OCR')
     parser.add_argument('--api', default='http://127.0.0.1:8080/api/v1')
     parser.add_argument('--kb-id')
+    parser.add_argument('--file', action='append', default=[], help='仅处理指定题目文件的精确文件名，可重复使用；仍可从整个知识库查找答案')
     parser.add_argument('--pairs', help='人工确认的文件/章节配对CSV')
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--auto-publish', action='store_true', help='自动发布服务端原文校验通过且包含资料答案解析的完整题，无需逐题确认')
     parser.add_argument('--report-dir', default='.cache/question-batch')
     parser.add_argument('--diagnostics-only', action='store_true', help='只导出少量保存文本诊断，不重新整理、配对或发布')
     args = parser.parse_args()
-    if args.diagnostics_only and (args.apply or args.auto_publish):
-        parser.error('--diagnostics-only 不与写入参数合用')
+    if args.diagnostics_only and (args.apply or args.auto_publish or args.file):
+        parser.error('--diagnostics-only 不与写入参数或 --file 合用')
     if args.auto_publish and not args.apply:
         parser.error('--auto-publish 必须同时指定 --apply')
     api = API(args.api)
@@ -415,7 +430,7 @@ def main():
     catalogs = {c['DocumentID']: c for c in api.request('GET', f'/knowledge-bases/{kb}/catalog') or []}
     manual = mappings(args.pairs, {d['ID']: d for d in docs})
     folder = Path(args.report_dir)
-    report = execute(api, kb, docs, catalogs, manual, args.apply, folder, args.auto_publish)
+    report = execute(api, kb, docs, catalogs, manual, args.apply, folder, args.auto_publish, args.file)
     print(('已处理' if args.apply else '仅预览') + '；' + json.dumps(report['Summary'], ensure_ascii=False))
     for name in ['questions.csv', 'documents.csv', 'report.json']:
         path = folder / name
