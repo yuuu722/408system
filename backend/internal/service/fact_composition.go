@@ -11,7 +11,7 @@ import (
 const factCompositionInstruction = `
 把以下教材事实整理成直接回答问题的中文答案。只能使用facts及其premises，不补充模型常识，不猜改OCR、数字或公式。
 只返回JSON：{"claims":[{"text":"整理好的一段完整回答。","kind":"explanation","facts":[1,2]}]}。
-facts填写事实id，不是文件编号。不要抄写原文quote，出处由程序绑定；正文不写来源编号或“根据资料”。
+facts填写事实id，不是文件编号。不要抄写原文quote，出处由程序绑定；正文不写来源编号、（事实1）等内部标记或“根据资料”。
 回答原因时解释原因及机制；解释虚拟内存的引入时，先说明本轮事实中的传统管理限制，再联系局部性和按需调入；覆盖已提供的原因与机制，不把一次性写成单一性，不声称完全避免内存浪费。缺少的方面不得自补。询问为何使用某协议时，解释证据中的用途、功能、应用场景，不强行补写历史缺陷，不用帧字段或长度限制代替用途；回答实现时按资料中的步骤讲清。资料只有机制名称时只能概括，不能凭常识扩写细节，可以说明细节依据不足。
 必须保留事实中的主语、属性归属、条件和指代所需前文。传统存储管理方式的特征不能改写为程序的特征；严格核对事实的肯定否定和特征归属，不得调换多次性、一次性、驻留性与对换性；不得更换公式变量或猜测乱码。计算推导使用kind=derivation并说明条件；其他使用explanation。
 知识库事实优先。标为千问联网摘要的事实只用于补充所问细节；与教材冲突时采用教材口径并说明差异。有相关教材事实时必须引用。最多3段，合计600字，引用不超过8个事实。每段写完。能回答部分时，整理已获支持的部分，并明确说明所引用片段没有展开的细节；只有完全无法回答时返回{"claims":[]}。`
@@ -171,7 +171,7 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 		if len(claim.Facts) == 0 || len(claim.Facts) > 8 {
 			return "", nil, false, "missing_fact_ids"
 		}
-		text := strings.TrimSpace(claim.Text)
+		text := cleanAnswerAnnotations(claim.Text)
 		r := []rune(text)
 		// Missing final punctuation is formatting, not permission to complete a tail.
 		if len(r) >= 12 && unicode.Is(unicode.Han, r[len(r)-1]) && completeAnswerText(text+"。") {
@@ -254,7 +254,7 @@ func (s RAGService) factComposedAnswer(ctx context.Context, raw, question string
 		}
 	}
 	if spec != nil {
-		text = renderComparison(spec, comparisonRows)
+		text = cleanAnswerAnnotations(renderComparison(spec, comparisonRows))
 	}
 	return text, sources, true, ""
 }
