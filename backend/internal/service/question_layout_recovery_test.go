@@ -53,3 +53,12 @@ func TestTargetedScannedPageRecoveryAddsOCRCoordinates(t *testing.T) {
 	require.NotEmpty(t, page.Blocks[0].Box)
 	require.NotEmpty(t, page.Warnings)
 }
+
+func TestBlockingWarningsScheduleQuestionPagesEvenWithBoxes(t *testing.T) {
+	pages := []TextPage{
+		{Number: 1, Text: "1. A normal question?\nA. First B. Second", Warnings: []string{"部分内容未识别"}, Blocks: []domain.DocumentBlock{{Box: []float64{0, 0, 1, 1}}}},
+		{Number: 2, Text: "章节说明", Warnings: []string{"部分内容未识别"}},
+		{Number: 3, Text: "1. Another question?\nA. First B. Second", Warnings: []string{"此页使用本地OCR识别，请核对文字和公式。"}},
+	}
+	require.Equal(t, []int{1}, MissingQuestionLayoutPages(pages))
+}

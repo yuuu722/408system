@@ -65,7 +65,7 @@ func RecoverQuestionPageLayout(ctx context.Context, path string, page int) (Text
 	raw, e := exec.CommandContext(nativeCtx, "pdftotext", "-f", strconv.Itoa(page), "-l", strconv.Itoa(page), "-bbox-layout", "-enc", "UTF-8", path, "-").Output()
 	stop()
 	if e == nil {
-		if p, err := decodePDFLayout(raw, page); err == nil && ValidBody(p.Text) {
+		if p, err := decodePDFLayout(raw, page); err == nil && ValidBody(p.Text) && !sourcequality.CorruptQuestionText(p.Text) {
 			if sourcequality.SuspectFormula(p.Text) {
 				p.Warnings = append(p.Warnings, "文字层仍含疑似公式错误，未猜改数字与符号。")
 			}
@@ -76,7 +76,7 @@ func RecoverQuestionPageLayout(ctx context.Context, path string, page int) (Text
 		return TextPage{}, fmt.Errorf("PDF第%d页文字层不足，且局部OCR工具不可用", page)
 	}
 	p, e := (Parser{Mode: "builtin"}).ocrPDFPage(ctx, path, page)
-	if e != nil || !ValidBody(p.Text) {
+	if e != nil || !ValidBody(p.Text) || sourcequality.CorruptQuestionText(p.Text) {
 		return TextPage{}, fmt.Errorf("PDF第%d页局部OCR未恢复足够正文，保留原解析", page)
 	}
 	return p, nil
@@ -105,7 +105,12 @@ func MissingQuestionLayoutPages(pages []TextPage) []int {
 				boxes++
 			}
 		}
-		if (n >= 2 && boxes == 0) || sourcequality.SuspectFormula(p.Text) {
+		// A saved question page with a blocking parser warning needs an
+		// independent reread even when its original boxes were present.
+		hasOptions := len(questionOptionMarks(p.Text)) >= 2
+		flagged := n > 0 || hasOptions
+		if (n >= 2 && boxes == 0) || sourcequality.SuspectFormula(p.Text) ||
+			flagged && (!CanUseQuestionPage(p) || sourcequality.CorruptQuestionText(p.Text)) {
 			out = append(out, p.Number)
 			seen[p.Number] = true
 		}
