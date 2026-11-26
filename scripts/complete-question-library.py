@@ -186,7 +186,7 @@ def save_report(folder, report):
     fields = ['AssetID', 'DocumentID', 'Filename', 'Number', 'Section', 'Page',
               'Complete', 'Status', 'ReviewStatus', 'Missing', 'ExtractionIssue', 'FamilyID']
     write_report_file(folder / 'questions.csv', csv_report(fields, report.get('Questions', [])), 'utf-8-sig')
-    doc_fields = ['DocumentID', 'Filename', 'Status', 'Action', 'QuestionCount', 'Published', 'NeedsReview', 'Error']
+    doc_fields = ['DocumentID', 'Filename', 'Status', 'Action', 'QuestionCount', 'ReadyCount', 'CompleteCount', 'Published', 'NeedsReview', 'Error']
     write_report_file(folder / 'documents.csv', csv_report(doc_fields, report.get('Documents', [])), 'utf-8-sig')
     template = folder / 'pairs-template.csv'
     if not template.exists() and template not in REPORT_PATHS:
@@ -331,12 +331,15 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False, 
             if item['DocumentID'] not in selected or item.get('Status') != 'ready' or item.get('Error'):
                 continue
             item['Published'] = 0
+            skipped_by_asset = {}
             try:
                 item['ContentResolution'] = api.request('POST', f"/documents/{item['DocumentID']}/resolve-answers", {})
                 save_report(folder, report)
                 for _ in range(100):
                     result = api.request('POST', f"/documents/{item['DocumentID']}/publish-verified", {})
-                    item['PublicationSkipped'] = result.get('Skipped') or []
+                    for rejected in result.get('Skipped') or []:
+                        skipped_by_asset[rejected['AssetID']] = rejected
+                    item['PublicationSkipped'] = list(skipped_by_asset.values())
                     count = result.get('Published', 0)
                     item['Published'] += count
                     save_report(folder, report)
@@ -353,7 +356,7 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False, 
         save_report(folder, report)
     try:
         inventory = api.request('GET', f'/knowledge-bases/{kb}/question-inventory') or []
-        excluded_docs = {d['ID']: d for d in docs if auto_publish and syllabus_document(d)}
+        excluded_docs = {d['ID']: d for d in docs if auto_publish and not filenames and syllabus_document(d)}
         report['ExcludedNonQuestionRecords'] = audit(inventory, excluded_docs)
         rows = audit(inventory, {key: value for key, value in by_id.items()
                                  if key not in excluded_docs and (not filenames or key in selected)})
@@ -365,9 +368,15 @@ def execute(api, kb, docs, catalogs, manual, apply, folder, auto_publish=False, 
     report['AuditCompleted'] = True
     counts = {}
     for row in rows:
-        counts[row['DocumentID']] = counts.get(row['DocumentID'], 0) + 1
+        item = counts.setdefault(row['DocumentID'], {'candidates': 0, 'ready': 0, 'complete': 0})
+        item['candidates'] += 1
+        item['ready'] += row['Status'] == 'ready'
+        item['complete'] += row['Complete']
     for item in report['Documents']:
-        item['QuestionCount'] = counts.get(item['DocumentID'], 0)
+        metrics = counts.get(item['DocumentID'], {})
+        item['QuestionCount'] = metrics.get('candidates', 0)
+        item['ReadyCount'] = metrics.get('ready', 0)
+        item['CompleteCount'] = metrics.get('complete', 0)
         if item['DocumentID'] in selected and not item['QuestionCount']:
             item['NeedsReview'] = '未产生候选题：核对题型、用途或现有解析，不代表文件没有题目'
     report['Summary'] = {'TotalCandidates': len(rows), 'StructurallyComplete': sum(r['Complete'] for r in rows),
